@@ -2,6 +2,10 @@
 
 Pocket Memory is a Windows-first, local knowledge workspace for notes and files. It helps you record material, import documents, retrieve evidence, ask questions against local sources, and return to the original location for review.
 
+## Product tour
+
+**[Open the live product tour](https://ashleysama.github.io/pocket-memory-agent/)** · **[Watch the demo video](https://download-files-1312623621.cos.ap-beijing.myqcloud.com/pocket-memory-demo.mp4)** · [View the page source](website/pocket-memory-introduction.html)
+
 > **Beta software.** This repository is for evaluation and community collaboration. It is not a guarantee of factual correctness, a substitute for source review, or a security-certified enterprise product.
 
 ## What it does

@@ -6,6 +6,18 @@ Pocket Memory is a Windows-first, local knowledge workspace for notes and files.
 
 ### [Open the live product tour ->](https://ashleysama.github.io/pocket-memory-agent/)
 
+<p align="center">
+  <img src="website/pocket-memory-workbench-demo.png" alt="Pocket Memory workbench with a note list, editor, and AI answer panel" width="760">
+</p>
+
+<p align="center"><i>One workspace for notes, files, editing, and source-grounded answers.</i></p>
+
+<p align="center">
+  <img src="website/pocket-memory-project-review.png" alt="Pocket Memory project review and traceable answer example" width="760">
+</p>
+
+<p align="center"><i>Answers are paired with evidence, source information, and a path back to the original material.</i></p>
+
 > **Beta software.** This repository is for evaluation and community collaboration. It is not a guarantee of factual correctness, a substitute for source review, or a security-certified enterprise product.
 
 ## What it does

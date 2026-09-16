@@ -1,0 +1,134 @@
+{
+  "documents": [
+    {
+      "title": "文档1：李白小学必背诗词原文 + 释义",
+      "content": "《静夜思》李白\n床前明月光，疑是地上霜。\n举头望明月，低头思故乡。\n释义：明亮月光洒在床前地面，恍惚以为是白霜；抬头仰望天上圆月，低下头思念远方家乡。这首诗是小学一年级必背，语言简单直白，表达游子思乡之情。\n\n《望庐山瀑布》李白\n日照香炉生紫烟，遥看瀑布挂前川。\n飞流直下三千尺，疑是银河落九天。\n释义：阳光照在香炉峰升腾紫色云烟，远远望去瀑布像白布垂在山前；水流极速从高山倾泻，让人以为银河从天上坠落。二年级重点古诗，夸张手法描写庐山瀑布壮阔。\n\n《赠汪伦》李白\n李白乘舟将欲行，忽闻岸上踏歌声。\n桃花潭水深千尺，不及汪伦送我情。\n释义：李白正要乘船离开，听见岸边汪伦踏歌送行；就算桃花潭水深达千尺，也比不上汪伦送别我的深厚情谊，小学二年级送别诗。\n\n《早发白帝城》李白\n朝辞白帝彩云间，千里江陵一日还。\n两岸猿声啼不住，轻舟已过万重山。\n释义：清晨告别彩云环绕的白帝城，千里远的江陵一天就能抵达；两岸猿猴不停啼叫，轻快小船穿过连绵群山，三年级古诗，抒发遇赦后的轻快喜悦。"
+    },
+    {
+      "title": "文档2：杜甫小学必背诗词原文 + 释义",
+      "content": "《绝句·两个黄鹂鸣翠柳》杜甫\n两个黄鹂鸣翠柳，一行白鹭上青天。\n窗含西岭千秋雪，门泊东吴万里船。\n释义：两只黄鹂在翠绿柳枝鸣叫，一队白鹭飞上蔚蓝天空；窗框框住西岭终年积雪，门口停泊去往东吴的远行船只，三年级写景绝句。\n\n《春夜喜雨》杜甫\n好雨知时节，当春乃发生。\n随风潜入夜，润物细无声。\n释义：春雨懂得顺应时节，在春天万物生长时降临；伴着春风悄悄在夜晚落下，无声滋养世间万物，四年级写景抒情古诗。\n\n《江畔独步寻花·其六》杜甫\n黄四娘家花满蹊，千朵万朵压枝低。\n留连戏蝶时时舞，自在娇莺恰恰啼。\n释义：黄四娘家小路开满繁花，千万花朵压弯枝条；嬉戏蝴蝶流连飞舞，小黄莺自在婉转啼鸣，小学拓展古诗，描写春日繁花美景。"
+    },
+    {
+      "title": "干扰1：王维思乡诗",
+      "content": "《九月九日忆山东兄弟》王维：独在异乡为异客，每逢佳节倍思亲。遥知兄弟登高处，遍插茱萸少一人。小学思乡古诗，作者王维，和李白杜甫无关。"
+    },
+    {
+      "title": "干扰2：苏轼宋词",
+      "content": "《水调歌头·明月几时有》苏轼：明月几时有？把酒问青天。不知天上宫阙，今夕是何年。中秋望月词作，宋代，不属于唐诗。"
+    },
+    {
+      "title": "干扰3：王建望月",
+      "content": "同样写月亮的古诗：《十五夜望月》王建，中庭地白树栖鸦，冷露无声湿桂花。今夜月明人尽望，不知秋思落谁家。同为望月思乡，但作者不是李白、杜甫。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "full_jingyesi",
+      "question": "李白《静夜思》完整诗句是什么？",
+      "kind": "full_text",
+      "expected_titles": ["《静夜思》李白"],
+      "expected_answer_terms": ["床前明月光", "举头望明月", "低头思故乡"],
+      "forbidden_terms": ["王维", "苏轼"]
+    },
+    {
+      "id": "rhetoric_lushan",
+      "question": "望庐山瀑布运用了什么修辞手法？",
+      "kind": "rhetoric",
+      "expected_titles": ["《望庐山瀑布》李白"],
+      "expected_answer_terms": ["夸张"],
+      "expected_evidence_terms": ["夸张手法"]
+    },
+    {
+      "id": "full_dufu_jujue",
+      "question": "杜甫描写黄鹂白鹭的绝句全文？",
+      "kind": "full_text",
+      "expected_titles": ["《绝句·两个黄鹂鸣翠柳》杜甫"],
+      "expected_answer_terms": ["两个黄鹂鸣翠柳", "窗含西岭千秋雪", "门泊东吴万里船"]
+    },
+    {
+      "id": "emotion_wanglun",
+      "question": "赠汪伦表达了诗人什么样的情感？",
+      "kind": "emotion",
+      "expected_titles": ["《赠汪伦》李白"],
+      "expected_answer_terms": ["送别", "深厚情谊"]
+    },
+    {
+      "id": "background_baidicheng",
+      "question": "早发白帝城是李白什么时候写的？",
+      "kind": "background_time",
+      "expected_titles": ["《早发白帝城》李白"],
+      "expected_answer_terms": ["没有明确", "遇赦"],
+      "allow_insufficient": true
+    },
+    {
+      "id": "compare_scenery",
+      "question": "李白和杜甫小学古诗分别有哪些写景作品？",
+      "kind": "comparison",
+      "expected_titles": ["《望庐山瀑布》李白", "《早发白帝城》李白", "《绝句·两个黄鹂鸣翠柳》杜甫", "《春夜喜雨》杜甫", "《江畔独步寻花·其六》杜甫"],
+      "expected_answer_terms": ["李白", "杜甫", "望庐山瀑布", "绝句"]
+    },
+    {
+      "id": "compare_emotion_sendoff_scenery",
+      "question": "李白的送别诗和杜甫写景诗情感有什么区别？",
+      "kind": "comparison",
+      "expected_titles": ["《赠汪伦》李白", "《绝句·两个黄鹂鸣翠柳》杜甫", "《春夜喜雨》杜甫", "《江畔独步寻花·其六》杜甫"],
+      "expected_answer_terms": ["送别", "深厚情谊", "写景", "春雨"]
+    },
+    {
+      "id": "compare_season_jingyesi_jiangpan",
+      "question": "《静夜思》和杜甫江畔独步寻花描写的季节分别是什么？",
+      "kind": "comparison",
+      "expected_titles": ["《静夜思》李白", "《江畔独步寻花·其六》杜甫"],
+      "expected_answer_terms": ["静夜思", "没有明确", "江畔独步寻花", "春日"]
+    },
+    {
+      "id": "semantic_moon_hometown",
+      "question": "哪首古诗写月光让诗人思念家乡？",
+      "kind": "semantic",
+      "expected_titles": ["《静夜思》李白"],
+      "expected_answer_terms": ["静夜思", "思乡"]
+    },
+    {
+      "id": "semantic_boat_mountains",
+      "question": "哪首诗写小船穿过群山，行程极快？",
+      "kind": "semantic",
+      "expected_titles": ["《早发白帝城》李白"],
+      "expected_answer_terms": ["早发白帝城", "轻舟已过万重山"]
+    },
+    {
+      "id": "semantic_spring_rain",
+      "question": "描写春雨悄悄落下滋养万物的古诗是谁写的？",
+      "kind": "semantic",
+      "expected_titles": ["《春夜喜雨》杜甫"],
+      "expected_answer_terms": ["春夜喜雨", "杜甫", "滋养"]
+    },
+    {
+      "id": "semantic_wanglun_author",
+      "question": "有一首诗写潭水深度比不上友人送别情谊，作者是谁？",
+      "kind": "semantic",
+      "expected_titles": ["《赠汪伦》李白"],
+      "expected_answer_terms": ["赠汪伦", "李白", "送别"]
+    },
+    {
+      "id": "confusion_lushan_author",
+      "question": "杜甫写“飞流直下三千尺”全诗内容？",
+      "kind": "confusion",
+      "expected_titles": ["《望庐山瀑布》李白"],
+      "expected_answer_terms": ["李白", "飞流直下三千尺", "疑是银河落九天"]
+    },
+    {
+      "id": "confusion_spring_rain_author",
+      "question": "李白的春夜喜雨表达了什么？",
+      "kind": "confusion",
+      "expected_titles": ["《春夜喜雨》杜甫"],
+      "expected_answer_terms": ["杜甫", "春雨", "滋养"]
+    },
+    {
+      "id": "confusion_jujue_author",
+      "question": "两个黄鹂鸣翠柳是李白哪首诗？",
+      "kind": "confusion",
+      "expected_titles": ["《绝句·两个黄鹂鸣翠柳》杜甫"],
+      "expected_answer_terms": ["杜甫", "绝句", "两个黄鹂鸣翠柳"]
+    }
+  ]
+}

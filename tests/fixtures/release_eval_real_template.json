@@ -1,0 +1,43 @@
+{
+  "dataset": {
+    "name": "replace-with-deidentified-real-notes",
+    "source": "deidentified-real-notes",
+    "target_hardware": "office PC: i5-1245U, 16GB RAM, integrated graphics",
+    "notes": "Do not include original note content, names, account numbers, addresses, or attachments. expected_sources uses local note IDs or deidentified titles only. expected_locations must use the exact location displayed by Pocket Memory, such as tab name plus chunk number, page, heading, or worksheet row range."
+  },
+  "cases": [
+    {
+      "id": "real-001",
+      "scenario": "precise_parameter",
+      "question": "Replace with a deidentified question about an exact parameter.",
+      "expected_sources": ["123"],
+      "expected_locations": ["页签1·切片 2"],
+      "expects_refusal": false,
+      "review": {
+        "factually_correct": false,
+        "faithful": false,
+        "citation_supported": false,
+        "correct_refusal": false,
+        "high_risk_error": false,
+        "opened_correct_location": false
+      }
+    },
+    {
+      "id": "real-002",
+      "scenario": "follow_up",
+      "question": "Replace with a follow-up question; include the preceding turns below.",
+      "history": [{"role": "user", "content": "Replace with deidentified prior question."}, {"role": "assistant", "content": "Replace with prior answer."}],
+      "expected_sources": ["456"],
+      "expected_locations": ["工作表：清单，第 21-30 行"],
+      "expects_refusal": false,
+      "review": {
+        "factually_correct": false,
+        "faithful": false,
+        "citation_supported": false,
+        "correct_refusal": false,
+        "high_risk_error": false,
+        "opened_correct_location": false
+      }
+    }
+  ]
+}

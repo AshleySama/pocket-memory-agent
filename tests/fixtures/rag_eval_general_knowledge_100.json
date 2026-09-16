@@ -1,0 +1,1919 @@
+{
+  "dataset": {
+    "type": "transparent-general-knowledge-rag-benchmark",
+    "version": 1,
+    "description": "100 条可核验通识题；测 RAG 是否基于写入的笔记回答，不测模型自身记忆。",
+    "limitations": "这是公开通识回归集，不能替代至少 100 条脱敏真实笔记的上线验收集。"
+  },
+  "documents": [
+    {
+      "title": "通识：真空光速",
+      "content": "核验事实：真空中的光速 c 精确等于 299,792,458 米/秒。\n权威核验来源：https://physics.nist.gov/cgi-bin/cuu/Value?c",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://physics.nist.gov/cgi-bin/cuu/Value?c"
+    },
+    {
+      "title": "通识：千米与米",
+      "content": "核验事实：1 千米等于 1,000 米。\n权威核验来源：https://www.nist.gov/pml/owm/si-units-length",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.nist.gov/pml/owm/si-units-length"
+    },
+    {
+      "title": "通识：日与小时",
+      "content": "核验事实：1 日等于 24 小时。\n权威核验来源：https://www.nist.gov/pml/owm/si-units-time",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.nist.gov/pml/owm/si-units-time"
+    },
+    {
+      "title": "通识：小时与分钟",
+      "content": "核验事实：1 小时等于 60 分钟。\n权威核验来源：https://www.nist.gov/pml/owm/si-units-time",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.nist.gov/pml/owm/si-units-time"
+    },
+    {
+      "title": "通识：摄氏温度与开尔文",
+      "content": "核验事实：摄氏温度 t 与热力学温度 T 的关系为 t = T - 273.15，0 摄氏度等于 273.15 K。\n权威核验来源：https://www.nist.gov/pml/owm/si-units-temperature",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.nist.gov/pml/owm/si-units-temperature"
+    },
+    {
+      "title": "通识：地球的太阳系位置",
+      "content": "核验事实：地球是距离太阳第三近的行星。\n权威核验来源：https://science.nasa.gov/earth/facts/",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://science.nasa.gov/earth/facts/"
+    },
+    {
+      "title": "通识：太阳系行星数",
+      "content": "核验事实：太阳系有八颗行星。\n权威核验来源：https://science.nasa.gov/solar-system/planets/",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://science.nasa.gov/solar-system/planets/"
+    },
+    {
+      "title": "通识：火星的卫星",
+      "content": "核验事实：火星有两颗卫星，名称是火卫一（Phobos）和火卫二（Deimos）。\n权威核验来源：https://science.nasa.gov/mars/moons/",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://science.nasa.gov/mars/moons/"
+    },
+    {
+      "title": "通识：木星的大小",
+      "content": "核验事实：木星是太阳系中最大的行星。\n权威核验来源：https://science.nasa.gov/jupiter/jupiter-facts/",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://science.nasa.gov/jupiter/jupiter-facts/"
+    },
+    {
+      "title": "通识：木卫三",
+      "content": "核验事实：木卫三（Ganymede）是太阳系中最大的卫星，并且是木星的卫星。\n权威核验来源：https://science.nasa.gov/jupiter/moons/ganymede/",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://science.nasa.gov/jupiter/moons/ganymede/"
+    },
+    {
+      "title": "通识：水的化学式",
+      "content": "核验事实：水的化学式是 H2O，一个水分子由两个氢原子和一个氧原子组成。\n权威核验来源：https://pubchem.ncbi.nlm.nih.gov/compound/Water",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+    },
+    {
+      "title": "通识：氧元素原子序数",
+      "content": "核验事实：氧元素（O）的原子序数是 8。\n权威核验来源：https://pubchem.ncbi.nlm.nih.gov/element/Oxygen",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen"
+    },
+    {
+      "title": "通识：碳元素原子序数",
+      "content": "核验事实：碳元素（C）的原子序数是 6。\n权威核验来源：https://pubchem.ncbi.nlm.nih.gov/element/Carbon",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/element/Carbon"
+    },
+    {
+      "title": "通识：三角形内角和",
+      "content": "核验事实：在欧氏平面几何中，三角形三个内角的和是 180 度。\n权威核验来源：https://www.britannica.com/science/triangle-geometry",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.britannica.com/science/triangle-geometry"
+    },
+    {
+      "title": "通识：勾股定理",
+      "content": "核验事实：直角三角形中，斜边平方等于两条直角边平方之和，即 c² = a² + b²。\n权威核验来源：https://www.britannica.com/science/Pythagorean-theorem",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.britannica.com/science/Pythagorean-theorem"
+    },
+    {
+      "title": "通识：圆周长",
+      "content": "核验事实：圆的周长等于 π 乘以直径，即 C = πd。\n权威核验来源：https://www.britannica.com/science/circumference",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.britannica.com/science/circumference"
+    },
+    {
+      "title": "通识：二进制 1010",
+      "content": "核验事实：二进制数 1010 等于十进制数 10。\n权威核验来源：https://en.wikipedia.org/wiki/Binary_number",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://en.wikipedia.org/wiki/Binary_number"
+    },
+    {
+      "title": "通识：2 的十次方",
+      "content": "核验事实：2 的 10 次方等于 1024。\n权威核验来源：https://en.wikipedia.org/wiki/Power_of_two",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://en.wikipedia.org/wiki/Power_of_two"
+    },
+    {
+      "title": "通识：中国首都",
+      "content": "核验事实：中华人民共和国的首都是北京。\n权威核验来源：https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm"
+    },
+    {
+      "title": "通识：法国首都",
+      "content": "核验事实：法国的首都是巴黎。\n权威核验来源：https://www.britannica.com/place/Paris",
+      "category": "通识",
+      "subcategory": "可核验事实",
+      "reference_url": "https://www.britannica.com/place/Paris"
+    }
+  ],
+  "cases": [
+    {
+      "id": "exact-001",
+      "scenario": "exact_fact",
+      "question": "真空中的光速精确是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：真空光速"
+      ],
+      "expected_answer_terms": [
+        "299,792,458"
+      ],
+      "gold_answer": "299,792,458 米/秒",
+      "reference_urls": [
+        "https://physics.nist.gov/cgi-bin/cuu/Value?c"
+      ]
+    },
+    {
+      "id": "exact-002",
+      "scenario": "exact_fact",
+      "question": "1 千米等于多少米？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：千米与米"
+      ],
+      "expected_answer_terms": [
+        "1,000",
+        "米"
+      ],
+      "gold_answer": "1,000 米",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-length"
+      ]
+    },
+    {
+      "id": "exact-003",
+      "scenario": "exact_fact",
+      "question": "一天有多少小时？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：日与小时"
+      ],
+      "expected_answer_terms": [
+        "24",
+        "小时"
+      ],
+      "gold_answer": "24 小时",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-time"
+      ]
+    },
+    {
+      "id": "exact-004",
+      "scenario": "exact_fact",
+      "question": "一小时有多少分钟？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：小时与分钟"
+      ],
+      "expected_answer_terms": [
+        "60",
+        "分钟"
+      ],
+      "gold_answer": "60 分钟",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-time"
+      ]
+    },
+    {
+      "id": "exact-005",
+      "scenario": "exact_fact",
+      "question": "0 摄氏度是多少开尔文？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：摄氏温度与开尔文"
+      ],
+      "expected_answer_terms": [
+        "273.15",
+        "K"
+      ],
+      "gold_answer": "0 摄氏度等于 273.15 K",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-temperature"
+      ]
+    },
+    {
+      "id": "exact-006",
+      "scenario": "exact_fact",
+      "question": "地球是距离太阳第几颗行星？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "行星"
+      ],
+      "gold_answer": "第三颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/"
+      ]
+    },
+    {
+      "id": "exact-007",
+      "scenario": "exact_fact",
+      "question": "太阳系有多少颗行星？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：太阳系行星数"
+      ],
+      "expected_answer_terms": [
+        "八",
+        "行星"
+      ],
+      "gold_answer": "八颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/solar-system/planets/"
+      ]
+    },
+    {
+      "id": "exact-008",
+      "scenario": "exact_fact",
+      "question": "火星有几颗卫星，分别叫什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：火星的卫星"
+      ],
+      "expected_answer_terms": [
+        "两",
+        "火卫一",
+        "火卫二"
+      ],
+      "gold_answer": "两颗：火卫一和火卫二",
+      "reference_urls": [
+        "https://science.nasa.gov/mars/moons/"
+      ]
+    },
+    {
+      "id": "exact-009",
+      "scenario": "exact_fact",
+      "question": "太阳系最大的行星是哪一颗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：木星的大小"
+      ],
+      "expected_answer_terms": [
+        "最大",
+        "行星"
+      ],
+      "gold_answer": "最大的行星",
+      "reference_urls": [
+        "https://science.nasa.gov/jupiter/jupiter-facts/"
+      ]
+    },
+    {
+      "id": "exact-010",
+      "scenario": "exact_fact",
+      "question": "太阳系最大的卫星是哪一个？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：木卫三"
+      ],
+      "expected_answer_terms": [
+        "最大",
+        "卫星",
+        "木星"
+      ],
+      "gold_answer": "太阳系最大的卫星，是木星的卫星",
+      "reference_urls": [
+        "https://science.nasa.gov/jupiter/moons/ganymede/"
+      ]
+    },
+    {
+      "id": "exact-011",
+      "scenario": "exact_fact",
+      "question": "水的化学式是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+      ]
+    },
+    {
+      "id": "exact-012",
+      "scenario": "exact_fact",
+      "question": "氧元素的原子序数是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：氧元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "8"
+      ],
+      "gold_answer": "8",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen"
+      ]
+    },
+    {
+      "id": "exact-013",
+      "scenario": "exact_fact",
+      "question": "碳元素的原子序数是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：碳元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "6"
+      ],
+      "gold_answer": "6",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/element/Carbon"
+      ]
+    },
+    {
+      "id": "exact-014",
+      "scenario": "exact_fact",
+      "question": "平面三角形的内角和是多少度？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：三角形内角和"
+      ],
+      "expected_answer_terms": [
+        "180",
+        "度"
+      ],
+      "gold_answer": "180 度",
+      "reference_urls": [
+        "https://www.britannica.com/science/triangle-geometry"
+      ]
+    },
+    {
+      "id": "exact-015",
+      "scenario": "exact_fact",
+      "question": "勾股定理的公式是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：勾股定理"
+      ],
+      "expected_answer_terms": [
+        "c²",
+        "a²",
+        "b²"
+      ],
+      "gold_answer": "c² = a² + b²",
+      "reference_urls": [
+        "https://www.britannica.com/science/Pythagorean-theorem"
+      ]
+    },
+    {
+      "id": "exact-016",
+      "scenario": "exact_fact",
+      "question": "圆周长和直径的公式是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：圆周长"
+      ],
+      "expected_answer_terms": [
+        "π",
+        "d"
+      ],
+      "gold_answer": "C = πd",
+      "reference_urls": [
+        "https://www.britannica.com/science/circumference"
+      ]
+    },
+    {
+      "id": "exact-017",
+      "scenario": "exact_fact",
+      "question": "二进制 1010 等于十进制多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：二进制 1010"
+      ],
+      "expected_answer_terms": [
+        "10"
+      ],
+      "gold_answer": "10",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Binary_number"
+      ]
+    },
+    {
+      "id": "exact-018",
+      "scenario": "exact_fact",
+      "question": "2 的 10 次方是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：2 的十次方"
+      ],
+      "expected_answer_terms": [
+        "1024"
+      ],
+      "gold_answer": "1024",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Power_of_two"
+      ]
+    },
+    {
+      "id": "exact-019",
+      "scenario": "exact_fact",
+      "question": "中国的首都是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：中国首都"
+      ],
+      "expected_answer_terms": [
+        "北京"
+      ],
+      "gold_answer": "北京",
+      "reference_urls": [
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm"
+      ]
+    },
+    {
+      "id": "exact-020",
+      "scenario": "exact_fact",
+      "question": "法国的首都是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：法国首都"
+      ],
+      "expected_answer_terms": [
+        "巴黎"
+      ],
+      "gold_answer": "巴黎",
+      "reference_urls": [
+        "https://www.britannica.com/place/Paris"
+      ]
+    },
+    {
+      "id": "paraphrase-001",
+      "scenario": "paraphrase",
+      "question": "光在真空中每秒传播多少米？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：真空光速"
+      ],
+      "expected_answer_terms": [
+        "299,792,458"
+      ],
+      "gold_answer": "299,792,458 米/秒",
+      "reference_urls": [
+        "https://physics.nist.gov/cgi-bin/cuu/Value?c"
+      ]
+    },
+    {
+      "id": "paraphrase-002",
+      "scenario": "paraphrase",
+      "question": "把 3.5 千米换算成米，换算关系是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：千米与米"
+      ],
+      "expected_answer_terms": [
+        "1,000",
+        "米"
+      ],
+      "gold_answer": "1,000 米",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-length"
+      ]
+    },
+    {
+      "id": "paraphrase-003",
+      "scenario": "paraphrase",
+      "question": "1 日应换算为几个小时？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：日与小时"
+      ],
+      "expected_answer_terms": [
+        "24",
+        "小时"
+      ],
+      "gold_answer": "24 小时",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-time"
+      ]
+    },
+    {
+      "id": "paraphrase-004",
+      "scenario": "paraphrase",
+      "question": "2.5 小时换算前，1 小时是多少分钟？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：小时与分钟"
+      ],
+      "expected_answer_terms": [
+        "60",
+        "分钟"
+      ],
+      "gold_answer": "60 分钟",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-time"
+      ]
+    },
+    {
+      "id": "paraphrase-005",
+      "scenario": "paraphrase",
+      "question": "摄氏温度换算 K 时要加多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：摄氏温度与开尔文"
+      ],
+      "expected_answer_terms": [
+        "273.15",
+        "K"
+      ],
+      "gold_answer": "0 摄氏度等于 273.15 K",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-temperature"
+      ]
+    },
+    {
+      "id": "paraphrase-006",
+      "scenario": "paraphrase",
+      "question": "从太阳向外数，地球排第几？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "行星"
+      ],
+      "gold_answer": "第三颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/"
+      ]
+    },
+    {
+      "id": "paraphrase-007",
+      "scenario": "paraphrase",
+      "question": "冥王星被归类为矮行星后，行星总数是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：太阳系行星数"
+      ],
+      "expected_answer_terms": [
+        "八",
+        "行星"
+      ],
+      "gold_answer": "八颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/solar-system/planets/"
+      ]
+    },
+    {
+      "id": "paraphrase-008",
+      "scenario": "paraphrase",
+      "question": "Phobos 和 Deimos 属于哪颗行星的卫星？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：火星的卫星"
+      ],
+      "expected_answer_terms": [
+        "两",
+        "火卫一",
+        "火卫二"
+      ],
+      "gold_answer": "两颗：火卫一和火卫二",
+      "reference_urls": [
+        "https://science.nasa.gov/mars/moons/"
+      ]
+    },
+    {
+      "id": "paraphrase-009",
+      "scenario": "paraphrase",
+      "question": "哪颗行星的体积最大？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：木星的大小"
+      ],
+      "expected_answer_terms": [
+        "最大",
+        "行星"
+      ],
+      "gold_answer": "最大的行星",
+      "reference_urls": [
+        "https://science.nasa.gov/jupiter/jupiter-facts/"
+      ]
+    },
+    {
+      "id": "paraphrase-010",
+      "scenario": "paraphrase",
+      "question": "Ganymede 属于哪颗行星？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：木卫三"
+      ],
+      "expected_answer_terms": [
+        "最大",
+        "卫星",
+        "木星"
+      ],
+      "gold_answer": "太阳系最大的卫星，是木星的卫星",
+      "reference_urls": [
+        "https://science.nasa.gov/jupiter/moons/ganymede/"
+      ]
+    },
+    {
+      "id": "paraphrase-011",
+      "scenario": "paraphrase",
+      "question": "一个水分子由哪些原子组成？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+      ]
+    },
+    {
+      "id": "paraphrase-012",
+      "scenario": "paraphrase",
+      "question": "元素 O 在周期表中的原子序数是几？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：氧元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "8"
+      ],
+      "gold_answer": "8",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen"
+      ]
+    },
+    {
+      "id": "paraphrase-013",
+      "scenario": "paraphrase",
+      "question": "元素 C 在周期表中对应几号？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：碳元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "6"
+      ],
+      "gold_answer": "6",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/element/Carbon"
+      ]
+    },
+    {
+      "id": "paraphrase-014",
+      "scenario": "paraphrase",
+      "question": "一个三角形已知两角，第三角要用哪个固定总角度求？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：三角形内角和"
+      ],
+      "expected_answer_terms": [
+        "180",
+        "度"
+      ],
+      "gold_answer": "180 度",
+      "reference_urls": [
+        "https://www.britannica.com/science/triangle-geometry"
+      ]
+    },
+    {
+      "id": "paraphrase-015",
+      "scenario": "paraphrase",
+      "question": "直角三角形的斜边平方如何计算？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：勾股定理"
+      ],
+      "expected_answer_terms": [
+        "c²",
+        "a²",
+        "b²"
+      ],
+      "gold_answer": "c² = a² + b²",
+      "reference_urls": [
+        "https://www.britannica.com/science/Pythagorean-theorem"
+      ]
+    },
+    {
+      "id": "paraphrase-016",
+      "scenario": "paraphrase",
+      "question": "已知直径时如何计算圆的周长？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：圆周长"
+      ],
+      "expected_answer_terms": [
+        "π",
+        "d"
+      ],
+      "gold_answer": "C = πd",
+      "reference_urls": [
+        "https://www.britannica.com/science/circumference"
+      ]
+    },
+    {
+      "id": "paraphrase-017",
+      "scenario": "paraphrase",
+      "question": "1010₂ 转换成十进制结果是几？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：二进制 1010"
+      ],
+      "expected_answer_terms": [
+        "10"
+      ],
+      "gold_answer": "10",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Binary_number"
+      ]
+    },
+    {
+      "id": "paraphrase-018",
+      "scenario": "paraphrase",
+      "question": "1024 是 2 的几次方？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：2 的十次方"
+      ],
+      "expected_answer_terms": [
+        "1024"
+      ],
+      "gold_answer": "1024",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Power_of_two"
+      ]
+    },
+    {
+      "id": "paraphrase-019",
+      "scenario": "paraphrase",
+      "question": "中华人民共和国首都位于哪座城市？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：中国首都"
+      ],
+      "expected_answer_terms": [
+        "北京"
+      ],
+      "gold_answer": "北京",
+      "reference_urls": [
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm"
+      ]
+    },
+    {
+      "id": "paraphrase-020",
+      "scenario": "paraphrase",
+      "question": "Paris 是哪个国家的首都？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：法国首都"
+      ],
+      "expected_answer_terms": [
+        "巴黎"
+      ],
+      "gold_answer": "巴黎",
+      "reference_urls": [
+        "https://www.britannica.com/place/Paris"
+      ]
+    },
+    {
+      "id": "ocr-001",
+      "scenario": "ocr_noise",
+      "question": "c d国际单位制精确数值是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：真空光速"
+      ],
+      "expected_answer_terms": [
+        "299,792,458"
+      ],
+      "gold_answer": "299,792,458 米/秒",
+      "reference_urls": [
+        "https://physics.nist.gov/cgi-bin/cuu/Value?c"
+      ]
+    },
+    {
+      "id": "ocr-002",
+      "scenario": "ocr_noise",
+      "question": "km 和 m d标准换算比例是多 少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：千米与米"
+      ],
+      "expected_answer_terms": [
+        "1,000",
+        "米"
+      ],
+      "gold_answer": "1,000 米",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-length"
+      ]
+    },
+    {
+      "id": "ocr-003",
+      "scenario": "ocr_noise",
+      "question": "冰点对应d热力学温度是多 少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：摄氏温度与开尔文"
+      ],
+      "expected_answer_terms": [
+        "273.15",
+        "K"
+      ],
+      "gold_answer": "0 摄氏度等于 273.15 K",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-temperature"
+      ]
+    },
+    {
+      "id": "ocr-004",
+      "scenario": "ocr_noise",
+      "question": "地球在太阳系行星序列中d位置是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "行星"
+      ],
+      "gold_answer": "第三颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/"
+      ]
+    },
+    {
+      "id": "ocr-005",
+      "scenario": "ocr_noise",
+      "question": "太阳系正式行星数量是几颗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：太阳系行星数"
+      ],
+      "expected_answer_terms": [
+        "八",
+        "行星"
+      ],
+      "gold_answer": "八颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/solar-system/planets/"
+      ]
+    },
+    {
+      "id": "ocr-006",
+      "scenario": "ocr_noise",
+      "question": "火星d两颗天然卫星名称是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：火星的卫星"
+      ],
+      "expected_answer_terms": [
+        "两",
+        "火卫一",
+        "火卫二"
+      ],
+      "gold_answer": "两颗：火卫一和火卫二",
+      "reference_urls": [
+        "https://science.nasa.gov/mars/moons/"
+      ]
+    },
+    {
+      "id": "ocr-007",
+      "scenario": "ocr_noise",
+      "question": "H2O 中 H 和 O d原子数分别是多 少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+      ]
+    },
+    {
+      "id": "ocr-008",
+      "scenario": "ocr_noise",
+      "question": "氧有几个质子这一题应查哪个数字？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：氧元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "8"
+      ],
+      "gold_answer": "8",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen"
+      ]
+    },
+    {
+      "id": "ocr-009",
+      "scenario": "ocr_noise",
+      "question": "欧氏几何中三角形三内角相加为多 少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：三角形内角和"
+      ],
+      "expected_answer_terms": [
+        "180",
+        "度"
+      ],
+      "gold_answer": "180 度",
+      "reference_urls": [
+        "https://www.britannica.com/science/triangle-geometry"
+      ]
+    },
+    {
+      "id": "ocr-010",
+      "scenario": "ocr_noise",
+      "question": "a、b 是直角边时 c 应满足什么关系？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：勾股定理"
+      ],
+      "expected_answer_terms": [
+        "c²",
+        "a²",
+        "b²"
+      ],
+      "gold_answer": "c² = a² + b²",
+      "reference_urls": [
+        "https://www.britannica.com/science/Pythagorean-theorem"
+      ]
+    },
+    {
+      "id": "ocr-011",
+      "scenario": "ocr_noise",
+      "question": "C 与 d d标准关系式是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：圆周长"
+      ],
+      "expected_answer_terms": [
+        "π",
+        "d"
+      ],
+      "gold_answer": "C = πd",
+      "reference_urls": [
+        "https://www.britannica.com/science/circumference"
+      ]
+    },
+    {
+      "id": "ocr-012",
+      "scenario": "ocr_noise",
+      "question": "二进制中d 8+2 写成什么十进制数字？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：二进制 1010"
+      ],
+      "expected_answer_terms": [
+        "10"
+      ],
+      "gold_answer": "10",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Binary_number"
+      ]
+    },
+    {
+      "id": "ocr-013",
+      "scenario": "ocr_noise",
+      "question": "计算机中常见d 2^10 数值是多 少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：2 的十次方"
+      ],
+      "expected_answer_terms": [
+        "1024"
+      ],
+      "gold_answer": "1024",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Power_of_two"
+      ]
+    },
+    {
+      "id": "ocr-014",
+      "scenario": "ocr_noise",
+      "question": "北京在国家行政首都这一事实中对应哪个国家？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：中国首都"
+      ],
+      "expected_answer_terms": [
+        "北京"
+      ],
+      "gold_answer": "北京",
+      "reference_urls": [
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm"
+      ]
+    },
+    {
+      "id": "ocr-015",
+      "scenario": "ocr_noise",
+      "question": "法国首都d中文名称是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：法国首都"
+      ],
+      "expected_answer_terms": [
+        "巴黎"
+      ],
+      "gold_answer": "巴黎",
+      "reference_urls": [
+        "https://www.britannica.com/place/Paris"
+      ]
+    },
+    {
+      "id": "compare-001",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：真空中的光速精确是多少？；1 千米等于多少米？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：真空光速",
+        "通识：千米与米"
+      ],
+      "expected_answer_terms": [
+        "299,792,458",
+        "1,000",
+        "米"
+      ],
+      "gold_answer": "299,792,458 米/秒；1,000 米",
+      "reference_urls": [
+        "https://physics.nist.gov/cgi-bin/cuu/Value?c",
+        "https://www.nist.gov/pml/owm/si-units-length"
+      ]
+    },
+    {
+      "id": "compare-002",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：一天有多少小时？；一小时有多少分钟？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：日与小时",
+        "通识：小时与分钟"
+      ],
+      "expected_answer_terms": [
+        "24",
+        "小时",
+        "60",
+        "分钟"
+      ],
+      "gold_answer": "24 小时；60 分钟",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-time",
+        "https://www.nist.gov/pml/owm/si-units-time"
+      ]
+    },
+    {
+      "id": "compare-003",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：地球是距离太阳第几颗行星？；火星有几颗卫星，分别叫什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置",
+        "通识：火星的卫星"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "行星",
+        "两",
+        "火卫一",
+        "火卫二"
+      ],
+      "gold_answer": "第三颗行星；两颗：火卫一和火卫二",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/",
+        "https://science.nasa.gov/mars/moons/"
+      ]
+    },
+    {
+      "id": "compare-004",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：太阳系有多少颗行星？；太阳系最大的行星是哪一颗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：太阳系行星数",
+        "通识：木星的大小"
+      ],
+      "expected_answer_terms": [
+        "八",
+        "行星",
+        "最大",
+        "行星"
+      ],
+      "gold_answer": "八颗行星；最大的行星",
+      "reference_urls": [
+        "https://science.nasa.gov/solar-system/planets/",
+        "https://science.nasa.gov/jupiter/jupiter-facts/"
+      ]
+    },
+    {
+      "id": "compare-005",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：水的化学式是什么？；氧元素的原子序数是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式",
+        "通识：氧元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧",
+        "8"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）；8",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water",
+        "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen"
+      ]
+    },
+    {
+      "id": "compare-006",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：氧元素的原子序数是多少？；碳元素的原子序数是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：氧元素原子序数",
+        "通识：碳元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "8",
+        "6"
+      ],
+      "gold_answer": "8；6",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen",
+        "https://pubchem.ncbi.nlm.nih.gov/element/Carbon"
+      ]
+    },
+    {
+      "id": "compare-007",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：平面三角形的内角和是多少度？；勾股定理的公式是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：三角形内角和",
+        "通识：勾股定理"
+      ],
+      "expected_answer_terms": [
+        "180",
+        "度",
+        "c²",
+        "a²",
+        "b²"
+      ],
+      "gold_answer": "180 度；c² = a² + b²",
+      "reference_urls": [
+        "https://www.britannica.com/science/triangle-geometry",
+        "https://www.britannica.com/science/Pythagorean-theorem"
+      ]
+    },
+    {
+      "id": "compare-008",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：圆周长和直径的公式是什么？；二进制 1010 等于十进制多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：圆周长",
+        "通识：二进制 1010"
+      ],
+      "expected_answer_terms": [
+        "π",
+        "d",
+        "10"
+      ],
+      "gold_answer": "C = πd；10",
+      "reference_urls": [
+        "https://www.britannica.com/science/circumference",
+        "https://en.wikipedia.org/wiki/Binary_number"
+      ]
+    },
+    {
+      "id": "compare-009",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：2 的 10 次方是多少？；中国的首都是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：2 的十次方",
+        "通识：中国首都"
+      ],
+      "expected_answer_terms": [
+        "1024",
+        "北京"
+      ],
+      "gold_answer": "1024；北京",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Power_of_two",
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm"
+      ]
+    },
+    {
+      "id": "compare-010",
+      "scenario": "multi_note_comparison",
+      "question": "请分别说明：中国的首都是什么？；法国的首都是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：中国首都",
+        "通识：法国首都"
+      ],
+      "expected_answer_terms": [
+        "北京",
+        "巴黎"
+      ],
+      "gold_answer": "北京；巴黎",
+      "reference_urls": [
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm",
+        "https://www.britannica.com/place/Paris"
+      ]
+    },
+    {
+      "id": "refusal-001",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，人体有多少块骨头？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-002",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，珠穆朗玛峰多高？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-003",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，莎士比亚出生在哪一年？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-004",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，澳大利亚首都是什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-005",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，DNA 的全称是什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-006",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，元素铁的原子序数是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-007",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，海王星有多少颗卫星？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-008",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，法国人口是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-009",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，圆的面积公式是什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-010",
+      "scenario": "no_answer",
+      "question": "这份通识笔记里，水的沸点是多少摄氏度？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "gold_answer": "应明确说明：现有笔记没有足够信息，不能作答。",
+      "reference_urls": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "followup-001",
+      "scenario": "follow_up",
+      "question": "那它是距离太阳第几颗行星？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "行星"
+      ],
+      "gold_answer": "第三颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "地球是距离太阳第几颗行星？"
+        }
+      ]
+    },
+    {
+      "id": "followup-002",
+      "scenario": "follow_up",
+      "question": "那它的化学式是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "水的化学式是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-003",
+      "scenario": "follow_up",
+      "question": "那条公式怎么写？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：勾股定理"
+      ],
+      "expected_answer_terms": [
+        "c²",
+        "a²",
+        "b²"
+      ],
+      "gold_answer": "c² = a² + b²",
+      "reference_urls": [
+        "https://www.britannica.com/science/Pythagorean-theorem"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "勾股定理的公式是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-004",
+      "scenario": "follow_up",
+      "question": "那它的数值是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：2 的十次方"
+      ],
+      "expected_answer_terms": [
+        "1024"
+      ],
+      "gold_answer": "1024",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Power_of_two"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "2 的 10 次方是多少？"
+        }
+      ]
+    },
+    {
+      "id": "followup-005",
+      "scenario": "follow_up",
+      "question": "那首都叫什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：中国首都"
+      ],
+      "expected_answer_terms": [
+        "北京"
+      ],
+      "gold_answer": "北京",
+      "reference_urls": [
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "中国的首都是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-006",
+      "scenario": "follow_up",
+      "question": "那它是距离太阳第几颗行星？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "行星"
+      ],
+      "gold_answer": "第三颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "地球是距离太阳第几颗行星？"
+        }
+      ]
+    },
+    {
+      "id": "followup-007",
+      "scenario": "follow_up",
+      "question": "那它的化学式是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "水的化学式是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-008",
+      "scenario": "follow_up",
+      "question": "那条公式怎么写？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：勾股定理"
+      ],
+      "expected_answer_terms": [
+        "c²",
+        "a²",
+        "b²"
+      ],
+      "gold_answer": "c² = a² + b²",
+      "reference_urls": [
+        "https://www.britannica.com/science/Pythagorean-theorem"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "勾股定理的公式是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-009",
+      "scenario": "follow_up",
+      "question": "那它的数值是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：2 的十次方"
+      ],
+      "expected_answer_terms": [
+        "1024"
+      ],
+      "gold_answer": "1024",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Power_of_two"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "2 的 10 次方是多少？"
+        }
+      ]
+    },
+    {
+      "id": "followup-010",
+      "scenario": "follow_up",
+      "question": "那首都叫什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：中国首都"
+      ],
+      "expected_answer_terms": [
+        "北京"
+      ],
+      "gold_answer": "北京",
+      "reference_urls": [
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "中国的首都是什么？"
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-001",
+      "scenario": "ambiguous_question",
+      "question": "有哪些天文事实？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置",
+        "通识：太阳系行星数",
+        "通识：木星的大小"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "八",
+        "最大"
+      ],
+      "gold_answer": "应明确限定为笔记中覆盖的范围，列出相关事实且不编造。",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/",
+        "https://science.nasa.gov/solar-system/planets/",
+        "https://science.nasa.gov/jupiter/jupiter-facts/"
+      ]
+    },
+    {
+      "id": "ambiguous-002",
+      "scenario": "ambiguous_question",
+      "question": "有哪些单位换算？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：千米与米",
+        "通识：日与小时",
+        "通识：小时与分钟"
+      ],
+      "expected_answer_terms": [
+        "1,000",
+        "24",
+        "60"
+      ],
+      "gold_answer": "应明确限定为笔记中覆盖的范围，列出相关事实且不编造。",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-length",
+        "https://www.nist.gov/pml/owm/si-units-time",
+        "https://www.nist.gov/pml/owm/si-units-time"
+      ]
+    },
+    {
+      "id": "ambiguous-003",
+      "scenario": "ambiguous_question",
+      "question": "有哪些数学公式？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：三角形内角和",
+        "通识：勾股定理",
+        "通识：圆周长"
+      ],
+      "expected_answer_terms": [
+        "180",
+        "c²",
+        "π"
+      ],
+      "gold_answer": "应明确限定为笔记中覆盖的范围，列出相关事实且不编造。",
+      "reference_urls": [
+        "https://www.britannica.com/science/triangle-geometry",
+        "https://www.britannica.com/science/Pythagorean-theorem",
+        "https://www.britannica.com/science/circumference"
+      ]
+    },
+    {
+      "id": "ambiguous-004",
+      "scenario": "ambiguous_question",
+      "question": "有哪些化学信息？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式",
+        "通识：氧元素原子序数",
+        "通识：碳元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "8",
+        "6"
+      ],
+      "gold_answer": "应明确限定为笔记中覆盖的范围，列出相关事实且不编造。",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water",
+        "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen",
+        "https://pubchem.ncbi.nlm.nih.gov/element/Carbon"
+      ]
+    },
+    {
+      "id": "ambiguous-005",
+      "scenario": "ambiguous_question",
+      "question": "有哪些国家首都？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：中国首都",
+        "通识：法国首都"
+      ],
+      "expected_answer_terms": [
+        "北京",
+        "巴黎"
+      ],
+      "gold_answer": "应明确限定为笔记中覆盖的范围，列出相关事实且不编造。",
+      "reference_urls": [
+        "https://www.gov.cn/guoqing/2019-09/27/content_5434190.htm",
+        "https://www.britannica.com/place/Paris"
+      ]
+    },
+    {
+      "id": "distractor-001",
+      "scenario": "false_premise",
+      "question": "氧元素的原子序数是 6 吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：氧元素原子序数"
+      ],
+      "expected_answer_terms": [
+        "8"
+      ],
+      "gold_answer": "8",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/element/Oxygen"
+      ]
+    },
+    {
+      "id": "distractor-002",
+      "scenario": "false_premise",
+      "question": "火星是最大的行星吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：木星的大小"
+      ],
+      "expected_answer_terms": [
+        "最大",
+        "行星"
+      ],
+      "gold_answer": "最大的行星",
+      "reference_urls": [
+        "https://science.nasa.gov/jupiter/jupiter-facts/"
+      ]
+    },
+    {
+      "id": "distractor-003",
+      "scenario": "false_premise",
+      "question": "法国的首都是北京吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：法国首都"
+      ],
+      "expected_answer_terms": [
+        "巴黎"
+      ],
+      "gold_answer": "巴黎",
+      "reference_urls": [
+        "https://www.britannica.com/place/Paris"
+      ]
+    },
+    {
+      "id": "distractor-004",
+      "scenario": "false_premise",
+      "question": "水的化学式是 CO2 吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+      ]
+    },
+    {
+      "id": "distractor-005",
+      "scenario": "false_premise",
+      "question": "地球距离太阳第二近吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：地球的太阳系位置"
+      ],
+      "expected_answer_terms": [
+        "第三",
+        "行星"
+      ],
+      "gold_answer": "第三颗行星",
+      "reference_urls": [
+        "https://science.nasa.gov/earth/facts/"
+      ]
+    },
+    {
+      "id": "distractor-006",
+      "scenario": "false_premise",
+      "question": "二进制 1010 等于 8 吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：二进制 1010"
+      ],
+      "expected_answer_terms": [
+        "10"
+      ],
+      "gold_answer": "10",
+      "reference_urls": [
+        "https://en.wikipedia.org/wiki/Binary_number"
+      ]
+    },
+    {
+      "id": "distractor-007",
+      "scenario": "false_premise",
+      "question": "一个水分子有两个氧原子吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：水的化学式"
+      ],
+      "expected_answer_terms": [
+        "H2O",
+        "两个氢",
+        "一个氧"
+      ],
+      "gold_answer": "H2O（两个氢原子和一个氧原子）",
+      "reference_urls": [
+        "https://pubchem.ncbi.nlm.nih.gov/compound/Water"
+      ]
+    },
+    {
+      "id": "distractor-008",
+      "scenario": "false_premise",
+      "question": "木卫三是火星的卫星吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：木卫三"
+      ],
+      "expected_answer_terms": [
+        "最大",
+        "卫星",
+        "木星"
+      ],
+      "gold_answer": "太阳系最大的卫星，是木星的卫星",
+      "reference_urls": [
+        "https://science.nasa.gov/jupiter/moons/ganymede/"
+      ]
+    },
+    {
+      "id": "distractor-009",
+      "scenario": "false_premise",
+      "question": "三角形内角和是 360 度吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：三角形内角和"
+      ],
+      "expected_answer_terms": [
+        "180",
+        "度"
+      ],
+      "gold_answer": "180 度",
+      "reference_urls": [
+        "https://www.britannica.com/science/triangle-geometry"
+      ]
+    },
+    {
+      "id": "distractor-010",
+      "scenario": "false_premise",
+      "question": "一日有 60 小时吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "通识：日与小时"
+      ],
+      "expected_answer_terms": [
+        "24",
+        "小时"
+      ],
+      "gold_answer": "24 小时",
+      "reference_urls": [
+        "https://www.nist.gov/pml/owm/si-units-time"
+      ]
+    }
+  ]
+}

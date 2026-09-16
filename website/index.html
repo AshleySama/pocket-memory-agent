@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pocket Memory - 本地笔记与知识管理工具</title>
+  <meta name="description" content="本地运行的笔记工具，集成 AI 智能分类、语义搜索、OCR 识别。数据完全私有，无需联网。">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #F9FAFB;
+      color: #4B5563;
+      line-height: 1.6;
+    }
+
+    /* ---------- 顶部导航 ---------- */
+    .nav {
+      position: sticky;
+      top: 0;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #E5E7EB;
+      z-index: 100;
+      padding: 16px 0;
+    }
+    .nav-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+      font-weight: 700;
+      color: #1F2937;
+    }
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-icon img { width: 100%; height: 100%; object-fit: contain; }
+    .nav-links { display: flex; gap: 24px; }
+    .nav-links a {
+      color: #4B5563;
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: #34D399; }
+
+    /* ---------- Hero 区 ---------- */
+    .hero {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 80px 24px 60px;
+      text-align: center;
+    }
+    .hero h1 {
+      font-size: 48px;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 16px;
+      letter-spacing: -0.5px;
+    }
+    .hero h1 .accent { color: #34D399; }
+    .hero .tagline {
+      font-size: 20px;
+      color: #4B5563;
+      margin-bottom: 12px;
+    }
+    .hero .subtag {
+      font-size: 14px;
+      color: #9CA3AF;
+      margin-bottom: 40px;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 32px;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 10px;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary {
+      background: #34D399;
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(52, 211, 153, 0.3);
+    }
+    .btn-primary:hover {
+      background: #10B981;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(52, 211, 153, 0.4);
+    }
+    .btn-ghost {
+      background: #fff;
+      color: #4B5563;
+      border: 1px solid #E5E7EB;
+    }
+    .btn-ghost:hover {
+      border-color: #34D399;
+      color: #34D399;
+    }
+
+    /* ---------- 截图区 ---------- */
+    .screenshot {
+      max-width: 1000px;
+      margin: 40px auto 80px;
+      padding: 0 24px;
+    }
+    .screenshot-frame {
+      background: #fff;
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+      border: 1px solid #E5E7EB;
+    }
+    .screenshot-frame img {
+      width: 100%;
+      border-radius: 8px;
+      display: block;
+    }
+
+    /* ---------- 功能区 ---------- */
+    .features {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 60px 24px;
+    }
+    .section-title {
+      text-align: center;
+      font-size: 32px;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 12px;
+    }
+    .section-desc {
+      text-align: center;
+      font-size: 16px;
+      color: #9CA3AF;
+      margin-bottom: 48px;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+    .feature-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px 24px;
+      border: 1px solid #E5E7EB;
+      transition: all 0.2s;
+    }
+    .feature-card:hover {
+      border-color: #6EE7B7;
+      transform: translateY(-4px);
+      box-shadow: 0 12px 32px rgba(52, 211, 153, 0.1);
+    }
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: #F0FDF4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 16px;
+    }
+    .feature-card h3 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1F2937;
+      margin-bottom: 8px;
+    }
+    .feature-card p {
+      font-size: 14px;
+      color: #6B7280;
+      line-height: 1.7;
+    }
+
+    /* ---------- 下载区 ---------- */
+    .download-section {
+      background: #fff;
+      padding: 80px 24px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .download-inner {
+      max-width: 700px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .download-section h2 {
+      font-size: 32px;
+      font-weight: 700;
+      color: #1F2937;
+      margin-bottom: 16px;
+    }
+    .download-section .desc {
+      font-size: 16px;
+      color: #6B7280;
+      margin-bottom: 32px;
+    }
+    .download-info {
+      background: #F0FDF4;
+      border-radius: 12px;
+      padding: 24px;
+      margin-top: 32px;
+      text-align: left;
+    }
+    .download-info h4 {
+      font-size: 14px;
+      color: #1F2937;
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+    .download-info ul {
+      list-style: none;
+      padding: 0;
+    }
+    .download-info li {
+      font-size: 13px;
+      color: #4B5563;
+      padding: 4px 0;
+      padding-left: 20px;
+      position: relative;
+    }
+    .download-info li::before {
+      content: "✓";
+      color: #34D399;
+      position: absolute;
+      left: 0;
+      font-weight: 700;
+    }
+    .version-tag {
+      display: inline-block;
+      background: #F0FDF4;
+      color: #34D399;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+    }
+
+    /* ---------- 底部 ---------- */
+    footer {
+      background: #1F2937;
+      color: #9CA3AF;
+      padding: 40px 24px;
+      text-align: center;
+      font-size: 13px;
+    }
+    footer a {
+      color: #6EE7B7;
+      text-decoration: none;
+    }
+    footer a:hover { text-decoration: underline; }
+    .footer-links {
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .footer-links a { color: #9CA3AF; }
+    .beian {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #374151;
+    }
+    .beian a { color: #9CA3AF; margin: 0 8px; }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 32px; }
+      .hero .tagline { font-size: 16px; }
+      .section-title { font-size: 24px; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部导航 -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <div class="logo">
+        <div class="logo-icon"><img src="../frontend/brand/pocket-memory-secondary-logo.png" alt="Pocket Memory"></div>
+        <span>Pocket Memory</span>
+      </div>
+      <div class="nav-links">
+        <a href="#features">功能</a>
+        <a href="#screenshot">预览</a>
+        <a href="#download">下载</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero 区 -->
+  <section class="hero">
+    <span class="version-tag">Beta · 本地运行</span>
+    <h1>你的<span class="accent">口袋记忆本</span></h1>
+    <p class="tagline">本地笔记 + AI 智能分类 + 语义搜索 + OCR 识别</p>
+    <p class="subtag">数据完全私有，无需联网，无需注册，开箱即用</p>
+    <div class="hero-actions">
+      <a href="#download" class="btn btn-primary">
+        <span>⬇</span> 立即下载
+      </a>
+      <a href="#features" class="btn btn-ghost">了解功能</a>
+    </div>
+  </section>
+
+  <!-- 截图区 -->
+  <section class="screenshot" id="screenshot">
+    <div class="screenshot-frame">
+      <!-- 部署时把截图放到网站 images/ 目录下，替换此处的 src -->
+      <img src="images/screenshot-main.png" alt="Pocket Memory 主界面截图" onerror="this.style.display='none';this.parentElement.style.height='400px';this.parentElement.style.background='#F0FDF4';this.parentElement.innerHTML+='<p style=\\'text-align:center;padding:180px 0;color:#9CA3AF;\\'>截图待添加</p>'">
+    </div>
+  </section>
+
+  <!-- 功能区 -->
+  <section class="features" id="features">
+    <h2 class="section-title">核心功能</h2>
+    <p class="section-desc">一个工具搞定记、找、问三件事</p>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">📸</div>
+        <h3>截图自动识字</h3>
+        <p>扔张截图进来，OCR 自动提取文字，不用手敲。支持中文、英文、混合排版。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤖</div>
+        <h3>AI 智能分类</h3>
+        <p>写完笔记，本地 AI 自动归入分类、生成标签。模型本地运行，数据不出机器。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔍</div>
+        <h3>语义搜索</h3>
+        <p>不用记关键词。问"我之前记过供应商异常吗"，就能找到相关笔记，哪怕原文没这几个字。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>智能问答</h3>
+        <p>直接对笔记库提问，AI 基于你的笔记生成回答，并标注来源。支持多轮对话。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🗺️</div>
+        <h3>知识图谱</h3>
+        <p>自动生成笔记关联图，用 [[双链]] 连接相关笔记，一眼看清知识脉络。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>完全私有</h3>
+        <p>所有数据存在本地，AI 模型本地运行，不联网、不上传、不收集。你的笔记只属于你。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 下载区 -->
+  <section class="download-section" id="download">
+    <div class="download-inner">
+      <h2>下载 Pocket Memory</h2>
+      <p class="desc">Windows 桌面版，约 1.5GB（含 AI 模型）</p>
+
+      <a href="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip" class="btn btn-primary" target="_blank" rel="noopener">
+        <span>⬇</span> 下载 Windows Beta 版
+      </a>
+
+      <div class="download-info">
+        <h4>安装说明</h4>
+        <ul>
+          <li>下载后解压 zip 到任意目录</li>
+          <li>双击 PocketMemory.exe 启动（首次启动会自动安装 WebView2 运行时）</li>
+          <li>无需安装 Python 或任何依赖，开箱即用</li>
+          <li>数据默认存在用户目录下，可自行迁移</li>
+        </ul>
+      </div>
+
+      <p style="margin-top: 24px; font-size: 13px; color: #9CA3AF;">
+        已安装老版本？启动工具时会自动提示更新，点击即可下载新版。<br>
+        或直接下载新版本覆盖安装，数据不丢失。
+      </p>
+    </div>
+  </section>
+
+  <!-- 底部 -->
+  <footer>
+    <div class="footer-links">
+      <a href="#features">功能介绍</a>
+      <a href="#download">下载</a>
+      <a href="mailto:your-email@example.com">联系作者</a>
+    </div>
+    <p>© 2026 Pocket Memory · 本地优先的笔记与知识管理工具</p>
+    <div class="beian">
+      <!-- 部署时替换为你的真实备案号 -->
+      <a href="https://beian.miit.gov.cn/" target="_blank">ICP备案号：京ICP备XXXXXXXX号</a>
+      <a href="http://www.beian.gov.cn/portal/registerSystemInfo" target="_blank">公网安备 XXXXXXXXXXXX号</a>
+    </div>
+  </footer>
+
+</body>
+</html>

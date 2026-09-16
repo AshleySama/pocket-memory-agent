@@ -1,0 +1,1356 @@
+{
+  "dataset": {
+    "type": "constructed-regression",
+    "version": 1,
+    "notice": "All documents and questions in this fixture are synthetic engineering regression material. They do not represent real customer, company, or user-library data."
+  },
+  "documents": [
+    {
+      "title": "供应商A采购风控KRI阈值方案",
+      "content": "供应商A（机电设备）2026 Q2 风险监控 KRI 阈值：\n- 交货延迟率 > 5% 触发黄色预警\n- 交货延迟率 > 10% 触发红色预警，暂停新订单\n- 一次合格率 < 95% 连续 2 个月，启动整改\n- 财务应付账期偏离合同 > 15 天，上报风控委员会\n\n异常处置流程：采购经理 24 小时内确认 → 风控专员 3 个工作日内出评估报告 → 涉及金额 > 50 万提级到采购总监审批。\n\n注意：该方案仅适用于 A 类核心供应商，B/C 类供应商走简化版（仅监控交货延迟率）。",
+      "category": "工作",
+      "subcategory": "采购风控"
+    },
+    {
+      "title": "FastAPI 后端 OCR 异常排查记录",
+      "content": "Pocket Memory 后端 /api/notes 接口偶发 500 错误，定位到 RapidOCR 在处理大图（>10MB）时 onnxruntime 内存溢出。\n\n根因：RapidOcrEngine 默认不限制输入图分辨率，4K 截图直接送进 det 模型导致 ORT 分配 2GB+ 内存。\n\n解决方案：\n1. 在 OcrService.enqueue 之前用 Pillow 把图缩放到最长边 2048\n2. onnxruntime 显式设置 intra_op_num_threads=2，避免抢占主线程\n3. 给 ORT session 加 try/except，失败时把 ocr_status 置为 failed 而不是让请求挂住\n\n修复后线上 7 天无复现，单图 OCR 延迟从 4-8 秒降到 1.5-2.5 秒。",
+      "category": "技术",
+      "subcategory": "后端排障"
+    },
+    {
+      "title": "Vue3 + PyWebView 桌面打包踩坑",
+      "content": "PyInstaller 打包 Pocket Memory 桌面版遇到的问题：\n\n1. onnxruntime 动态库丢失：需要在 .spec 里把 onnxruntime/capi/*.dll 加入 binaries\n2. tokenizers 的 tokenizer.json 路径找不到：用 resource_path() 兼容 _MEIPASS\n3. PyWebView 在 Win10 1903 以下系统报 Edge WebView2 未安装：在入口加 try/except，失败时回退到 webbrowser.open()\n4. 模型文件（Qwen3 GGUF + BGE ONNX）不能打进 exe，必须放在 exe 同级 models/ 目录，用 --add-data 加进去会爆体积到 3GB\n\n最终打包结构：PocketMemory.exe + _internal/ + models/ + runtime/，总体积约 1.8GB。",
+      "category": "技术",
+      "subcategory": "桌面打包"
+    },
+    {
+      "title": "MySQL 慢查询优化：笔记全文检索",
+      "content": "notes_fts 表（FTS5 trigram）在 5000 条笔记时查询从 50ms 涨到 800ms。\n\n排查：EXPLAIN QUERY PLAN 显示 FTS5 走了全表扫描，原因是 LIKE '%关键词%' 没走索引，且 trigram tokenizer 对 1 字关键词退化。\n\n优化方案：\n- 关键词长度 >= 2 走 FTS5 MATCH + bm25() 排序\n- 关键词长度 = 1 回退到 instr() 子串匹配\n- 给 notes 表的 category/subcategory 加普通索引（B-tree）\n- 创建覆盖索引 idx_notes_updated (updated_at DESC, id, title)\n\n优化后 5000 条笔记下检索稳定在 30-60ms。",
+      "category": "技术",
+      "subcategory": "数据库优化"
+    },
+    {
+      "title": "Qwen3-0.6B 本地部署笔记",
+      "content": "Qwen3-0.6B Q8_0 GGUF 在 Intel i5-12400 + 16GB 内存上的实测数据：\n\n- llama-completion.exe subprocess 模式：首次 8-12 秒（含模型加载），后续 5-8 秒\n- llama-cpp-python 进程内常驻：首次 1.5-2 秒（加载），后续 0.3-0.8 秒\n- 显存占用：0（纯 CPU）\n- 内存占用：常驻约 900MB\n- 分类准确率（采购/技术/学习/生活/灵感/其他 6 类）：约 82%\n\n结论：0.6B 模型在分类任务上勉强够用，但在 RAG 问答时容易答非所问。下一步试 Qwen3-1.7B Q4_K_M（约 1.1GB），预期内存 1.5GB，速度下降不明显但准确率应明显提升。\n\n注意：Qwen3 系列用 ChatML 模板，system 提示词里加 /no_think 可关闭思考链，推理速度提升 30%。",
+      "category": "技术",
+      "subcategory": "模型部署"
+    },
+    {
+      "title": "BGE-small-zh 向量检索方案对比",
+      "content": "Pocket Memory 向量检索选型对比：\n\n1. BGE-small-zh-v1.5（512 维，ONNX Q8 量化）：体积 95MB，中文语义好，线性扫描 500 条以内 < 50ms\n2. text2vec-base-chinese（768 维）：体积 400MB，准确率略高但太重\n3. M3E-small（512 维）：英文场景更好，中文略逊于 BGE\n\n最终选 BGE-small-zh + 线性扫描。笔记数 > 500 后计划引入 sqlite-vec（SQLite 向量扩展），把 O(n) 降到 O(log n)。\n\nRRF 融合参数：关键词 rank 权重 1/(60+rank)，语义 rank 权重 1/(60+rank)，融合阈值 0.50。",
+      "category": "技术",
+      "subcategory": "向量检索"
+    },
+    {
+      "title": "采购审批流重构方案",
+      "content": "2026 Q3 采购审批流重构目标：\n\n现状问题：\n- 三级审批（采购经理 → 风控 → 总监）平均耗时 5.2 天\n- 金额阈值 50 万固定，未区分品类风险\n- 风控评估依赖人工，平均每单 2.5 小时\n\n重构方向：\n1. 按品类分档：IT 设备 30 万、原材料 100 万、服务类 50 万触发三级审批\n2. 引入 KRI 自动评分：供应商近 3 个月交货延迟率、合格率、财务偏离度加权打分，<70 分自动触发风控评估\n3. 风控评估部分自动化：合同条款解析 + 历史对比报告自动生成，预计单均耗时降到 0.8 小时\n\n目标：审批平均耗时从 5.2 天降到 2.5 天，风控拦截率提升 15%。",
+      "category": "工作",
+      "subcategory": "采购流程"
+    },
+    {
+      "title": "Python 异步任务最佳实践",
+      "content": "Pocket Memory 后端三个异步服务（OCR/Embedding/Intelligence）的设计原则：\n\n1. ThreadPoolExecutor(max_workers=1) 串行执行：本地模型并发会 CPU 抢占，反而更慢\n2. enqueue 立即返回，状态机 pending → processing → done/failed\n3. 失败重试：指数退避（1s → 2s → 4s），最多 3 次\n4. 状态持久化到 SQLite，应用重启后 recover() 自动续跑未完成任务\n5. OCR 完成后回调 _after_ocr，触发 Embedding + Intelligence 重跑（吃上 OCR 文本）\n\n坑：ThreadPoolExecutor 的 shutdown(wait=False) 不会立即停掉正在跑的任务，需要在应用退出时显式 cancel() + join(timeout=5)。",
+      "category": "技术",
+      "subcategory": "异步编程"
+    },
+    {
+      "title": "2026 Q3 个人学习计划",
+      "content": "学习目标：\n1. LLM RAG 进阶：读完《Building RAG from Scratch》，动手实现 HyDE + 多查询重写\n2. 系统设计：补强分布式锁、消息队列至少一次/至多一次语义\n3. 英语：每天 30 分钟 Bloomberg 商业新闻，目标 12 月前能裸读财报\n\n本周任务（7/27-8/2）：\n- 周一/三/五 19:00-21:00 RAG 书第 3-5 章\n- 周二/四 21:00-21:30 Bloomberg\n- 周末整理一周笔记，写一篇技术博客\n\n注意：每周日晚上回顾完成度，连续 2 周未达标需要调整节奏。",
+      "category": "学习",
+      "subcategory": "学习计划"
+    },
+    {
+      "title": "干扰项：周末游记",
+      "content": "周末去了郊外，爬山 8 公里，中午在山顶农家乐吃了土鸡煲，下午在湖边发呆。和采购、FastAPI、向量检索都没关系，只是测试检索会不会被'爬山'、'土鸡'这种关键词干扰。",
+      "category": "生活",
+      "subcategory": "周末记录"
+    },
+    {
+      "title": "干扰项：菜谱",
+      "content": "番茄炒蛋：鸡蛋 3 个打散，番茄 2 个切块，先炒蛋再下番茄，加盐和糖各一勺。注意火候不要大，番茄出汁后立刻起锅。和供应商、KRI、Qwen3、BGE 都没关系，纯测试检索抗干扰能力。",
+      "category": "生活",
+      "subcategory": "菜谱"
+    }
+  ],
+  "cases": [
+    {
+      "id": "exact-001",
+      "scenario": "precise_parameter",
+      "question": "供应商A红色预警阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "> 10%",
+        "暂停新订单"
+      ]
+    },
+    {
+      "id": "exact-002",
+      "scenario": "precise_parameter",
+      "question": "供应商A黄色预警的交货延迟率是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "> 5%"
+      ]
+    },
+    {
+      "id": "exact-003",
+      "scenario": "precise_parameter",
+      "question": "一次合格率连续几个月低于多少会启动整改？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "< 95%",
+        "2 个月"
+      ]
+    },
+    {
+      "id": "exact-004",
+      "scenario": "precise_parameter",
+      "question": "涉及金额超过多少需要提级到采购总监审批？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "> 50 万"
+      ]
+    },
+    {
+      "id": "exact-005",
+      "scenario": "precise_parameter",
+      "question": "OCR 图片最长边要缩放到多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "2048"
+      ]
+    },
+    {
+      "id": "exact-006",
+      "scenario": "precise_parameter",
+      "question": "修复后单图 OCR 延迟范围是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "1.5-2.5 秒"
+      ]
+    },
+    {
+      "id": "exact-007",
+      "scenario": "precise_parameter",
+      "question": "FTS5 在多少条笔记时性能异常？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "5000",
+        "800ms"
+      ]
+    },
+    {
+      "id": "exact-008",
+      "scenario": "precise_parameter",
+      "question": "两字及以上关键词走什么检索方式？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "MATCH",
+        "bm25"
+      ]
+    },
+    {
+      "id": "exact-009",
+      "scenario": "precise_parameter",
+      "question": "BGE-small-zh 的模型体积是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ]
+    },
+    {
+      "id": "exact-010",
+      "scenario": "precise_parameter",
+      "question": "BGE 线性扫描建议控制在多少条以内？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "500",
+        "50ms"
+      ]
+    },
+    {
+      "id": "exact-011",
+      "scenario": "precise_parameter",
+      "question": "RRF 的融合阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "0.50"
+      ]
+    },
+    {
+      "id": "exact-012",
+      "scenario": "precise_parameter",
+      "question": "Qwen3 常驻内存大约是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "Qwen3-0.6B 本地部署笔记"
+      ],
+      "expected_answer_terms": [
+        "900MB"
+      ]
+    },
+    {
+      "id": "exact-013",
+      "scenario": "precise_parameter",
+      "question": "Qwen3 分类准确率约多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "Qwen3-0.6B 本地部署笔记"
+      ],
+      "expected_answer_terms": [
+        "82%"
+      ]
+    },
+    {
+      "id": "exact-014",
+      "scenario": "precise_parameter",
+      "question": "采购审批当前平均耗时多少天？",
+      "kind": "qa",
+      "expected_titles": [
+        "采购审批流重构方案"
+      ],
+      "expected_answer_terms": [
+        "5.2 天"
+      ]
+    },
+    {
+      "id": "exact-015",
+      "scenario": "precise_parameter",
+      "question": "采购审批重构后的目标耗时多少天？",
+      "kind": "qa",
+      "expected_titles": [
+        "采购审批流重构方案"
+      ],
+      "expected_answer_terms": [
+        "2.5 天"
+      ]
+    },
+    {
+      "id": "exact-016",
+      "scenario": "precise_parameter",
+      "question": "自动风控评估的触发分数是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "采购审批流重构方案"
+      ],
+      "expected_answer_terms": [
+        "<70 分"
+      ]
+    },
+    {
+      "id": "exact-017",
+      "scenario": "precise_parameter",
+      "question": "异步任务最多重试几次？",
+      "kind": "qa",
+      "expected_titles": [
+        "Python 异步任务最佳实践"
+      ],
+      "expected_answer_terms": [
+        "3 次"
+      ]
+    },
+    {
+      "id": "exact-018",
+      "scenario": "precise_parameter",
+      "question": "异步任务重启时用哪个方法续跑？",
+      "kind": "qa",
+      "expected_titles": [
+        "Python 异步任务最佳实践"
+      ],
+      "expected_answer_terms": [
+        "recover"
+      ]
+    },
+    {
+      "id": "exact-019",
+      "scenario": "precise_parameter",
+      "question": "PyInstaller 最终目录里有哪些核心项？",
+      "kind": "qa",
+      "expected_titles": [
+        "Vue3 + PyWebView 桌面打包踩坑"
+      ],
+      "expected_answer_terms": [
+        "PocketMemory.exe",
+        "_internal",
+        "models"
+      ]
+    },
+    {
+      "id": "exact-020",
+      "scenario": "precise_parameter",
+      "question": "本周 RAG 学习安排在什么时间？",
+      "kind": "qa",
+      "expected_titles": [
+        "2026 Q3 个人学习计划"
+      ],
+      "expected_answer_terms": [
+        "周一",
+        "19:00-21:00"
+      ]
+    },
+    {
+      "id": "ocr-001",
+      "scenario": "ocr_noise",
+      "question": "OCR大图为什么会500？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-002",
+      "scenario": "ocr_noise",
+      "question": "图片太大时 OCR 为何挂掉？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-003",
+      "scenario": "ocr_noise",
+      "question": "RapidOCR 遇到4K截图怎么处理？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-004",
+      "scenario": "ocr_noise",
+      "question": "ocr 内存爆了要先做什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-005",
+      "scenario": "ocr_noise",
+      "question": "Pillow 压图的目的是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-006",
+      "scenario": "ocr_noise",
+      "question": "检测模型为什么会分配2GB内存？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-007",
+      "scenario": "ocr_noise",
+      "question": "识别图片异常，最长边应该限制到哪里？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-008",
+      "scenario": "ocr_noise",
+      "question": "OCR 线程数为何设为2？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-009",
+      "scenario": "ocr_noise",
+      "question": "识别失败时状态应该是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-010",
+      "scenario": "ocr_noise",
+      "question": "修复 OCR 后线上复现了吗？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-011",
+      "scenario": "ocr_noise",
+      "question": "ocR 处理 10MB+ 图片失败的根因？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-012",
+      "scenario": "ocr_noise",
+      "question": "图片识别卡死时如何避免请求挂住？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-013",
+      "scenario": "ocr_noise",
+      "question": "Pillow缩放2048是在什么问题里用的？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-014",
+      "scenario": "ocr_noise",
+      "question": "OCR 延迟从多少降到多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "ocr-015",
+      "scenario": "ocr_noise",
+      "question": "RapidOcrEngine 默认有什么缺陷？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录"
+      ],
+      "expected_answer_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "confusion-001",
+      "scenario": "similar_concept_distraction",
+      "question": "供应商KRI方案里的 FTS5 怎么优化？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "FTS5",
+        "MATCH"
+      ],
+      "forbidden_terms": [
+        "供应商A"
+      ]
+    },
+    {
+      "id": "confusion-002",
+      "scenario": "similar_concept_distraction",
+      "question": "Qwen3 向量检索方案为什么选 sqlite-vec？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "BGE",
+        "sqlite-vec"
+      ],
+      "forbidden_terms": [
+        "Qwen3"
+      ]
+    },
+    {
+      "id": "confusion-003",
+      "scenario": "similar_concept_distraction",
+      "question": "菜谱里的 BGE 模型内存占用多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "forbidden_terms": [
+        "番茄炒蛋"
+      ]
+    },
+    {
+      "id": "confusion-004",
+      "scenario": "similar_concept_distraction",
+      "question": "OCR 记录中 RRF 阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "0.50"
+      ],
+      "forbidden_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "confusion-005",
+      "scenario": "similar_concept_distraction",
+      "question": "采购审批如何用 bm25 排序？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "bm25"
+      ],
+      "forbidden_terms": [
+        "采购审批"
+      ]
+    },
+    {
+      "id": "confusion-006",
+      "scenario": "similar_concept_distraction",
+      "question": "供应商KRI方案里的 FTS5 怎么优化？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "FTS5",
+        "MATCH"
+      ],
+      "forbidden_terms": [
+        "供应商A"
+      ]
+    },
+    {
+      "id": "confusion-007",
+      "scenario": "similar_concept_distraction",
+      "question": "Qwen3 向量检索方案为什么选 sqlite-vec？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "BGE",
+        "sqlite-vec"
+      ],
+      "forbidden_terms": [
+        "Qwen3"
+      ]
+    },
+    {
+      "id": "confusion-008",
+      "scenario": "similar_concept_distraction",
+      "question": "菜谱里的 BGE 模型内存占用多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "forbidden_terms": [
+        "番茄炒蛋"
+      ]
+    },
+    {
+      "id": "confusion-009",
+      "scenario": "similar_concept_distraction",
+      "question": "OCR 记录中 RRF 阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "0.50"
+      ],
+      "forbidden_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "confusion-010",
+      "scenario": "similar_concept_distraction",
+      "question": "采购审批如何用 bm25 排序？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "bm25"
+      ],
+      "forbidden_terms": [
+        "采购审批"
+      ]
+    },
+    {
+      "id": "confusion-011",
+      "scenario": "similar_concept_distraction",
+      "question": "供应商KRI方案里的 FTS5 怎么优化？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "FTS5",
+        "MATCH"
+      ],
+      "forbidden_terms": [
+        "供应商A"
+      ]
+    },
+    {
+      "id": "confusion-012",
+      "scenario": "similar_concept_distraction",
+      "question": "Qwen3 向量检索方案为什么选 sqlite-vec？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "BGE",
+        "sqlite-vec"
+      ],
+      "forbidden_terms": [
+        "Qwen3"
+      ]
+    },
+    {
+      "id": "confusion-013",
+      "scenario": "similar_concept_distraction",
+      "question": "菜谱里的 BGE 模型内存占用多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "forbidden_terms": [
+        "番茄炒蛋"
+      ]
+    },
+    {
+      "id": "confusion-014",
+      "scenario": "similar_concept_distraction",
+      "question": "OCR 记录中 RRF 阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "0.50"
+      ],
+      "forbidden_terms": [
+        "OCR"
+      ]
+    },
+    {
+      "id": "confusion-015",
+      "scenario": "similar_concept_distraction",
+      "question": "采购审批如何用 bm25 排序？",
+      "kind": "qa",
+      "expected_titles": [
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "bm25"
+      ],
+      "forbidden_terms": [
+        "采购审批"
+      ]
+    },
+    {
+      "id": "refusal-001",
+      "scenario": "no_answer",
+      "question": "Claude 和 GPT-4 在当前笔记里的对比如何？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-002",
+      "scenario": "no_answer",
+      "question": "供应商B红色预警阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-003",
+      "scenario": "no_answer",
+      "question": "MacBook 上的 OCR 速度是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-004",
+      "scenario": "no_answer",
+      "question": "BGE 是否使用 HNSW？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-005",
+      "scenario": "no_answer",
+      "question": "Qwen3-4B 显存占用是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-006",
+      "scenario": "no_answer",
+      "question": "Claude 和 GPT-4 在当前笔记里的对比如何？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-007",
+      "scenario": "no_answer",
+      "question": "供应商B红色预警阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-008",
+      "scenario": "no_answer",
+      "question": "MacBook 上的 OCR 速度是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-009",
+      "scenario": "no_answer",
+      "question": "BGE 是否使用 HNSW？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-010",
+      "scenario": "no_answer",
+      "question": "Qwen3-4B 显存占用是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-011",
+      "scenario": "no_answer",
+      "question": "Claude 和 GPT-4 在当前笔记里的对比如何？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-012",
+      "scenario": "no_answer",
+      "question": "供应商B红色预警阈值是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-013",
+      "scenario": "no_answer",
+      "question": "MacBook 上的 OCR 速度是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-014",
+      "scenario": "no_answer",
+      "question": "BGE 是否使用 HNSW？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "refusal-015",
+      "scenario": "no_answer",
+      "question": "Qwen3-4B 显存占用是多少？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [
+        "没有足够信息"
+      ],
+      "allow_insufficient": true
+    },
+    {
+      "id": "compare-001",
+      "scenario": "multi_note_comparison",
+      "question": "OCR 优化和 MySQL 优化分别采取了什么手段？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录",
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "Pillow",
+        "FTS5"
+      ]
+    },
+    {
+      "id": "compare-002",
+      "scenario": "multi_note_comparison",
+      "question": "Qwen3 与 BGE 选型时各自关注什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "Qwen3-0.6B 本地部署笔记",
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "Qwen3",
+        "BGE"
+      ]
+    },
+    {
+      "id": "compare-003",
+      "scenario": "multi_note_comparison",
+      "question": "异步任务和审批流的自动化分别怎么做？",
+      "kind": "qa",
+      "expected_titles": [
+        "Python 异步任务最佳实践",
+        "采购审批流重构方案"
+      ],
+      "expected_answer_terms": [
+        "自动",
+        "状态"
+      ]
+    },
+    {
+      "id": "compare-004",
+      "scenario": "multi_note_comparison",
+      "question": "OCR 和向量检索的性能目标分别是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录",
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "OCR",
+        "50ms"
+      ]
+    },
+    {
+      "id": "compare-005",
+      "scenario": "multi_note_comparison",
+      "question": "打包和模型部署的内存或体积限制分别是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "Vue3 + PyWebView 桌面打包踩坑",
+        "Qwen3-0.6B 本地部署笔记"
+      ],
+      "expected_answer_terms": [
+        "3GB",
+        "900MB"
+      ]
+    },
+    {
+      "id": "compare-006",
+      "scenario": "multi_note_comparison",
+      "question": "OCR 优化和 MySQL 优化分别采取了什么手段？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录",
+        "MySQL 慢查询优化：笔记全文检索"
+      ],
+      "expected_answer_terms": [
+        "Pillow",
+        "FTS5"
+      ]
+    },
+    {
+      "id": "compare-007",
+      "scenario": "multi_note_comparison",
+      "question": "Qwen3 与 BGE 选型时各自关注什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "Qwen3-0.6B 本地部署笔记",
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "Qwen3",
+        "BGE"
+      ]
+    },
+    {
+      "id": "compare-008",
+      "scenario": "multi_note_comparison",
+      "question": "异步任务和审批流的自动化分别怎么做？",
+      "kind": "qa",
+      "expected_titles": [
+        "Python 异步任务最佳实践",
+        "采购审批流重构方案"
+      ],
+      "expected_answer_terms": [
+        "自动",
+        "状态"
+      ]
+    },
+    {
+      "id": "compare-009",
+      "scenario": "multi_note_comparison",
+      "question": "OCR 和向量检索的性能目标分别是多少？",
+      "kind": "qa",
+      "expected_titles": [
+        "FastAPI 后端 OCR 异常排查记录",
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "OCR",
+        "50ms"
+      ]
+    },
+    {
+      "id": "compare-010",
+      "scenario": "multi_note_comparison",
+      "question": "打包和模型部署的内存或体积限制分别是什么？",
+      "kind": "qa",
+      "expected_titles": [
+        "Vue3 + PyWebView 桌面打包踩坑",
+        "Qwen3-0.6B 本地部署笔记"
+      ],
+      "expected_answer_terms": [
+        "3GB",
+        "900MB"
+      ]
+    },
+    {
+      "id": "ambiguous-001",
+      "scenario": "ambiguous_question",
+      "question": "最近模型方面有什么记录？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-002",
+      "scenario": "ambiguous_question",
+      "question": "有什么性能优化？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-003",
+      "scenario": "ambiguous_question",
+      "question": "我最近在学习什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-004",
+      "scenario": "ambiguous_question",
+      "question": "有哪些自动化方案？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-005",
+      "scenario": "ambiguous_question",
+      "question": "什么内容和检索有关？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-006",
+      "scenario": "ambiguous_question",
+      "question": "最近模型方面有什么记录？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-007",
+      "scenario": "ambiguous_question",
+      "question": "有什么性能优化？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-008",
+      "scenario": "ambiguous_question",
+      "question": "我最近在学习什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-009",
+      "scenario": "ambiguous_question",
+      "question": "有哪些自动化方案？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "ambiguous-010",
+      "scenario": "ambiguous_question",
+      "question": "什么内容和检索有关？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "followup-001",
+      "scenario": "follow_up",
+      "question": "那它的阈值呢？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "10%"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "供应商A的交货延迟率红色预警是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-002",
+      "scenario": "follow_up",
+      "question": "那模型多大？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "BGE-small-zh 向量检索方案有什么特点？"
+        }
+      ]
+    },
+    {
+      "id": "followup-003",
+      "scenario": "follow_up",
+      "question": "那它的阈值呢？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "10%"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "供应商A的交货延迟率红色预警是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-004",
+      "scenario": "follow_up",
+      "question": "那模型多大？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "BGE-small-zh 向量检索方案有什么特点？"
+        }
+      ]
+    },
+    {
+      "id": "followup-005",
+      "scenario": "follow_up",
+      "question": "那它的阈值呢？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "10%"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "供应商A的交货延迟率红色预警是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-006",
+      "scenario": "follow_up",
+      "question": "那模型多大？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "BGE-small-zh 向量检索方案有什么特点？"
+        }
+      ]
+    },
+    {
+      "id": "followup-007",
+      "scenario": "follow_up",
+      "question": "那它的阈值呢？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "10%"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "供应商A的交货延迟率红色预警是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-008",
+      "scenario": "follow_up",
+      "question": "那模型多大？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "BGE-small-zh 向量检索方案有什么特点？"
+        }
+      ]
+    },
+    {
+      "id": "followup-009",
+      "scenario": "follow_up",
+      "question": "那它的阈值呢？",
+      "kind": "qa",
+      "expected_titles": [
+        "供应商A采购风控KRI阈值方案"
+      ],
+      "expected_answer_terms": [
+        "10%"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "供应商A的交货延迟率红色预警是什么？"
+        }
+      ]
+    },
+    {
+      "id": "followup-010",
+      "scenario": "follow_up",
+      "question": "那模型多大？",
+      "kind": "qa",
+      "expected_titles": [
+        "BGE-small-zh 向量检索方案对比"
+      ],
+      "expected_answer_terms": [
+        "95MB"
+      ],
+      "history": [
+        {
+          "role": "user",
+          "content": "BGE-small-zh 向量检索方案有什么特点？"
+        }
+      ]
+    },
+    {
+      "id": "time-001",
+      "scenario": "time_query",
+      "question": "2026 Q3 的采购审批计划是什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "time-002",
+      "scenario": "time_query",
+      "question": "2026 Q3 学习计划里有什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "time-003",
+      "scenario": "time_query",
+      "question": "Q2 供应商阈值是什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "time-004",
+      "scenario": "time_query",
+      "question": "最近的 OCR 修复记录是什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    },
+    {
+      "id": "time-005",
+      "scenario": "time_query",
+      "question": "本周 RAG 学习安排是什么？",
+      "kind": "qa",
+      "expected_titles": [],
+      "expected_answer_terms": [],
+      "allow_insufficient": true
+    }
+  ]
+}

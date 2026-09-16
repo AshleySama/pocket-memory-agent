@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Pocket Memory Agent：将零散笔记、图片与文档整理为可检索、可引用、可持续维护的本地个人知识库。">
+  <link rel="icon" type="image/png" href="../frontend/brand/pocket-memory-small-logo.png">
+  <title>Pocket Memory Agent | 本地个人知识库</title>
+  <style>
+    :root {
+      --ink: #182225;
+      --muted: #5c6c6e;
+      --line: #d8e2e0;
+      --canvas: #f2f6f5;
+      --paper: #ffffff;
+      --teal: #087c78;
+      --teal-dark: #075d5a;
+      --teal-soft: #e2f1ed;
+      --red: #bd584a;
+      --red-soft: #f8e8e5;
+      --yellow: #fff8d6;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: "Segoe UI", "Microsoft YaHei UI", Arial, sans-serif;
+      line-height: 1.65;
+    }
+    a { color: inherit; }
+    .wrap { width: min(1180px, calc(100% - 48px)); margin: 0 auto; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      height: 68px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(14px);
+    }
+    .topbar .wrap { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 760; text-decoration: none; }
+    .brand-mark { display: block; width: 31px; height: 31px; object-fit: contain; }
+    .nav { display: flex; align-items: center; gap: 24px; color: var(--muted); font-size: 14px; }
+    .nav a { text-decoration: none; }
+    .nav a:hover { color: var(--teal); }
+    .nav-download { padding: 7px 12px; border: 1px solid var(--teal); border-radius: 5px; color: var(--teal) !important; font-weight: 700; }
+
+    .hero {
+      position: relative;
+      min-height: 650px;
+      display: flex;
+      align-items: center;
+      isolation: isolate;
+      overflow: hidden;
+      background: #dfe8e5 url("pocket-memory-workbench-demo.png") center / cover no-repeat;
+    }
+    .hero::before { content: ""; position: absolute; inset: 0; z-index: -1; background: rgba(244, 248, 247, .87); }
+    .hero-copy { width: min(650px, 100%); padding: 86px 0 94px; }
+    .eyebrow { margin: 0 0 16px; color: var(--teal); font-size: 12px; font-weight: 750; letter-spacing: 1.3px; }
+    h1 { margin: 0; max-width: 640px; font-size: clamp(48px, 6.4vw, 76px); line-height: 1.04; letter-spacing: 0; }
+    .hero-lead { max-width: 590px; margin: 24px 0 30px; color: #405052; font-size: 19px; }
+    .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .button {
+      display: inline-flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 18px;
+      border: 1px solid var(--teal);
+      border-radius: 5px;
+      background: var(--teal);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform .18s ease, background .18s ease, border-color .18s ease;
+    }
+    .button:hover { transform: translateY(-2px); background: var(--teal-dark); border-color: var(--teal-dark); }
+    .button.secondary { background: rgba(255, 255, 255, .82); color: var(--teal); }
+    .button.secondary:hover { background: #fff; }
+    .trust { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 30px; color: var(--muted); font-size: 13px; }
+    .trust span::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--teal); }
+
+    .section { padding: 94px 0; }
+    .section.paper { background: var(--paper); }
+    .section-head { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 54px; padding-bottom: 42px; border-bottom: 1px solid var(--line); }
+    .section-head p { margin: 0; color: var(--teal); font-size: 13px; font-weight: 750; letter-spacing: 1px; }
+    h2 { margin: 0; max-width: 800px; font-size: clamp(29px, 3.5vw, 44px); line-height: 1.2; }
+    .capability-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 0; }
+    .capability { min-height: 258px; padding: 30px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--paper); transition: background .2s ease, transform .2s ease; }
+    .capability:first-child { border-left: 1px solid var(--line); }
+    .capability:hover { background: #f7fbfa; transform: translateY(-3px); }
+    .number { display: block; margin-bottom: 54px; color: var(--red); font-size: 13px; font-weight: 750; }
+    .capability h3 { margin: 0 0 10px; font-size: 19px; }
+    .capability p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .use-layout { display: grid; grid-template-columns: 1.08fr .92fr; gap: 58px; align-items: center; }
+    .workbench { width: 100%; display: block; border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 18px 40px rgba(27, 54, 52, .11); }
+    .step-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+    .step-list li { display: grid; grid-template-columns: 42px 1fr; gap: 16px; padding: 21px 0; border-bottom: 1px solid var(--line); }
+    .step-index { color: var(--red); font-size: 13px; font-weight: 800; }
+    .step-list h3 { margin: 0 0 4px; font-size: 17px; }
+    .step-list p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .scene-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; margin-top: 42px; }
+    .scene { padding-top: 18px; border-top: 2px solid var(--teal); }
+    .scene b { display: block; margin-bottom: 10px; color: var(--red); font-size: 13px; }
+    .scene h3 { margin: 0 0 8px; font-size: 18px; }
+    .scene p { margin: 0; color: var(--muted); font-size: 14px; }
+
+    .download { padding: 94px 0; background: #182225; color: #fff; }
+    .download-grid { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 70px; align-items: end; }
+    .download h2 { color: #fff; }
+    .download-copy { max-width: 640px; margin: 18px 0 28px; color: #c6d1cf; font-size: 17px; }
+    .download .button { background: #fff; border-color: #fff; color: #182225; }
+    .download .button:hover { background: #e5f3f0; border-color: #e5f3f0; }
+    .download-note { margin-top: 16px; color: #9faeab; font-size: 13px; }
+    .release-box { padding: 28px; border: 1px solid #40514f; border-radius: 7px; background: rgba(255, 255, 255, .035); }
+    .release-label { margin: 0 0 12px; color: #8bd5ce; font-size: 12px; font-weight: 750; letter-spacing: 1px; }
+    .release-title { margin: 0; font-size: 20px; }
+    .release-list { margin: 20px 0 0; padding: 0; list-style: none; border-top: 1px solid #40514f; }
+    .release-list li { display: flex; justify-content: space-between; gap: 14px; padding: 11px 0; border-bottom: 1px solid #40514f; color: #c6d1cf; font-size: 13px; }
+    .release-list strong { color: #fff; font-weight: 650; text-align: right; }
+    .release-list code { color: #d7e5e2; font-family: Consolas, monospace; font-size: 12px; }
+
+    footer { padding: 22px 0; background: #101719; color: #98a8a5; font-size: 12px; }
+    footer .wrap { display: flex; justify-content: space-between; gap: 16px; }
+
+    @media (max-width: 940px) {
+      .capability-grid { grid-template-columns: repeat(2, 1fr); }
+      .capability:nth-child(3) { border-left: 1px solid var(--line); }
+      .use-layout, .download-grid { grid-template-columns: 1fr; gap: 38px; }
+      .release-box { max-width: 510px; }
+    }
+    @media (max-width: 760px) {
+      .wrap { width: min(100% - 32px, 1180px); }
+      .nav { display: none; }
+      .hero { min-height: 590px; background-position: 60% center; }
+      .hero::before { background: rgba(244, 248, 247, .93); }
+      .hero-copy { padding: 72px 0; }
+      .hero-lead { font-size: 17px; }
+      .section, .download { padding: 64px 0; }
+      .section-head { grid-template-columns: 1fr; gap: 14px; padding-bottom: 28px; }
+      .capability-grid, .scene-grid { grid-template-columns: 1fr; }
+      .capability, .capability:nth-child(3) { min-height: 0; border-left: 1px solid var(--line); }
+      .number { margin-bottom: 28px; }
+      footer .wrap { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <a class="brand" href="#top" aria-label="Pocket Memory Agent 首页"><img class="brand-mark" src="../frontend/brand/pocket-memory-secondary-logo.png" alt=""><span>Pocket Memory Agent</span></a>
+      <nav class="nav" aria-label="页面导航">
+        <a href="#capabilities">能力</a>
+        <a href="#how-to-use">使用方法</a>
+        <a href="#scenarios">适用场景</a>
+        <a class="nav-download" data-download href="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip" target="_blank" rel="noopener">下载 Windows Beta 版</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-label="Pocket Memory Agent 工作台预览">
+      <div class="wrap"><div class="hero-copy">
+        <p class="eyebrow">LOCAL-FIRST PERSONAL KNOWLEDGE AGENT</p>
+        <h1>让你的资料，随时成为可核验的答案。</h1>
+        <p class="hero-lead">Pocket Memory Agent 将零散笔记、图片与文档组织为可检索、可引用、可持续维护的本地个人知识库。答案不止是一段话，还能回到它来自的原文。</p>
+        <div class="actions">
+          <a class="button" data-download href="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip" target="_blank" rel="noopener">下载 Pocket Memory Beta</a>
+          <a class="button secondary" href="#how-to-use">了解如何使用</a>
+        </div>
+        <div class="trust"><span>数据与索引本地存储</span><span>内置本地模型，开箱即可推理</span><span>回答附带证据与来源</span></div>
+      </div></div>
+    </section>
+
+    <section id="capabilities" class="section paper"><div class="wrap">
+      <div class="section-head"><p>核心能力</p><h2>不是把资料堆在一起，而是让它们在需要时可被准确找回。</h2></div>
+      <div class="capability-grid">
+        <article class="capability"><span class="number">01</span><h3>笔记与页签</h3><p>用页签承载一个笔记的多个主题，支持富文本、表格、图片与历史版本，方便持续记录与编辑。</p></article>
+        <article class="capability"><span class="number">02</span><h3>文件知识库</h3><p>导入 TXT、Word、Excel 和 PDF。文档会保留在本机，并按章节、页码、工作表和行范围建立可定位索引。</p></article>
+        <article class="capability"><span class="number">03</span><h3>智能问答</h3><p>关键词与语义检索共同寻找证据。回答显示来源与证据句，找不到依据时会明确提示资料不足。</p></article>
+        <article class="capability"><span class="number">04</span><h3>有序整理</h3><p>本地模型可辅助生成标题、分类与标签；用户仍能编辑、删除和确认，知识库的组织权始终在自己手里。</p></article>
+      </div>
+    </div></section>
+
+    <section id="how-to-use" class="section"><div class="wrap">
+      <div class="section-head"><p>开始使用</p><h2>从保存第一条资料，到回答第一个问题，只需要三个步骤。</h2></div>
+      <div class="use-layout" style="margin-top:42px">
+        <img class="workbench" src="pocket-memory-workbench-demo.png" alt="Pocket Memory Agent 三栏工作台界面：资料库、笔记列表与智能回答">
+        <ol class="step-list">
+          <li><span class="step-index">01</span><div><h3>解压并启动</h3><p>下载完整 ZIP 包后解压，双击 <code>PocketMemory.exe</code>，无需准备 Python 环境。</p></div></li>
+          <li><span class="step-index">02</span><div><h3>记录或导入资料</h3><p>新建笔记、粘贴截图，或导入已有的文件。长文和表格会以可追溯的位置进入知识库。</p></div></li>
+          <li><span class="step-index">03</span><div><h3>用自然语言提问</h3><p>直接提出日常问题，查看答案、证据句和来源；点击来源可回到对应的笔记、页签或文档片段核验。</p></div></li>
+        </ol>
+      </div>
+    </div></section>
+
+    <section id="scenarios" class="section paper"><div class="wrap">
+      <div class="section-head"><p>适用场景</p><h2>为长期积累资料的人，留下一种更可靠的工作方式。</h2></div>
+      <div class="scene-grid">
+        <article class="scene"><b>个人工作沉淀</b><h3>会议、项目与方法论</h3><p>将会议纪要、项目复盘、流程经验和零散灵感放回一个可检索的工作台，减少“记过但找不到”。</p></article>
+        <article class="scene"><b>学习与研究</b><h3>长文、截图与资料卡片</h3><p>把阅读笔记、图片文字、章节资料与问题线索串联起来，在复习或写作时回到原始依据。</p></article>
+        <article class="scene"><b>个人资料管理</b><h3>文件、表格与决定记录</h3><p>对本机资料做有来源的问答和定位，不必为了查找个人内容把文件上传给外部平台。</p></article>
+      </div>
+    </div></section>
+
+    <section id="download" class="download"><div class="wrap download-grid">
+      <div>
+        <p class="eyebrow" style="color:#8bd5ce">WINDOWS COMPLETE PACKAGE</p>
+        <h2>开始建立属于你的本地知识库。</h2>
+        <p class="download-copy">下载 ZIP、解压并启动即可。完整体验包包含应用及本地智能能力所需组件，笔记、附件、索引和模型均在你的设备上运行。</p>
+          <a class="button" data-download href="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip" target="_blank" rel="noopener">下载 Windows Beta 版</a>
+        <p class="download-note">下载遇到问题时，请检查服务器是否已部署对应 ZIP 文件。</p>
+      </div>
+      <aside class="release-box" aria-label="当前下载版本信息">
+        <p class="release-label">当前发布包</p>
+        <h3 class="release-title">Pocket Memory <span data-version>Beta</span></h3>
+        <ul class="release-list">
+          <li><span>系统</span><strong>Windows 10 / 11</strong></li>
+          <li><span>格式</span><strong>ZIP 完整体验包</strong></li>
+          <li><span>启动方式</span><strong><code>PocketMemory.exe</code></strong></li>
+          <li><span>发布状态</span><strong><code data-filename>Beta</code></strong></li>
+        </ul>
+      </aside>
+    </div></section>
+  </main>
+
+  <footer><div class="wrap"><span>Pocket Memory Agent</span><span>Local-first personal knowledge management</span></div></footer>
+
+  <script>
+    // 发布新版本时，只需修改这两项；ZIP 必须被网站服务器映射到对应的 URL。
+    const release = {
+      version: "Beta",
+      downloadUrl: "https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip"
+    };
+
+    document.querySelectorAll("[data-download]").forEach((link) => {
+      link.href = release.downloadUrl;
+      link.setAttribute("download", "");
+    });
+    document.querySelectorAll("[data-version]").forEach((node) => { node.textContent = release.version; });
+    document.querySelectorAll("[data-filename]").forEach((node) => { node.textContent = release.downloadUrl.split("/").pop(); });
+  </script>
+</body>
+</html>

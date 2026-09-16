@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/brand/pocket-memory-small-logo.png">
+    <link id="notification-icon" rel="prefetch" href="/brand/pocket-memory-small-logo.png">
+    <title>Pocket Memory</title>
+  <link rel="stylesheet" href="/styles.css?v=20260912-navigation-1">
+  </head>
+  <body class="knowledge-workbench">
+    <header class="app-header">
+      <div class="app-brand">
+        <img class="app-brand-logo" src="/brand/pocket-memory-secondary-logo.png" alt="Pocket Memory">
+        <div class="app-brand-copy">
+          <p class="eyebrow">LOCAL MEMORY</p>
+          <h1>Pocket Memory</h1>
+        </div>
+      </div>
+      <section class="search-panel global-search" aria-label="搜索与智能问答">
+        <input type="hidden" id="search-mode" value="hybrid">
+        <div class="search-input-wrap">
+          <input id="search" placeholder="搜索笔记，或直接提问你的知识库">
+          <span class="search-shortcut" aria-hidden="true">⌘ K</span>
+          <button id="search-clear" class="search-clear hidden" type="button" aria-label="清空搜索">✕</button>
+        </div>
+        <span id="result-count"></span>
+        <button id="clear-filter" class="ghost hidden">清除筛选</button>
+        <button id="ask-button" type="button"><span class="ask-button-star" aria-hidden="true">&#10022;</span><span>智能问答</span></button>
+      </section>
+      <div class="header-actions">
+        <button id="new-note-btn" class="header-new-note" type="button">+ 新建笔记</button>
+        <button id="import-document-btn" class="ghost" type="button">导入文件</button>
+        <button id="graph-button" class="ghost" type="button">知识图谱</button>
+        <button id="report-button" class="ghost" type="button">专题报告</button>
+        <button id="settings-button" class="ghost">设置</button>
+        <a id="update-badge" class="update-badge hidden" href="#" target="_blank" title="发现新版本，点击下载">有新版本</a>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h2>我的资料库</h2>
+          <button id="new-folder-btn" class="ghost icon-btn" type="button" title="新建顶级分区">+</button>
+        </div>
+        <div id="new-folder-inline" class="folder-inline-slot"></div>
+        <details class="sidebar-section recent-section" open>
+          <summary>最近编辑</summary>
+          <nav id="recent-nav" class="recent-nav"></nav>
+        </details>
+        <nav id="category-nav"></nav>
+
+        <details class="sidebar-section favorites-section">
+          <summary><span>收藏夹</span><b id="favorite-count">0</b></summary>
+          <nav id="favorite-nav" class="recent-nav"></nav>
+        </details>
+
+        <details class="sidebar-section">
+          <summary><span>标签</span><button id="tag-manager-button" class="sidebar-inline-action" type="button" title="管理标签">管理</button></summary>
+          <nav id="tag-nav" class="tag-nav"></nav>
+        </details>
+
+        <h2>本地智能</h2>
+        <p id="embedding-status" class="smart-status">资料检索：正在检查</p>
+
+        <h2>统计</h2>
+        <div id="stats-panel" class="stats-panel"></div>
+      </aside>
+
+      <div class="column-resizer sidebar-resizer" data-resize-column="sidebar" role="separator" aria-orientation="vertical" aria-label="调整资料库宽度" tabindex="0" title="拖动调整资料库宽度；双击还原"></div>
+
+      <div class="content-column">
+        <section id="doc-preview" class="doc-preview card hidden">
+          <div class="doc-preview-header">
+            <div>
+            <p id="doc-preview-eyebrow" class="eyebrow">参考文档</p>
+              <h2 id="doc-preview-title"></h2>
+            </div>
+            <button id="doc-preview-close" class="ghost" type="button">返回列表</button>
+          </div>
+          <div id="doc-preview-body" class="doc-preview-body"></div>
+          <button id="doc-fab" class="doc-fab hidden" type="button" title="返回列表">↑ 返回</button>
+        </section>
+
+        <section class="results-pane" aria-label="检索结果">
+          <div class="results-toolbar">
+            <div class="result-scope" aria-label="结果类型">
+              <button class="result-scope-button active" type="button" data-result-scope="note">笔记 <b id="note-result-count">0</b></button>
+              <button class="result-scope-button" type="button" data-result-scope="document">文档 <b id="document-result-count">0</b></button>
+              <span id="result-summary" class="result-summary">正在加载笔记</span>
+            </div>
+            <button id="result-sort" class="result-sort" type="button" title="点击切换更新时间降序或升序">按更新时间 ↓</button>
+          </div>
+          <div id="report-selection-bar" class="report-selection-bar hidden" aria-live="polite">
+            <span id="report-selection-count">已选 0 项资料</span>
+            <span class="report-selection-hint">可跨分区、搜索和笔记/文档列表继续选择</span>
+            <div class="report-selection-actions">
+              <button id="report-cancel-selection" class="ghost" type="button">取消</button>
+              <button id="report-next" type="button">下一步</button>
+            </div>
+          </div>
+          <div id="inline-composer" class="inline-composer card hidden">
+            <textarea id="inline-content" rows="3" placeholder="记录文字，或粘贴截图/表格... Ctrl+S 保存，Shift+Enter 换行"></textarea>
+            <div id="inline-attachment-preview" class="inline-attachment-preview hidden">
+              <img id="inline-attachment-img" alt="附件预览">
+              <button id="inline-attachment-remove" class="ghost" type="button" title="移除附件">✕ 移除</button>
+            </div>
+            <div class="inline-composer-footer">
+              <select id="inline-folder-select" aria-label="选择分区"></select>
+              <button id="inline-cancel" class="ghost" type="button">取消</button>
+              <button id="inline-save" type="button">保存笔记</button>
+            </div>
+          </div>
+          <section id="timeline" class="timeline"></section>
+        </section>
+
+      </div>
+
+      <div class="column-resizer content-resizer" data-resize-column="content" role="separator" aria-orientation="vertical" aria-label="调整中栏宽度" tabindex="0" title="拖动调整中栏宽度；双击还原"></div>
+
+      <aside class="detail-panel">
+        <div class="detail-tabs">
+          <button class="detail-tab active" data-pane="editor-pane">笔记编辑</button>
+          <button class="detail-tab ai-answer-tab" data-pane="answer-pane"><span class="ai-answer-spark" aria-hidden="true">✦</span>AI 回答</button>
+          <button class="detail-tab" data-pane="tool-pane">工具</button>
+        </div>
+        <div class="detail-content">
+          <div id="editor-pane" class="detail-pane active">
+            <section id="editor-dock" class="editor-dock" aria-label="当前笔记编辑器">
+              <div id="editor-dock-content" class="editor-dock-content"></div>
+            </section>
+          </div>
+          <div id="answer-pane" class="detail-pane">
+            <section id="answer-panel" class="answer-panel card"></section>
+          </div>
+
+          <div id="tool-pane" class="detail-pane">
+            <section class="tool-panel card">
+              <div class="tool-header">
+                <div>
+                  <p class="eyebrow">本地小工具</p>
+                  <h2>告诉小模型你想做什么</h2>
+                </div>
+              </div>
+              <div class="tool-input-row">
+                <input id="tool-input" placeholder="5分钟后提醒我开会 / 开始番茄钟 / 明天3点提醒我交报告">
+                <button id="tool-run" type="button">执行</button>
+              </div>
+              <div id="tool-result"></div>
+              <div id="tool-active"></div>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+    <div id="reminder-container" class="reminder-container"></div>
+
+    <dialog id="document-dialog" class="document-dialog">
+      <form method="dialog" class="dialog-header">
+        <div><p class="eyebrow">本地文件知识库</p><h2>导入文件</h2></div>
+        <button class="ghost" type="submit" aria-label="关闭">关闭</button>
+      </form>
+      <div class="document-import-area">
+        <div class="document-import-copy">
+          <p class="document-import-kicker">导入到本地知识库</p>
+          <p>选择单个文件，或一次导入一个文件夹中的资料。</p>
+        </div>
+        <div class="document-import-actions">
+          <label class="document-file-picker is-primary" for="document-file-input"><strong>选择文件</strong><small>支持一次选择多个资料</small></label>
+          <label class="document-file-picker" for="document-folder-input"><strong>选择文件夹</strong><small>自动读取其中的支持格式</small></label>
+        </div>
+        <input id="document-file-input" type="file" multiple accept=".txt,.docx,.xlsx,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+        <input id="document-folder-input" type="file" multiple webkitdirectory directory hidden>
+        <input id="document-replace-input" type="file" accept=".txt,.docx,.xlsx,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+        <p id="document-import-hint" class="muted">支持 TXT、Word、Excel、PDF。导入后会按标准策略建立本地切片索引，单个文件最大 10MB。</p>
+      </div>
+    </dialog>
+
+    <dialog id="report-dialog" class="report-dialog">
+      <form method="dialog" class="dialog-header">
+        <div><p class="eyebrow">专题报告</p><h2>将已选资料编成一份可分享成果</h2></div>
+        <button class="ghost" type="submit" aria-label="关闭">关闭</button>
+      </form>
+      <div class="report-dialog-grid">
+        <section class="report-config-panel">
+          <label for="report-title">专题名称</label>
+          <input id="report-title" placeholder="例如：Pocket Memory 项目介绍">
+          <label for="report-template">写作方式</label>
+          <select id="report-template"></select>
+          <p id="report-template-hint" class="muted"></p>
+          <div class="report-selected-summary">
+            <div class="report-selected-heading"><strong>已选资料</strong><button id="report-back-to-selection" class="ghost" type="button">返回选择</button></div>
+            <div id="report-selected-list" class="report-selected-list"></div>
+          </div>
+          <p class="muted">AI 先核验资料事实，再按写作方式组织摘要与章节；模板不会强制资料套入固定栏目。</p>
+          <button id="report-generate" type="button">生成报告草稿</button>
+        </section>
+        <section class="report-preview-panel">
+          <div class="report-preview-toolbar">
+            <span>报告预览</span>
+            <button id="report-export" class="ghost" type="button" disabled>导出 HTML</button>
+          </div>
+          <div id="report-preview" class="report-preview" contenteditable="false"><p class="muted">选择 1 至 8 项资料后生成草稿。生成后可直接编辑正文，并导出为单文件 HTML。</p></div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="settings-dialog">
+      <form method="dialog">
+        <div class="dialog-header">
+          <h2>设置</h2>
+          <button class="ghost">关闭</button>
+        </div>
+        <div class="settings-tabs">
+          <button type="button" class="settings-tab active" data-tab-target="appearance">外观</button>
+          <button type="button" class="settings-tab" data-tab-target="intelligence">智能</button>
+          <button type="button" class="settings-tab" data-tab-target="data">数据</button>
+          <button type="button" class="settings-tab" data-tab-target="help">帮助</button>
+        </div>
+
+        <section class="settings-panel-tab active" data-tab="appearance">
+          <label>界面风格</label>
+          <div class="directory-row">
+            <select id="theme-select"></select>
+          </div>
+
+          <label>自定义背景图</label>
+          <div class="directory-row">
+            <input id="background-input" type="file" accept="image/*" hidden>
+            <button id="upload-background" type="button" class="ghost">选择图片</button>
+            <button id="clear-background" type="button" class="ghost hidden">清除背景</button>
+          </div>
+          <p class="muted">上传后铺满整个背景，建议高分辨率图片。留空使用主题默认背景。</p>
+        </section>
+
+        <section class="settings-panel-tab" data-tab="intelligence">
+          <label>AI 自动整理</label>
+          <div class="directory-row">
+            <label class="switch">
+              <input type="checkbox" id="ai-auto-apply" checked>
+              <span class="switch-slider"></span>
+            </label>
+            <span id="ai-mode-label" class="inline-muted">自动应用分类与标签</span>
+          </div>
+          <p class="muted">关闭后，AI 仅分析不覆盖你的手工分类，适合想完全自主管理分类的用户。</p>
+
+          <label>本地模型状态</label>
+          <div class="directory-row">
+            <span id="model-status-text" class="inline-muted">查询中...</span>
+            <button id="unload-model-btn" type="button" class="ghost" disabled>当前未加载</button>
+          </div>
+          <p class="muted">模型只会在智能问答或重新整理时按需载入；空闲 5 分钟会自动释放内存。未加载时没有可释放的内存。</p>
+
+          <details class="settings-model-advanced">
+            <summary>高级：切换兼容 GGUF 模型</summary>
+            <div class="directory-row">
+              <select id="llm-model-select" style="flex:1;"></select>
+              <button id="apply-model-btn" type="button" class="ghost">应用</button>
+            </div>
+            <p class="muted">首发默认使用内置 Qwen3-4B-Instruct-2507 Q4。仅建议选择已验证的指令型 GGUF 模型；切换后会在下次问答时重新加载，并应复测常用问题、引用和速度。</p>
+          </details>
+        </section>
+
+        <section class="settings-panel-tab" data-tab="data">
+          <label>当前数据目录</label>
+          <div class="directory-row">
+            <input id="data-dir" aria-label="数据目录">
+            <button id="choose-directory" type="button" class="ghost">选择新目录</button>
+          </div>
+          <p class="muted">切换不会复制数据，可进入空目录或已有 Pocket Memory 数据目录。迁移会复制全部数据到新的空目录，原目录保留为备份。</p>
+          <div class="directory-actions">
+            <button id="switch-directory" type="button" class="ghost" disabled>仅切换目录</button>
+            <button id="migrate-directory" type="button" disabled>迁移数据</button>
+          </div>
+
+          <label>数据备份</label>
+          <button id="export-data" type="button" class="ghost">导出完整备份 (.zip)</button>
+          <p class="muted">备份包含数据库、Markdown、图片、页签和自定义资源，可用于完整恢复。</p>
+        </section>
+
+        <section class="settings-panel-tab" data-tab="help">
+          <label>键盘快捷键</label>
+          <div class="shortcut-list">
+            <div><kbd>Ctrl</kbd>+<kbd>S</kbd> 保存笔记</div>
+            <div><kbd>Ctrl</kbd>+<kbd>K</kbd> 聚焦搜索</div>
+            <div><kbd>Ctrl</kbd>+<kbd>N</kbd> 快速新建笔记</div>
+            <div><kbd>Ctrl</kbd>+<kbd>P</kbd> 快速跳转笔记</div>
+            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> 命令面板</div>
+            <div><kbd>Ctrl</kbd>+<kbd>1/2</kbd> 切换问答/工具</div>
+            <div><kbd>Ctrl</kbd>+<kbd>/</kbd> 聚焦工具输入</div>
+            <div><kbd>Esc</kbd> 多级回退（弹窗→预览→录入条→清筛选）</div>
+          </div>
+
+          <label>新手引导</label>
+          <button id="show-onboarding-btn" type="button" class="ghost">重新查看启动引导</button>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog id="tag-manager-dialog" class="tag-manager-dialog">
+      <div class="dialog-header">
+        <div><p class="eyebrow">TAG GOVERNANCE</p><h2>标签管理</h2></div>
+        <button id="tag-manager-close" class="ghost" type="button">关闭</button>
+      </div>
+      <p class="muted">每篇笔记最多保留 2 个标签。模型只复用与当前笔记主题直接相关的标签；低频相近项必须由你确认后才会合并。</p>
+      <div id="tag-governance-content" class="tag-governance-content"></div>
+    </dialog>
+
+    <dialog id="graph-dialog" class="graph-dialog">
+      <div class="graph-dialog-content">
+        <header class="graph-header">
+          <div>
+            <p class="eyebrow">LOCAL RELATION MAP</p>
+            <h2>知识图谱</h2>
+          </div>
+          <div class="graph-toolbar">
+            <input id="graph-search" type="text" placeholder="查找笔记或标签" aria-label="查找图谱节点">
+            <label class="graph-toggle"><input id="graph-show-isolated" type="checkbox" checked> 显示孤立笔记</label>
+            <label class="graph-toggle"><input id="graph-show-tags" type="checkbox" checked> 标签关系</label>
+            <label class="graph-toggle"><input id="graph-show-broken" type="checkbox"> 失效双链</label>
+            <button id="graph-relayout" class="ghost" type="button">重新布局</button>
+            <button id="graph-close" class="ghost" type="button">关闭</button>
+          </div>
+        </header>
+        <div class="graph-legend"><span>圆点：笔记</span><span>方点：标签</span><span>实线：双链</span><span>虚线：标签关联</span></div>
+        <canvas id="graph-canvas" aria-label="笔记关联图谱"></canvas>
+        <p id="graph-empty" class="graph-hint hidden"></p>
+        <p class="graph-hint muted">点击笔记节点可直接打开；图谱只呈现已有标签和双链，不生成或修改任何内容。</p>
+      </div>
+    </dialog>
+
+    <!-- 快速跳转面板：Ctrl+P 唤起，模糊搜索笔记标题后回车跳转 -->
+    <dialog id="quick-jump-dialog" class="quick-jump-dialog">
+      <div class="quick-jump-body">
+        <input id="quick-jump-input" type="text" placeholder="输入笔记标题或关键词，回车跳转..." autocomplete="off">
+        <ul id="quick-jump-list" class="quick-jump-list"></ul>
+        <p class="quick-jump-hint muted">↑↓ 选择 · Enter 跳转 · Esc 关闭</p>
+      </div>
+    </dialog>
+
+    <!-- 双链补全弹窗：编辑时输入 [[ 触发 -->
+    <div id="wiki-complete" class="wiki-complete hidden">
+      <ul id="wiki-complete-list" class="wiki-complete-list"></ul>
+      <p class="wiki-complete-hint muted">↑↓ 选择 · Enter 插入 · Esc 取消</p>
+    </div>
+
+    <!-- 命令面板：Ctrl+Shift+P 唤起，列出可用命令 -->
+    <dialog id="command-palette-dialog" class="quick-jump-dialog">
+      <div class="quick-jump-body">
+        <input id="command-palette-input" type="text" placeholder="输入命令名称..." autocomplete="off">
+        <ul id="command-palette-list" class="quick-jump-list"></ul>
+        <p class="quick-jump-hint muted">↑↓ 选择 · Enter 执行 · Esc 关闭</p>
+      </div>
+    </dialog>
+
+    <!-- 首次启动引导：localStorage 标记 pocket-memory-onboarded，未标记时弹出 -->
+    <dialog id="onboarding-dialog" class="onboarding-dialog">
+      <div class="onboarding-body">
+        <div class="onboarding-step" data-step="1">
+          <div class="onboarding-illust">📝</div>
+          <h2>欢迎使用 Pocket Memory</h2>
+          <p>你的本地 AI 笔记助手。所有数据存在本机，零云端依赖，零 API 费用。</p>
+          <p class="muted">模型本地运行，首次问答需要 5-10 秒加载。</p>
+        </div>
+        <div class="onboarding-step hidden" data-step="2">
+          <div class="onboarding-illust">⌨️</div>
+          <h2>快速记笔记</h2>
+          <p>按 <kbd>Ctrl</kbd>+<kbd>N</kbd> 新建笔记，写完按 <kbd>Ctrl</kbd>+<kbd>S</kbd> 保存。</p>
+          <p class="muted">支持粘贴截图，会自动 OCR 识别文字。</p>
+        </div>
+        <div class="onboarding-step hidden" data-step="3">
+          <div class="onboarding-illust"><img class="onboarding-main-logo" src="/brand/pocket-memory-main-logo.png" alt="Pocket Memory 随手记"></div>
+          <h2>智能问答</h2>
+          <p>在搜索框输入问题，点击「智能问答」，基于你的笔记生成本地回答。</p>
+          <p class="muted">支持跨笔记、跨页签检索，来源可点击跳转。</p>
+        </div>
+        <div class="onboarding-step hidden" data-step="4">
+          <div class="onboarding-illust">🚀</div>
+          <h2>更多快捷键</h2>
+          <p><kbd>Ctrl</kbd>+<kbd>P</kbd> 快速跳转笔记</p>
+          <p><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> 命令面板</p>
+          <p><kbd>Esc</kbd> 多级回退</p>
+          <p class="muted">详细快捷键见设置面板。</p>
+        </div>
+        <div class="onboarding-nav">
+          <button id="onboarding-prev" type="button" class="ghost" disabled>上一步</button>
+          <span id="onboarding-dots" class="onboarding-dots"></span>
+          <button id="onboarding-next" type="button">下一步</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="/app.js?v=20260913-citation-evidence-1"></script>
+  </body>
+</html>

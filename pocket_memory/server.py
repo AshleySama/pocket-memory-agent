@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import base64
@@ -92,6 +95,8 @@ class PocketMemoryServer(ThreadingHTTPServer):
         write_lock(store.data_dir, os.getpid(), server_address[0], self.server_port)
         logger.info("server 已启动，lock 写入 %s", store.data_dir / ".pocket-memory.lock")
         self.embedding_service.rebuild()
+        if self.config.ai_warmup_on_start:
+            self.intelligence_service.warm_up()
         self.intelligence_service.recover()
 
     def _after_ocr(self, note_id: int) -> None:
@@ -328,6 +333,7 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                 "data_dir": str(self.server.store.data_dir),
                 "theme": self.server.config.theme,
                 "ai_auto_apply": self.server.config.ai_auto_apply,
+                "ai_warmup_on_start": self.server.config.ai_warmup_on_start,
                 "background": self._custom_asset_url("background-custom"),
             })
         elif parsed.path == "/api/update/check":
@@ -668,6 +674,16 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self.server.config.set_ai_auto_apply(enabled)
             self.server.intelligence_service.auto_apply = enabled
             self._json({"ai_auto_apply": enabled})
+        elif parsed.path == "/api/settings/ai-warmup":
+            body = self._read_json()
+            enabled = bool(body.get("enabled", True))
+            self.server.config.set_ai_warmup_on_start(enabled)
+            if enabled:
+                self.server.intelligence_service.warm_up()
+            self._json({
+                "ai_warmup_on_start": enabled,
+                "warming": self.server.intelligence_service.warming_up,
+            })
         elif parsed.path == "/api/tags/merge":
             body = self._read_json()
             try:

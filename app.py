@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import argparse
@@ -240,7 +243,14 @@ def open_webview(url: str, debug: bool) -> None:
                 pass
             return
 
-        webview.create_window("Pocket Memory", url, width=1180, height=820, min_size=(820, 600))
+        webview.create_window(
+            "Pocket Memory",
+            url,
+            width=1180,
+            height=820,
+            min_size=(820, 600),
+            maximized=True,
+        )
         start_kwargs = {}
         icon_path = find_app_icon()
         if icon_path:

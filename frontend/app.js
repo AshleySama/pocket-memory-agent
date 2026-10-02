@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 const state = {
   notes: [],
   taxonomy: { total: 0, categories: [], tags: [] },
@@ -3623,6 +3628,8 @@ $("#settings-button").addEventListener("click", async () => {
   // AI 整理模式
   $("#ai-auto-apply").checked = settings.ai_auto_apply !== false;
   updateAiModeLabel();
+  $("#ai-warmup-on-start").checked = settings.ai_warmup_on_start !== false;
+  updateAiWarmupLabel();
   $("#settings-dialog").showModal();
   refreshModelStatus();
   loadModelList();
@@ -3635,6 +3642,8 @@ async function refreshModelStatus() {
     const status = await request("/api/intelligence/status");
     if (!status.available) {
       el.textContent = `模型不可用：${status.reason || "未返回具体原因"}`;
+    } else if (status.warming) {
+      el.textContent = "模型正在后台预热...";
     } else {
       el.textContent = status.model_loaded
         ? "模型已加载（占用约 3-4GB 内存）"
@@ -3717,6 +3726,13 @@ function updateAiModeLabel() {
   $("#ai-mode-label").textContent = enabled ? "新笔记将自动整理分类与标签" : "已关闭自动整理，可按需点击“重新整理”";
 }
 
+function updateAiWarmupLabel() {
+  const enabled = $("#ai-warmup-on-start").checked;
+  $("#ai-warmup-label").textContent = enabled
+    ? "启动后后台加载模型，减少首次问答等待"
+    : "关闭启动预热，首次问答时再加载模型";
+}
+
 $("#ai-auto-apply").addEventListener("change", async (e) => {
   const enabled = e.target.checked;
   updateAiModeLabel();
@@ -3729,6 +3745,25 @@ $("#ai-auto-apply").addEventListener("change", async (e) => {
   } catch (err) {
     e.target.checked = !enabled;
     updateAiModeLabel();
+    showToast("设置失败", err.message);
+  }
+});
+
+$("#ai-warmup-on-start").addEventListener("change", async (e) => {
+  const enabled = e.target.checked;
+  updateAiWarmupLabel();
+  try {
+    const result = await request("/api/settings/ai-warmup", {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    });
+    if (enabled && result.warming) refreshModelStatus();
+    showToast(enabled ? "已开启启动预热" : "已关闭启动预热", enabled
+      ? "本次会话将开始后台加载本地模型"
+      : "下次启动不会提前加载模型");
+  } catch (err) {
+    e.target.checked = !enabled;
+    updateAiWarmupLabel();
     showToast("设置失败", err.message);
   }
 });

@@ -1,0 +1,184 @@
+{
+  "documents": [
+    {
+      "title": "供应商A采购风控KRI阈值方案",
+      "content": "供应商A（机电设备）2026 Q2 风险监控 KRI 阈值：\n- 交货延迟率 > 5% 触发黄色预警\n- 交货延迟率 > 10% 触发红色预警，暂停新订单\n- 一次合格率 < 95% 连续 2 个月，启动整改\n- 财务应付账期偏离合同 > 15 天，上报风控委员会\n\n异常处置流程：采购经理 24 小时内确认 → 风控专员 3 个工作日内出评估报告 → 涉及金额 > 50 万提级到采购总监审批。\n\n注意：该方案仅适用于 A 类核心供应商，B/C 类供应商走简化版（仅监控交货延迟率）。",
+      "category": "工作",
+      "subcategory": "采购风控"
+    },
+    {
+      "title": "FastAPI 后端 OCR 异常排查记录",
+      "content": "Pocket Memory 后端 /api/notes 接口偶发 500 错误，定位到 RapidOCR 在处理大图（>10MB）时 onnxruntime 内存溢出。\n\n根因：RapidOcrEngine 默认不限制输入图分辨率，4K 截图直接送进 det 模型导致 ORT 分配 2GB+ 内存。\n\n解决方案：\n1. 在 OcrService.enqueue 之前用 Pillow 把图缩放到最长边 2048\n2. onnxruntime 显式设置 intra_op_num_threads=2，避免抢占主线程\n3. 给 ORT session 加 try/except，失败时把 ocr_status 置为 failed 而不是让请求挂住\n\n修复后线上 7 天无复现，单图 OCR 延迟从 4-8 秒降到 1.5-2.5 秒。",
+      "category": "技术",
+      "subcategory": "后端排障"
+    },
+    {
+      "title": "Vue3 + PyWebView 桌面打包踩坑",
+      "content": "PyInstaller 打包 Pocket Memory 桌面版遇到的问题：\n\n1. onnxruntime 动态库丢失：需要在 .spec 里把 onnxruntime/capi/*.dll 加入 binaries\n2. tokenizers 的 tokenizer.json 路径找不到：用 resource_path() 兼容 _MEIPASS\n3. PyWebView 在 Win10 1903 以下系统报 Edge WebView2 未安装：在入口加 try/except，失败时回退到 webbrowser.open()\n4. 模型文件（Qwen3 GGUF + BGE ONNX）不能打进 exe，必须放在 exe 同级 models/ 目录，用 --add-data 加进去会爆体积到 3GB\n\n最终打包结构：PocketMemory.exe + _internal/ + models/ + runtime/，总体积约 1.8GB。",
+      "category": "技术",
+      "subcategory": "桌面打包"
+    },
+    {
+      "title": "MySQL 慢查询优化：笔记全文检索",
+      "content": "notes_fts 表（FTS5 trigram）在 5000 条笔记时查询从 50ms 涨到 800ms。\n\n排查：EXPLAIN QUERY PLAN 显示 FTS5 走了全表扫描，原因是 LIKE '%关键词%' 没走索引，且 trigram tokenizer 对 1 字关键词退化。\n\n优化方案：\n- 关键词长度 >= 2 走 FTS5 MATCH + bm25() 排序\n- 关键词长度 = 1 回退到 instr() 子串匹配\n- 给 notes 表的 category/subcategory 加普通索引（B-tree）\n- 创建覆盖索引 idx_notes_updated (updated_at DESC, id, title)\n\n优化后 5000 条笔记下检索稳定在 30-60ms。",
+      "category": "技术",
+      "subcategory": "数据库优化"
+    },
+    {
+      "title": "Qwen3-0.6B 本地部署笔记",
+      "content": "Qwen3-0.6B Q8_0 GGUF 在 Intel i5-12400 + 16GB 内存上的实测数据：\n\n- llama-completion.exe subprocess 模式：首次 8-12 秒（含模型加载），后续 5-8 秒\n- llama-cpp-python 进程内常驻：首次 1.5-2 秒（加载），后续 0.3-0.8 秒\n- 显存占用：0（纯 CPU）\n- 内存占用：常驻约 900MB\n- 分类准确率（采购/技术/学习/生活/灵感/其他 6 类）：约 82%\n\n结论：0.6B 模型在分类任务上勉强够用，但在 RAG 问答时容易答非所问。下一步试 Qwen3-1.7B Q4_K_M（约 1.1GB），预期内存 1.5GB，速度下降不明显但准确率应明显提升。\n\n注意：Qwen3 系列用 ChatML 模板，system 提示词里加 /no_think 可关闭思考链，推理速度提升 30%。",
+      "category": "技术",
+      "subcategory": "模型部署"
+    },
+    {
+      "title": "BGE-small-zh 向量检索方案对比",
+      "content": "Pocket Memory 向量检索选型对比：\n\n1. BGE-small-zh-v1.5（512 维，ONNX Q8 量化）：体积 95MB，中文语义好，线性扫描 500 条以内 < 50ms\n2. text2vec-base-chinese（768 维）：体积 400MB，准确率略高但太重\n3. M3E-small（512 维）：英文场景更好，中文略逊于 BGE\n\n最终选 BGE-small-zh + 线性扫描。笔记数 > 500 后计划引入 sqlite-vec（SQLite 向量扩展），把 O(n) 降到 O(log n)。\n\nRRF 融合参数：关键词 rank 权重 1/(60+rank)，语义 rank 权重 1/(60+rank)，融合阈值 0.50。",
+      "category": "技术",
+      "subcategory": "向量检索"
+    },
+    {
+      "title": "采购审批流重构方案",
+      "content": "2026 Q3 采购审批流重构目标：\n\n现状问题：\n- 三级审批（采购经理 → 风控 → 总监）平均耗时 5.2 天\n- 金额阈值 50 万固定，未区分品类风险\n- 风控评估依赖人工，平均每单 2.5 小时\n\n重构方向：\n1. 按品类分档：IT 设备 30 万、原材料 100 万、服务类 50 万触发三级审批\n2. 引入 KRI 自动评分：供应商近 3 个月交货延迟率、合格率、财务偏离度加权打分，<70 分自动触发风控评估\n3. 风控评估部分自动化：合同条款解析 + 历史对比报告自动生成，预计单均耗时降到 0.8 小时\n\n目标：审批平均耗时从 5.2 天降到 2.5 天，风控拦截率提升 15%。",
+      "category": "工作",
+      "subcategory": "采购流程"
+    },
+    {
+      "title": "Python 异步任务最佳实践",
+      "content": "Pocket Memory 后端三个异步服务（OCR/Embedding/Intelligence）的设计原则：\n\n1. ThreadPoolExecutor(max_workers=1) 串行执行：本地模型并发会 CPU 抢占，反而更慢\n2. enqueue 立即返回，状态机 pending → processing → done/failed\n3. 失败重试：指数退避（1s → 2s → 4s），最多 3 次\n4. 状态持久化到 SQLite，应用重启后 recover() 自动续跑未完成任务\n5. OCR 完成后回调 _after_ocr，触发 Embedding + Intelligence 重跑（吃上 OCR 文本）\n\n坑：ThreadPoolExecutor 的 shutdown(wait=False) 不会立即停掉正在跑的任务，需要在应用退出时显式 cancel() + join(timeout=5)。",
+      "category": "技术",
+      "subcategory": "异步编程"
+    },
+    {
+      "title": "2026 Q3 个人学习计划",
+      "content": "学习目标：\n1. LLM RAG 进阶：读完《Building RAG from Scratch》，动手实现 HyDE + 多查询重写\n2. 系统设计：补强分布式锁、消息队列至少一次/至多一次语义\n3. 英语：每天 30 分钟 Bloomberg 商业新闻，目标 12 月前能裸读财报\n\n本周任务（7/27-8/2）：\n- 周一/三/五 19:00-21:00 RAG 书第 3-5 章\n- 周二/四 21:00-21:30 Bloomberg\n- 周末整理一周笔记，写一篇技术博客\n\n注意：每周日晚上回顾完成度，连续 2 周未达标需要调整节奏。",
+      "category": "学习",
+      "subcategory": "学习计划"
+    },
+    {
+      "title": "干扰项：周末游记",
+      "content": "周末去了郊外，爬山 8 公里，中午在山顶农家乐吃了土鸡煲，下午在湖边发呆。和采购、FastAPI、向量检索都没关系，只是测试检索会不会被'爬山'、'土鸡'这种关键词干扰。",
+      "category": "生活",
+      "subcategory": "周末记录"
+    },
+    {
+      "title": "干扰项：菜谱",
+      "content": "番茄炒蛋：鸡蛋 3 个打散，番茄 2 个切块，先炒蛋再下番茄，加盐和糖各一勺。注意火候不要大，番茄出汁后立刻起锅。和供应商、KRI、Qwen3、BGE 都没关系，纯测试检索抗干扰能力。",
+      "category": "生活",
+      "subcategory": "菜谱"
+    }
+  ],
+  "cases": [
+    {
+      "id": "full_kri_threshold",
+      "question": "供应商A的交货延迟率红色预警阈值是多少？",
+      "kind": "full_text",
+      "expected_titles": ["供应商A采购风控KRI阈值方案"],
+      "expected_answer_terms": ["10%", "红色预警", "暂停新订单"],
+      "forbidden_terms": ["50万"]
+    },
+    {
+      "id": "rhetoric_pillow_resize",
+      "question": "OCR 异常排查里为什么要用 Pillow 缩放图片？",
+      "kind": "rhetoric",
+      "expected_titles": ["FastAPI 后端 OCR 异常排查记录"],
+      "expected_answer_terms": ["内存溢出", "分辨率", "2048"],
+      "expected_evidence_terms": ["最长边 2048"]
+    },
+    {
+      "id": "background_qwen_no_think",
+      "question": "Qwen3 部署笔记里提到的 /no_think 是干什么用的？",
+      "kind": "background_time",
+      "expected_titles": ["Qwen3-0.6B 本地部署笔记"],
+      "expected_answer_terms": ["关闭思考链", "提升"],
+      "allow_insufficient": false
+    },
+    {
+      "id": "compare_ocr_optimization",
+      "question": "OCR 排查和 MySQL 慢查询优化两次性能优化分别用了什么手段？",
+      "kind": "comparison",
+      "expected_titles": ["FastAPI 后端 OCR 异常排查记录", "MySQL 慢查询优化：笔记全文检索"],
+      "expected_answer_terms": ["Pillow", "缩放", "FTS5", "MATCH", "索引"]
+    },
+    {
+      "id": "compare_model_vs_vector",
+      "question": "Qwen3 模型和 BGE 向量检索方案在选型时分别考虑了什么？",
+      "kind": "comparison",
+      "expected_titles": ["Qwen3-0.6B 本地部署笔记", "BGE-small-zh 向量检索方案对比"],
+      "expected_answer_terms": ["Qwen3", "BGE", "准确率", "体积"]
+    },
+    {
+      "id": "semantic_approval_automation",
+      "question": "采购审批流程里有没有提到自动评估的部分？",
+      "kind": "semantic",
+      "expected_titles": ["采购审批流重构方案"],
+      "expected_answer_terms": ["KRI", "自动评分", "风控评估"]
+    },
+    {
+      "id": "semantic_async_recovery",
+      "question": "应用重启后异步任务怎么保证不丢？",
+      "kind": "semantic",
+      "expected_titles": ["Python 异步任务最佳实践"],
+      "expected_answer_terms": ["recover", "状态持久化", "SQLite"]
+    },
+    {
+      "id": "confusion_kri_to_mysql",
+      "question": "供应商 KRI 阈值方案里的 FTS5 索引优化是怎么做的？",
+      "kind": "confusion",
+      "expected_titles": ["MySQL 慢查询优化：笔记全文检索"],
+      "expected_answer_terms": ["FTS5", "MATCH", "bm25"],
+      "forbidden_terms": ["供应商A", "KRI"]
+    },
+    {
+      "id": "confusion_qwen_to_bge",
+      "question": "Qwen3-0.6B 向量检索方案对比里提到了什么优化？",
+      "kind": "confusion",
+      "expected_titles": ["BGE-small-zh 向量检索方案对比"],
+      "expected_answer_terms": ["BGE", "线性扫描", "sqlite-vec"],
+      "forbidden_terms": ["Qwen3"]
+    },
+    {
+      "id": "insufficient_claude",
+      "question": "Claude 和 GPT-4 在 RAG 上的对比效果如何？",
+      "kind": "generic",
+      "expected_titles": [],
+      "expected_answer_terms": ["没有足够信息", "现有笔记"],
+      "allow_insufficient": true
+    },
+    {
+      "id": "insufficient_supplier_b",
+      "question": "供应商B的交货延迟率阈值是多少？",
+      "kind": "generic",
+      "expected_titles": ["供应商A采购风控KRI阈值方案"],
+      "expected_answer_terms": ["B类", "简化版", "没有明确", "仅监控"],
+      "allow_insufficient": true
+    },
+    {
+      "id": "full_pyinstaller_structure",
+      "question": "PyInstaller 打包最终目录结构是什么样的？",
+      "kind": "full_text",
+      "expected_titles": ["Vue3 + PyWebView 桌面打包踩坑"],
+      "expected_answer_terms": ["PocketMemory.exe", "_internal", "models", "1.8GB"]
+    },
+    {
+      "id": "semantic_learning_rag",
+      "question": "我最近在学什么 LLM 相关的东西？",
+      "kind": "semantic",
+      "expected_titles": ["2026 Q3 个人学习计划"],
+      "expected_answer_terms": ["RAG", "HyDE", "多查询重写"]
+    },
+    {
+      "id": "compare_async_vs_approval",
+      "question": "异步任务设计和采购审批流重构在自动化思路上有什么相似点？",
+      "kind": "comparison",
+      "expected_titles": ["Python 异步任务最佳实践", "采购审批流重构方案"],
+      "expected_answer_terms": ["自动", "状态", "流程"]
+    },
+    {
+      "id": "full_rrf_params",
+      "question": "向量检索方案里 RRF 融合的参数是多少？",
+      "kind": "full_text",
+      "expected_titles": ["BGE-small-zh 向量检索方案对比"],
+      "expected_answer_terms": ["1/(60+rank)", "0.50"]
+    }
+  ]
+}

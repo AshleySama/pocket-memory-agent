@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Build a transparent, realistic-style office RAG acceptance fixture.
 
 The corpus is fictional and contains no customer or employee data.  It is

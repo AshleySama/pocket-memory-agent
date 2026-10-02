@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """版本信息与更新检查配置。
 
 部署到腾讯云服务器后，将 UPDATE_CHECK_URL 改为你的域名。

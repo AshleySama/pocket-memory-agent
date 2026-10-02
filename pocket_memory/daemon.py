@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Pocket Memory 守护进程管理。
 
 让 HTTP server（含模型）作为独立进程常驻，webview 窗口只管前端展示。

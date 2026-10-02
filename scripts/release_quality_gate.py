@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Run and gate a de-identified real-note release evaluation via ``/api/ask``.
 
 The evaluator deliberately separates automatic retrieval/latency measurements

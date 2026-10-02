@@ -1,6 +1,12 @@
 Pocket Memory
-Copyright 2026 Pocket Memory contributors
+Copyright 2026 AshleySama
 
-This repository contains source code licensed under Apache-2.0. It does not include third-party model weights, user libraries, release archives, or private evaluation data.
+This product includes software developed by AshleySama.
 
-Third-party packages, models, OCR assets, icons, and visual assets are governed by their respective licenses and notices. See THIRD_PARTY_NOTICES.md.
+Original project:
+https://github.com/AshleySama/pocket-memory-agent
+
+Licensed under the Apache License, Version 2.0.
+
+Redistributions and derivative works should retain this NOTICE file, the
+Apache-2.0 LICENSE file, and attribution to the original project and author.

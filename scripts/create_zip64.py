@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Create a standards-compatible ZIP64 archive for large Pocket Memory releases."""
 from __future__ import annotations
 

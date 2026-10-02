@@ -1,6 +1,9 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Pocket Memory 开发模式启动器。
 
-用 Python 脚本替代 .bat，减少被终端防护误判为批处理启动器的概率。
+用 Python 脚本替代 .bat，避免企业杀毒软件（如 SentinelOne）误报隔离。
 启动方式（任选其一）：
   1. 终端：python run_dev.py
   2. 终端（先激活虚拟环境）：

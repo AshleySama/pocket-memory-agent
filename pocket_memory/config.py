@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import json
@@ -33,6 +36,7 @@ class AppConfig:
     data_dir: Path | None = None
     theme: str = "aqua-memory"
     ai_auto_apply: bool = True  # True=自动应用 AI 建议, False=仅整理不自动应用
+    ai_warmup_on_start: bool = True  # 启动后后台预热模型，降低首个问答的等待
     llm_model_path: str | None = None  # 选中的 LLM 模型相对路径（相对 models/），None=默认
 
     @classmethod
@@ -53,6 +57,7 @@ class AppConfig:
             data_dir=Path(raw_data_dir).resolve() if raw_data_dir else None,
             theme=payload.get("theme", "aqua-memory"),
             ai_auto_apply=bool(payload.get("ai_auto_apply", True)),
+            ai_warmup_on_start=bool(payload.get("ai_warmup_on_start", True)),
             llm_model_path=payload.get("llm_model_path"),
         )
 
@@ -64,6 +69,7 @@ class AppConfig:
                 "data_dir": str(self.data_dir) if self.data_dir else None,
                 "theme": self.theme,
                 "ai_auto_apply": self.ai_auto_apply,
+                "ai_warmup_on_start": self.ai_warmup_on_start,
                 "llm_model_path": self.llm_model_path,
             },
             ensure_ascii=False,
@@ -91,6 +97,10 @@ class AppConfig:
 
     def set_ai_auto_apply(self, enabled: bool) -> None:
         self.ai_auto_apply = enabled
+        self._save()
+
+    def set_ai_warmup_on_start(self, enabled: bool) -> None:
+        self.ai_warmup_on_start = enabled
         self._save()
 
     def set_llm_model_path(self, model_path: str | None) -> None:

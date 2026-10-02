@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import tempfile
@@ -51,6 +54,25 @@ class StatusOnlyTextEngine:
 
     def runtime_status(self) -> dict:
         return {"available": True, "reason": "", "model_loaded": False}
+
+
+class WarmableTextEngine:
+    def __init__(self) -> None:
+        self.model_loaded = False
+        self.load_calls = 0
+
+    @property
+    def available(self) -> bool:
+        self.load_calls += 1
+        self.model_loaded = True
+        return True
+
+    @property
+    def unavailable_reason(self) -> str:
+        return ""
+
+    def runtime_status(self) -> dict:
+        return {"available": True, "reason": "", "model_loaded": self.model_loaded}
 
 
 class IntelligenceServiceTests(unittest.TestCase):
@@ -190,6 +212,22 @@ class IntelligenceServiceTests(unittest.TestCase):
             service.shutdown()
         self.assertTrue(status["available"])
         self.assertFalse(status["model_loaded"])
+
+    def test_background_warmup_loads_once_without_blocking_callers(self) -> None:
+        engine = WarmableTextEngine()
+        service = IntelligenceService(self.store, engine)
+        try:
+            self.assertTrue(service.warm_up())
+            future = service._warmup_future
+            self.assertIsNotNone(future)
+            future.result(timeout=1)
+            self.assertTrue(engine.model_loaded)
+            self.assertEqual(engine.load_calls, 1)
+            self.assertFalse(service.warming_up)
+            self.assertFalse(service.warm_up())
+            self.assertEqual(engine.load_calls, 1)
+        finally:
+            service.shutdown()
 
     def test_background_enqueue_always_uses_the_configured_model(self) -> None:
         note = self.store.create_note("复核计划", "周五前完成供应商复核")

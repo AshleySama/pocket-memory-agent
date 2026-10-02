@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1 - 2026-10-02
+
+Public-source synchronization and attribution hardening.
+
+- Synced the current application runtime, frontend, scripts, tests, and public regression fixtures from the maintained product line.
+- Added project-wide copyright and SPDX header verification to the GitHub Actions test workflow.
+- Clarified original-project attribution in NOTICE and README while retaining Apache-2.0 licensing and third-party notices.
+- Continued to exclude model weights, user data, release archives, local reports, and private evaluation material.
+
 ## 1.1.1-beta - 2026-09-16
 
 First public-source preparation baseline.

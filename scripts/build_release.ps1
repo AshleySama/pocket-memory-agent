@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 param(
     [switch]$SkipTests,
     [switch]$WithoutModels,
@@ -88,7 +91,7 @@ $hashManifest = Join-Path $OutputDir "$packageName-SHA256.txt"
     "Pocket Memory $version release",
     "Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')",
     "",
-    "Use these SHA-256 values to verify the release files after download or distribution.",
+    "Use these SHA-256 values when submitting the package to enterprise security for review or allowlisting.",
     "",
     "PocketMemory.exe  $((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $packageRoot 'PocketMemory.exe')).Hash)",
     "$(Split-Path -Leaf $archivePath)  $((Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash)"

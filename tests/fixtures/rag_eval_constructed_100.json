@@ -1,8 +1,7 @@
 {
   "dataset": {
     "type": "constructed-regression",
-    "version": 1,
-    "notice": "All documents and questions in this fixture are synthetic engineering regression material. They do not represent real customer, company, or user-library data."
+    "version": 1
   },
   "documents": [
     {

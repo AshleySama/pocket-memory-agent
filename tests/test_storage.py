@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 import base64
 import json
 import tempfile

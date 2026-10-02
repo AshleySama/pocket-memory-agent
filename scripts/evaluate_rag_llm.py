@@ -1,7 +1,10 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """阶段 1 验证脚本：绕过 fallback_answer，直接用 LLM 答题，测真实水平。
 
 用法：
-    python scripts/evaluate_rag_llm.py --fixture tests/fixtures/rag_eval_constructed_100.json
+    python scripts/evaluate_rag_llm.py --fixture tests/fixtures/rag_eval_business.json
     python scripts/evaluate_rag_llm.py --fixture tests/fixtures/rag_eval_cases.json
 """
 from __future__ import annotations

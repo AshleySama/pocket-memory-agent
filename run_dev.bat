@@ -1,3 +1,6 @@
+REM Copyright 2026 AshleySama
+REM SPDX-License-Identifier: Apache-2.0
+
 @echo off
 title Pocket Memory (Dev)
 cd /d "%~dp0"

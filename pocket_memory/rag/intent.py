@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """查询意图路由器。
 
 业内个人知识库 RAG 常见查询意图分三大族：

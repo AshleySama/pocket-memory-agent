@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Build a transparent 100-question general-knowledge RAG benchmark.
 
 Every fact is copied into the temporary Pocket Memory corpus together with a

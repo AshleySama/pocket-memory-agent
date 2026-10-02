@@ -1,0 +1,94 @@
+{
+  "dataset": {
+    "name": "Pocket Memory 真实反馈冻结回归集",
+    "version": 3,
+    "type": "user-observed-regression",
+    "notice": "资料名称和期望证据来自用户在 D:\\Library\\pocket_memory 中的实际演示库。该文件用于冻结失败模式；不替代 100 条脱敏真实资料的正式验收集。",
+    "case_count": 8
+  },
+  "cases": [
+    {
+      "id": "conversation-001",
+      "kind": "conversation_topic_reset",
+      "history": ["全文搜索和 RAG 问答有什么区别？"],
+      "question": "这次演示资料需要遵守哪些原则？",
+      "expected_titles": ["项目决策记录"],
+      "expected_evidence_terms": ["第一", "第二", "第三"],
+      "forbidden_titles": ["RAG 与全文搜索"],
+      "pass_rule": "不得把上一轮 RAG 主题拼入检索；若资料含编号原则，证据必须完整保留至少两项。",
+      "priority": "P0"
+    },
+    {
+      "id": "relation-001",
+      "kind": "same_note_paraphrase",
+      "question": "项目复盘里提到的风险是什么？",
+      "expected_titles": ["项目复盘"],
+      "expected_evidence_terms": ["风险一", "风险二", "风险三"],
+      "equivalent_to": "项目有哪些风险？",
+      "pass_rule": "与等价问法命中同一风险资料；不能因“里提到的”关系词拒答。",
+      "priority": "P0"
+    },
+    {
+      "id": "conversation-002",
+      "kind": "prior_history_must_not_contaminate_current_question",
+      "history": ["工业互联网和人工智能各自承担什么角色？"],
+      "question": "项目有哪些风险？",
+      "expected_titles": ["项目复盘"],
+      "expected_evidence_terms": ["风险一", "风险二", "风险三"],
+      "forbidden_titles": ["AI工业互联网协同赋能摘要.txt", "AI制造行动方案节选.pdf"],
+      "pass_rule": "即使请求携带旧历史，当前完整问题也只能使用《项目复盘》的风险证据；不得继承工业互联网主题。",
+      "priority": "P0"
+    },
+    {
+      "id": "enumeration-002",
+      "kind": "count_phrased_enumeration",
+      "question": "项目有几个风险？",
+      "equivalent_to": "项目有哪些风险？",
+      "expected_titles": ["项目复盘"],
+      "expected_evidence_terms": ["风险一", "风险二", "风险三"],
+      "pass_rule": "数量型问法同样要求完整列出来源中的风险项；不得只返回第一项或将“几个”误路由为笔记库统计。",
+      "priority": "P0"
+    },
+    {
+      "id": "ocr-table-001",
+      "kind": "ocr_table_row",
+      "question": "项目风险扫描Agent 的核心功能和适用场景是什么？",
+      "expected_titles": ["Agent场景清单"],
+      "expected_answer_terms": ["识别项目资料中的风险、缺口和待确认项", "项目复盘"],
+      "expected_evidence_terms": ["Agent名称：项目风险扫描Agent", "核心功能", "适用场景"],
+      "pass_rule": "名称、功能、场景必须来自同一 OCR 表格行；只返回名称、相邻行字段或模型补写均失败。",
+      "priority": "P0"
+    },
+    {
+      "id": "ocr-table-002",
+      "kind": "entity_optional_space",
+      "question": "项目风险扫描 Agent 的核心功能和适用场景是什么？",
+      "equivalent_to": "项目风险扫描Agent 的核心功能和适用场景是什么？",
+      "expected_titles": ["Agent场景清单"],
+      "expected_answer_terms": ["识别项目资料中的风险、缺口和待确认项", "项目复盘"],
+      "expected_evidence_terms": ["Agent名称：项目风险扫描Agent", "核心功能", "适用场景"],
+      "forbidden_evidence_terms": ["| 识别项目资料中的风险"],
+      "pass_rule": "实体名在 Agent 前有无空格均命中同一完整表格行；不得只返回名称、显示 Markdown 单元格竖线、借用相邻行或拒答。",
+      "priority": "P0"
+    },
+    {
+      "id": "role-001",
+      "kind": "two_subject_role",
+      "question": "工业互联网和人工智能各自承担什么角色？",
+      "expected_titles": ["AI工业互联网协同赋能摘要.txt"],
+      "expected_answer_terms": ["连接与数据基础", "发现模式", "生成摘要", "回答问题"],
+      "forbidden_evidence_terms": ["工业互联网和人工智能融合赋能行动方案"],
+      "pass_rule": "必须引用两者的直接角色分工句，不能只用政策标题替代事实。",
+      "priority": "P0"
+    },
+    {
+      "id": "evidence-role-001",
+      "kind": "evidence_role_alignment",
+      "question": "初赛的作品，需要准备什么？",
+      "expected_evidence_terms": ["准备文字资料和视频展示"],
+      "forbidden_evidence_terms": ["时间有限，文字和视频可能准备不充分"],
+      "pass_rule": "准备类问题必须引用行动/准备段，不得以风险段替代答案证据。",
+      "priority": "P1"
+    }
+  ]
+}

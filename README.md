@@ -98,7 +98,18 @@ The public preparation baseline passes 187 automated tests locally. Model-backed
 
 ## License
 
-The Pocket Memory source code is licensed under [Apache-2.0](LICENSE). Model weights, OCR assets, example data, fonts, and third-party packages are governed by their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Pocket Memory source code is licensed under [Apache-2.0](LICENSE). Model weights, OCR assets, example data, fonts, and third-party packages are governed by their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+### License and attribution
+
+If you redistribute this project or create a derivative work, retain the [LICENSE](LICENSE) and [NOTICE](NOTICE) files and preserve the original-project attribution:
+
+    Original project: Pocket Memory
+    Original author: AshleySama
+    https://github.com/AshleySama/pocket-memory-agent
+    Licensed under Apache-2.0
+
+You may add your own copyright notice for your original changes, but do not remove the original notice from files or distributions that include Pocket Memory code.
 
 ## Community feedback
 

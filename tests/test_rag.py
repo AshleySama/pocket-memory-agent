@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import unittest
@@ -482,15 +485,15 @@ class RagRankingTests(unittest.TestCase):
     def test_resolution_question_prefers_an_explicit_recommendation(self) -> None:
         pipeline = object.__new__(RagPipeline)
         text = (
-            "项目演示页面无法打开会影响验收。\n"
-            "💡 核心建议：在演示前一天完成访问配置，并立即测试确认页面能够正常打开。"
+            "审核期间网站打不开会影响备案。\n"
+            "💡 核心建议：在提交公安备案申请的当天或前一天添加DNS A记录，并立即测试确保通过域名能访问网站。"
         )
 
-        evidence = pipeline.evidence_sentence("演示页面打不开怎么办", text, ["演示", "页面", "打不开"])
+        evidence = pipeline.evidence_sentence("审核时网站打不开怎么办", text, ["审核", "网站", "打不开"])
 
         self.assertEqual(
             evidence,
-            "在演示前一天完成访问配置，并立即测试确认页面能够正常打开。",
+            "在提交公安备案申请的当天或前一天添加DNS A记录，并立即测试确保通过域名能访问网站。",
         )
 
     def test_evidence_keeps_the_explicit_negative_boundary(self) -> None:

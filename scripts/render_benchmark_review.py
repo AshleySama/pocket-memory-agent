@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Render a human-auditable report for an API RAG benchmark result."""
 from __future__ import annotations
 

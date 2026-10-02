@@ -1,3 +1,6 @@
+REM Copyright 2026 AshleySama
+REM SPDX-License-Identifier: Apache-2.0
+
 @echo off
 title Pocket Memory - Setup Virtual Environment
 cd /d "%~dp0"

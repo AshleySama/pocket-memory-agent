@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import json
@@ -6,7 +9,7 @@ import re
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -861,7 +864,7 @@ class LlamaCppTextEngine:
 
 class IntelligenceService:
     # 空闲卸载配置
-    IDLE_UNLOAD_SECONDS = 5 * 60  # 4B 模型空闲 5 分钟后释放办公内存
+    IDLE_UNLOAD_SECONDS = 10 * 60  # 4B 模型空闲 10 分钟后释放办公内存
     IDLE_CHECK_INTERVAL = 60
 
     def __init__(self, store: NoteStore, engine: LlamaCppTextEngine | None = None, on_complete=None, auto_apply: bool = True) -> None:
@@ -870,6 +873,8 @@ class IntelligenceService:
         self.on_complete = on_complete
         self.auto_apply = auto_apply
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pocket-memory-ai")
+        self._warmup_lock = threading.Lock()
+        self._warmup_future: Future | None = None
         self._idle_stop = threading.Event()
         self._idle_thread = threading.Thread(
             target=self._idle_watch_loop,
@@ -877,6 +882,31 @@ class IntelligenceService:
             daemon=True,
         )
         self._idle_thread.start()
+
+    @property
+    def warming_up(self) -> bool:
+        """Whether the startup warmup task is still loading the local model."""
+        with self._warmup_lock:
+            return self._warmup_future is not None and not self._warmup_future.done()
+
+    def warm_up(self) -> bool:
+        """Load model weights through the serial AI worker without blocking the UI."""
+        with self._warmup_lock:
+            if bool(getattr(self.engine, "model_loaded", False)):
+                return False
+            if self._warmup_future is not None and not self._warmup_future.done():
+                return False
+            self._warmup_future = self.executor.submit(self._warm_model)
+            return True
+
+    def _warm_model(self) -> None:
+        try:
+            if self.engine.available:
+                logger.info("本地模型后台预热完成")
+            else:
+                logger.info("本地模型后台预热未完成: %s", self.engine.unavailable_reason)
+        except Exception:
+            logger.debug("本地模型后台预热失败", exc_info=True)
 
     def status(self) -> dict:
         pending = len(self.store.pending_ai_note_ids())
@@ -891,6 +921,7 @@ class IntelligenceService:
             if hasattr(self.engine, "model_loaded"):
                 status["model_loaded"] = self.engine.model_loaded
         status["pending"] = pending
+        status["warming"] = self.warming_up
         return status
 
     def enqueue(self, note_id: int, *, apply: bool | None = None) -> None:

@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import base64
@@ -481,7 +484,19 @@ class PocketMemoryServerTests(unittest.TestCase):
 
     def test_intelligence_status_api(self) -> None:
         _, status = self.request("/api/intelligence/status")
-        self.assertEqual(status, {"available": False, "reason": "测试环境未启用自动整理", "pending": 0})
+        self.assertFalse(status["available"])
+        self.assertEqual(status["reason"], "测试环境未启用自动整理")
+        self.assertEqual(status["pending"], 0)
+        self.assertIn("warming", status)
+
+    def test_ai_warmup_setting_is_persisted(self) -> None:
+        _, before = self.request("/api/settings")
+        self.assertTrue(before["ai_warmup_on_start"])
+
+        _, changed = self.request("/api/settings/ai-warmup", "POST", {"enabled": False})
+        self.assertFalse(changed["ai_warmup_on_start"])
+        self.assertFalse(self.config.ai_warmup_on_start)
+        self.assertFalse(AppConfig.load(self.config.path).ai_warmup_on_start)
 
     def test_disabling_auto_organisation_skips_new_note_ai_status(self) -> None:
         _, setting = self.request("/api/settings/ai-mode", "POST", {"auto_apply": False})

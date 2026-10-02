@@ -1,4 +1,8 @@
 <!doctype html>
+<!--
+  Copyright 2026 AshleySama
+  SPDX-License-Identifier: Apache-2.0
+-->
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8">
@@ -247,12 +251,22 @@
           </div>
           <p class="muted">关闭后，AI 仅分析不覆盖你的手工分类，适合想完全自主管理分类的用户。</p>
 
+          <label>启动后后台预热智能问答</label>
+          <div class="directory-row">
+            <label class="switch">
+              <input type="checkbox" id="ai-warmup-on-start" checked>
+              <span class="switch-slider"></span>
+            </label>
+            <span id="ai-warmup-label" class="inline-muted">启动后后台加载模型，减少首次问答等待</span>
+          </div>
+          <p class="muted">默认开启。预热不阻塞笔记和导入；模型空闲 10 分钟会自动释放约 3-4GB 内存。</p>
+
           <label>本地模型状态</label>
           <div class="directory-row">
             <span id="model-status-text" class="inline-muted">查询中...</span>
             <button id="unload-model-btn" type="button" class="ghost" disabled>当前未加载</button>
           </div>
-          <p class="muted">模型只会在智能问答或重新整理时按需载入；空闲 5 分钟会自动释放内存。未加载时没有可释放的内存。</p>
+          <p class="muted">模型会在启动后后台预热，也可在智能问答或重新整理时按需载入；空闲 10 分钟会自动释放内存。未加载时没有可释放的内存。</p>
 
           <details class="settings-model-advanced">
             <summary>高级：切换兼容 GGUF 模型</summary>
@@ -363,7 +377,7 @@
           <div class="onboarding-illust">📝</div>
           <h2>欢迎使用 Pocket Memory</h2>
           <p>你的本地 AI 笔记助手。所有数据存在本机，零云端依赖，零 API 费用。</p>
-          <p class="muted">模型本地运行，首次问答需要 5-10 秒加载。</p>
+          <p class="muted">模型会在启动后后台预热，首次问答通常无需等待完整加载。</p>
         </div>
         <div class="onboarding-step hidden" data-step="2">
           <div class="onboarding-illust">⌨️</div>

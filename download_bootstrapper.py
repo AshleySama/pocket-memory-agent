@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 #!/usr/bin/env python3
 """下载 WebView2 Bootstrapper，以便 PyInstaller 打包时附带给最终用户。
 

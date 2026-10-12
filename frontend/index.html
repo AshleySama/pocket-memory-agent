@@ -1,7 +1,7 @@
 <!doctype html>
 <!--
-  Copyright 2026 AshleySama
-  SPDX-License-Identifier: Apache-2.0
+Copyright 2026 AshleySama
+SPDX-License-Identifier: Apache-2.0
 -->
 <html lang="zh-CN">
   <head>
@@ -10,7 +10,8 @@
     <link rel="icon" type="image/png" href="/brand/pocket-memory-small-logo.png">
     <link id="notification-icon" rel="prefetch" href="/brand/pocket-memory-small-logo.png">
     <title>Pocket Memory</title>
-  <link rel="stylesheet" href="/styles.css?v=20260912-navigation-1">
+  <link rel="stylesheet" href="/styles.css?v=20261007-nav-1">
+  <link rel="stylesheet" href="/ui-controls.css?v=20261007-brand-align-1">
   </head>
   <body class="knowledge-workbench">
     <header class="app-header">
@@ -24,8 +25,8 @@
       <section class="search-panel global-search" aria-label="搜索与智能问答">
         <input type="hidden" id="search-mode" value="hybrid">
         <div class="search-input-wrap">
-          <input id="search" placeholder="搜索笔记，或直接提问你的知识库">
-          <span class="search-shortcut" aria-hidden="true">⌘ K</span>
+          <input id="search" placeholder="搜索笔记，或直接提问你的知识库" aria-keyshortcuts="Enter" aria-description="输入问题后按 Enter 进行智能问答">
+          <span class="search-shortcut" aria-hidden="true"><svg viewBox="0 0 14 14" fill="none"><path d="M11 3v4a2 2 0 0 1-2 2H3m0 0 3-3M3 9l3 3"/></svg><span>Enter</span></span>
           <button id="search-clear" class="search-clear hidden" type="button" aria-label="清空搜索">✕</button>
         </div>
         <span id="result-count"></span>
@@ -37,7 +38,7 @@
         <button id="import-document-btn" class="ghost" type="button">导入文件</button>
         <button id="graph-button" class="ghost" type="button">知识图谱</button>
         <button id="report-button" class="ghost" type="button">专题报告</button>
-        <button id="settings-button" class="ghost">设置</button>
+        <button id="settings-button" class="ghost" type="button">设置</button>
         <a id="update-badge" class="update-badge hidden" href="#" target="_blank" title="发现新版本，点击下载">有新版本</a>
       </div>
     </header>
@@ -217,6 +218,10 @@
         <div class="dialog-header">
           <h2>设置</h2>
           <button class="ghost">关闭</button>
+        </div>
+        <div id="settings-load-status" class="settings-load-status hidden" role="status" aria-live="polite">
+          <span id="settings-load-message"></span>
+          <button id="settings-retry" class="ghost" type="button" hidden>重试</button>
         </div>
         <div class="settings-tabs">
           <button type="button" class="settings-tab active" data-tab-target="appearance">外观</button>
@@ -407,6 +412,6 @@
       </div>
     </dialog>
 
-    <script src="/app.js?v=20260913-citation-evidence-1"></script>
+    <script src="/app.js?v=20261007-nav-1"></script>
   </body>
 </html>

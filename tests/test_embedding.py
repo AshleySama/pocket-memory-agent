@@ -1,15 +1,17 @@
-from __future__ import annotations
-
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
 from pocket_memory.embedding import EmbeddingService
+from pocket_memory import embedding
 from pocket_memory.rag.pipeline import RagPipeline
 from pocket_memory.storage import NoteStore
 
@@ -96,6 +98,34 @@ class EmbeddingServiceTests(unittest.TestCase):
         title = EmbeddingService._chunk_title("李白诗词", "《望庐山瀑布》李白\n飞流直下三千尺。")
 
         self.assertEqual(title, "《望庐山瀑布》李白")
+
+
+class EmbeddingResourceTests(unittest.TestCase):
+    def test_external_llm_directory_does_not_hide_bundled_embedding(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "models" / "Qwen3-4B").mkdir(parents=True)
+            bundled = root / "_internal" / "models" / "bge-small-zh-v1.5"
+            bundled.mkdir(parents=True)
+            with patch.object(embedding.sys, "_MEIPASS", str(root / "_internal"), create=True), patch.object(
+                embedding.sys, "executable", str(root / "PocketMemory.exe")
+            ):
+                engine = embedding.BgeEmbeddingEngine()
+            self.assertEqual(engine.model_dir, bundled.resolve())
+            self.assertIsNone(engine._session)
+
+    def test_exact_external_embedding_directory_takes_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            external = root / "models" / "bge-small-zh-v1.5"
+            external.mkdir(parents=True)
+            (root / "_internal" / "models" / "bge-small-zh-v1.5").mkdir(parents=True)
+            with patch.object(embedding.sys, "_MEIPASS", str(root / "_internal"), create=True), patch.object(
+                embedding.sys, "executable", str(root / "PocketMemory.exe")
+            ):
+                engine = embedding.BgeEmbeddingEngine()
+            self.assertEqual(engine.model_dir, external.resolve())
+            self.assertIsNone(engine._session)
 
 
 if __name__ == "__main__":

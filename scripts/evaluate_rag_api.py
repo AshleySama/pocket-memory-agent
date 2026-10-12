@@ -9,6 +9,7 @@ rewriting, context construction and the same HTTP response consumed by the UI.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import statistics
 import sys
@@ -29,6 +30,7 @@ from pocket_memory.ocr import OcrService
 from pocket_memory.server import PocketMemoryServer
 from pocket_memory.storage import NoteStore
 from scripts.evaluate_rag_llm import score_case
+from scripts.rag_eval_fixture import populate_fixture
 
 
 class UnavailableOcrEngine:
@@ -38,7 +40,7 @@ class UnavailableOcrEngine:
 
 def request(base_url: str, question: str, history: list[dict] | None = None) -> tuple[dict, float]:
     started = time.perf_counter()
-    payload = {"question": question}
+    payload = {"question": question, "diagnostics": True}
     if isinstance(history, list):
         payload["history"] = history
     payload = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -62,7 +64,9 @@ def percentile(values: list[float], ratio: float) -> float:
 
 
 def evaluate(fixture_path: Path, case_ids: set[str] | None = None) -> dict:
-    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    fixture_bytes = fixture_path.read_bytes()
+    fixture = json.loads(fixture_bytes.decode("utf-8"))
+    fixture_sha256 = hashlib.sha256(fixture_bytes).hexdigest().upper()
     temporary = tempfile.TemporaryDirectory()
     root = Path(temporary.name)
     store = NoteStore(root / "data")
@@ -80,17 +84,7 @@ def evaluate(fixture_path: Path, case_ids: set[str] | None = None) -> dict:
     ocr = OcrService(store, UnavailableOcrEngine())
     server = None
     try:
-        for document in fixture["documents"]:
-            note = store.create_note(
-                document["title"],
-                document["content"],
-                category=document.get("category", "其他"),
-                subcategory=document.get("subcategory", ""),
-            )
-            embedding._process(note.id)
-            # Fixture documents are already curated.  Do not let startup recovery
-            # enqueue background classification jobs that contend with /api/ask.
-            store.update_ai_status(note.id, "done", "")
+        populate_fixture(store, embedding, fixture)
 
         config = AppConfig(root / "config.json", store.data_dir)
         server = PocketMemoryServer(
@@ -113,13 +107,17 @@ def evaluate(fixture_path: Path, case_ids: set[str] | None = None) -> dict:
             print(f"[{index}/{total}] {case['id']}", file=sys.stderr, flush=True)
             response, seconds = request(base_url, case["question"], case.get("history"))
             result = score_case(case, response.get("sources", []), response.get("answer", ""))
+            result["question"] = case["question"]
             result["kind"] = response.get("kind", result["kind"])
             result["elapsed_seconds"] = round(seconds, 3)
+            result["timing"] = response.get("timing", {})
+            result["diagnostics"] = response.get("diagnostics", {})
             cases.append(result)
             elapsed.append(seconds)
             print(f"  {seconds:.2f}s score={result['score']}", file=sys.stderr, flush=True)
         return {
             "fixture": fixture_path.name,
+            "fixture_sha256": fixture_sha256,
             "pipeline": "production_api",
             "model": llm.model_path.name,
             "average_score": round(sum(item["score"] for item in cases) / len(cases), 3),

@@ -77,6 +77,58 @@ class InsufficientAnswerTextEngine(UnavailableTextEngine):
         return "现有笔记里没有足够信息"
 
 
+class CapturingAnswerTextEngine(UnavailableTextEngine):
+    available = True
+    unavailable_reason = ""
+
+    def __init__(self) -> None:
+        self.last_question = ""
+
+    def answer(self, question: str, contexts: list[dict]) -> str:
+        self.last_question = question
+        return "紧急采购适用于供应中断或生产停线风险。[1]"
+
+
+class CountingThresholdTextEngine(UnavailableTextEngine):
+    available = True
+    unavailable_reason = ""
+
+    def __init__(self) -> None:
+        self.answer_calls = 0
+
+    def answer(self, question: str, contexts: list[dict]) -> str:
+        self.answer_calls += 1
+        return "队列积压告警被调整到20万条 [1]。"
+
+
+class CountingInverseApprovalTextEngine(CountingThresholdTextEngine):
+    def answer(self, question: str, contexts: list[dict]) -> str:
+        self.answer_calls += 1
+        return "5万元（含）至20万元（不含），由部门负责人、预算负责人及采购负责人审批 [1]。"
+
+
+class CountingCausePairTextEngine(CountingThresholdTextEngine):
+    def answer(self, question: str, contexts: list[dict]) -> str:
+        self.answer_calls += 1
+        return "订单 P1 的根因是数据库，消息队列不是根因 [1]。"
+
+
+class CountingBudgetPauseTextEngine(CountingThresholdTextEngine):
+    def answer(self, question: str, contexts: list[dict]) -> str:
+        self.answer_calls += 1
+        return "优惠券成本上限38万元，媒体投放预算上限12万元 [1]。"
+
+
+class CountingRetentionTextEngine(CountingThresholdTextEngine):
+    def __init__(self, response: str) -> None:
+        super().__init__()
+        self.response = response
+
+    def answer(self, question: str, contexts: list[dict]) -> str:
+        self.answer_calls += 1
+        return self.response
+
+
 class ReportTextEngine(UnavailableTextEngine):
     available = True
     unavailable_reason = ""
@@ -601,6 +653,278 @@ class PocketMemoryServerTests(unittest.TestCase):
         self.assertIn("retrieval_seconds", payload["timing"])
         self.assertIn("total_seconds", payload["timing"])
 
+    def test_ask_diagnostics_are_opt_in_structured_and_content_free(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, EchoContextTextEngine())
+        question = "供应商有没有风险"
+        secret_body = "供应商存在风险线索，需要登记并由采购负责人复核。"
+        note = self.store.create_note("采购风险控制", secret_body)
+        self.server.embedding_service._process(note.id)
+
+        _, default_payload = self.request("/api/ask", "POST", {"question": question})
+        self.assertNotIn("diagnostics", default_payload)
+
+        _, diagnostic_payload = self.request(
+            "/api/ask", "POST", {"question": question, "diagnostics": True}
+        )
+        diagnostics = diagnostic_payload["diagnostics"]
+        serialized = json.dumps(diagnostics, ensure_ascii=False)
+
+        self.assertEqual(diagnostics["schema_version"], 1)
+        self.assertEqual(diagnostics["intent"]["type"], "qa")
+        self.assertGreaterEqual(len(diagnostics["retrieval_attempts"]), 1)
+        self.assertIn("channel_counts", diagnostics["retrieval_attempts"][0])
+        self.assertIn("generation", diagnostics)
+        self.assertIn("verification", diagnostics)
+        self.assertIn("claim_count", diagnostics["verification"])
+        self.assertIn("supported_claim_count", diagnostics["verification"])
+        self.assertIn("unsupported_claim_count", diagnostics["verification"])
+        self.assertEqual(
+            diagnostics["verification"]["claim_count"],
+            diagnostics["verification"]["supported_claim_count"]
+            + diagnostics["verification"]["unsupported_claim_count"],
+        )
+        self.assertNotIn(question, serialized)
+        self.assertNotIn(secret_body, serialized)
+
+    def test_adjusted_count_api_declines_retracted_evidence_without_generation(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingThresholdTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        note = self.store.create_note("订单系统配置", "订单系统将积压阈值告警从20万条调整为5万条。该调整已撤回。")
+        self.server.embedding_service._process(note.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": "订单系统的队列积压告警被调整到多少条？", "diagnostics": True})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 0)
+            self.assertEqual(payload["sources"], [])
+            self.assertIn("无法基于笔记回答", payload["answer"])
+            self.assertNotIn("generation", payload["diagnostics"])
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_adjusted_count_api_recovers_original_relation_from_wrong_generated_old_value(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingThresholdTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        relation = "订单系统将积压阈值告警从20万条调整为5万条。"
+        note = self.store.create_note("订单系统配置", relation)
+        self.server.embedding_service._process(note.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": "订单系统的队列积压告警被调整到多少条？"})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 1)
+            self.assertEqual(payload["answer"], "来源[1] " + relation)
+            self.assertEqual(payload["sources"][0]["evidence"], relation)
+            self.assertEqual(payload["sources"][0]["id"], note.id)
+            self.assertEqual(payload["sources"][0]["url"], f"/api/notes/{note.id}")
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_inverse_approval_api_recovers_low_band_from_wrong_middle_band(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingInverseApprovalTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "rag_eval_realistic_office_100.json").read_text(encoding="utf-8"))
+        document = next(item for item in fixture["documents"] if item["title"] == "采购审批流重构方案与灰度复盘")
+        question = next(item["question"] for item in fixture["cases"] if item["id"] == "paraphrase-001")
+        note = self.store.create_note(document["title"], document["content"])
+        self.server.embedding_service._process(note.id)
+        distractor = self.store.create_note("采购审批金额表", "合同编号：EQ-C31；合同金额：5万元；负责人：采购负责人")
+        self.server.embedding_service._process(distractor.id)
+        target = "【新审批规则】单笔含税金额 5 万元以下，由部门负责人和预算负责人审批；"
+        witness = "5 万元（含）至 20 万元（不含），由部门负责人、预算负责人及采购负责人审批；"
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": question})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 1)
+            self.assertEqual(payload["answer"], "来源[1] " + target)
+            self.assertEqual(payload["sources"][0]["evidence"], target + "\n" + witness)
+            self.assertEqual(payload["sources"][0]["id"], note.id)
+            self.assertEqual(payload["sources"][0]["location"], "正文 1")
+            self.assertEqual(payload["sources"][0]["url"], f"/api/notes/{note.id}")
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_inverse_approval_api_declines_revoked_pair_without_generation(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingInverseApprovalTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        text = "单笔金额5万元以下，由部门负责人和预算负责人审批；5万元（含）至20万元（不含），由部门负责人、预算负责人及采购负责人审批；该规则已撤回。"
+        note = self.store.create_note("采购审批规则", text)
+        self.server.embedding_service._process(note.id)
+        distractor = self.store.create_note("采购审批金额表", "合同编号：EQ-C31；合同金额：5万元；负责人：采购负责人")
+        self.server.embedding_service._process(distractor.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": "小额采购走到什么金额以内可以不找采购负责人？", "diagnostics": True})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 0)
+            self.assertEqual(payload["sources"], [])
+            self.assertIn("无法基于笔记回答", payload["answer"])
+            self.assertNotIn("generation", payload["diagnostics"])
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_budget_pause_api_resolves_original_history_and_recovers_rule(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingBudgetPauseTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "rag_eval_realistic_office_100.json").read_text(encoding="utf-8"))
+        case = next(item for item in fixture["cases"] if item["id"] == "followup-006")
+        doc = next(item for item in fixture["documents"] if item["title"] == case["expected_titles"][0])
+        note = self.store.create_note(doc["title"], doc["content"])
+        self.server.embedding_service._process(note.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": case["question"], "history": case["history"], "diagnostics": True})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 1)
+            rule = "任何单渠道超预算 5% 必须暂停并向项目经理说明。"
+            self.assertEqual(payload["answer"], "来源[1] " + rule)
+            self.assertEqual(payload["sources"][0]["evidence"], rule)
+            self.assertEqual((payload["sources"][0]["id"], payload["sources"][0]["url"], payload["sources"][0]["location"]), (note.id, f"/api/notes/{note.id}", "正文 1"))
+            self.assertTrue(payload["diagnostics"]["query_understanding"]["history_used"])
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_budget_pause_api_declines_exception_before_generation(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingBudgetPauseTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        text = "【会议日期】2026-06-18。\n【预算】任何单渠道超预算5%必须暂停并向项目经理说明。短信渠道除外。"
+        note = self.store.create_note("营销活动项目例会纪要（夏季会员周）", text)
+        self.server.embedding_service._process(note.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": "超过一点点也要停吗？", "history": [{"role": "user", "content": "营销活动预算怎么控制？"}, {"role": "assistant", "content": "任何情况都必须暂停。[1]"}], "diagnostics": True})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 0)
+            self.assertEqual(payload["sources"], [])
+            self.assertNotIn("generation", payload["diagnostics"])
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_retention_endpoint_api_recovers_original_fixture_without_invented_deadline(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingRetentionTextEngine("账号停用后历史资料不会立刻被删除，会保留直至权限交接完成 [1]。")
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "rag_eval_realistic_office_100.json").read_text(encoding="utf-8"))
+        case = next(item for item in fixture["cases"] if item["id"] == "paraphrase-011")
+        doc = next(item for item in fixture["documents"] if item["title"] == case["expected_titles"][0])
+        note = self.store.create_note(doc["title"], doc["content"])
+        self.server.embedding_service._process(note.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": case["question"]})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 1)
+            self.assertNotIn("权限交接完成", payload["answer"])
+            self.assertIn("所有历史资料立刻删除", payload["answer"])
+            self.assertIn("不等于", payload["sources"][0]["evidence"])
+            self.assertEqual((payload["sources"][0]["id"], payload["sources"][0]["url"]), (note.id, f"/api/notes/{note.id}"))
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_retention_endpoint_api_keeps_explicit_supported_endpoint(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingRetentionTextEngine("历史资料保留直至权限交接完成 [1]。")
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        note = self.store.create_note("离岗历史资料保存规则", "账号停用不会立即删除历史资料。历史资料保留直至权限交接完成。")
+        self.server.embedding_service._process(note.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": "人离职后账号一关，历史资料会马上被删吗？"})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 1)
+            self.assertIn("历史资料保留直至权限交接完成", payload["answer"])
+            self.assertEqual(payload["sources"][0]["id"], note.id)
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_cause_pair_api_recovers_full_original_block_with_claim_citations(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingCausePairTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        fixture = json.loads((Path(__file__).parent / "fixtures" / "rag_eval_realistic_office_100.json").read_text(encoding="utf-8"))
+        document = next(item for item in fixture["documents"] if item["title"] == "订单同步延迟 P1 故障复盘")
+        question = next(item["question"] for item in fixture["cases"] if item["id"] == "distractor-003")
+        note = self.store.create_note(document["title"], document["content"])
+        self.server.embedding_service._process(note.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": question})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 1)
+            self.assertEqual(len(payload["sources"]), 1)
+            source = payload["sources"][0]
+            self.assertIn("促销峰值使消息队列积压", payload["answer"])
+            self.assertIn("数据库不是根因", payload["answer"])
+            self.assertIn("未纳入队列滞留时间", source["evidence"])
+            self.assertNotIn("P1 判定依据", source["evidence"])
+            self.assertEqual((source["id"], source["url"], source["location"]), (note.id, f"/api/notes/{note.id}", "正文 1"))
+            claims = RagPipeline.answer_claims(payload["answer"])
+            self.assertEqual(len(claims), 3)
+            self.assertTrue(all(claim["citations"] == [1] for claim in claims))
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
+    def test_cause_pair_api_declines_retracted_conclusion_without_generation(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        engine = CountingCausePairTextEngine()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, engine)
+        text = "【事件摘要】7月8日09:12至10:06，订单中心向仓储系统的同步延迟最高47分钟。\n【根因】消息队列积压。数据库不是根因。\n【补充结论】该根因结论已撤回。"
+        note = self.store.create_note("订单同步延迟 P1 故障复盘", text)
+        self.server.embedding_service._process(note.id)
+        distractor = self.store.create_note("订单 P1 根因记录", "事件编号：EQ-C31；根因：数据库；负责人：林岚")
+        self.server.embedding_service._process(distractor.id)
+        try:
+            status, payload = self.request("/api/ask", "POST", {"question": "订单 P1 的根因是数据库还是消息队列？", "diagnostics": True})
+            self.assertEqual(status, 200)
+            self.assertEqual(engine.answer_calls, 0)
+            self.assertEqual(payload["sources"], [])
+            self.assertIn("无法基于笔记回答", payload["answer"])
+            self.assertNotIn("generation", payload["diagnostics"])
+        finally:
+            self.server.embedding_service.shutdown()
+            self.server.intelligence_service.shutdown()
+
     def test_plain_note_count_uses_deterministic_stats_not_rag(self) -> None:
         self.store.create_note("第一条", "内容一")
         self.store.create_note("第二条", "内容二")
@@ -753,6 +1077,31 @@ class PocketMemoryServerTests(unittest.TestCase):
         self.assertIn("床前明月光", payload["answer"])
         self.assertIn("[1]", payload["answer"])
 
+    def test_answer_contract_uses_original_question_after_prompt_rewrite(self) -> None:
+        """Prompt rewrites may guide generation but must not weaken the user's evidence request."""
+        handler = object.__new__(PocketMemoryHandler)
+        handler.server = self.server
+        engine = CapturingAnswerTextEngine()
+        source = {
+            "title": "采购流程",
+            "evidence": "紧急采购适用于供应中断或生产停线风险。",
+            "text": "紧急采购适用于供应中断或生产停线风险。",
+            "score": 1.0,
+        }
+
+        answer, selected_sources = handler._answer_with_history(
+            engine,
+            "请根据资料概括紧急采购规则。",
+            [{"text": source["text"]}],
+            [],
+            [source],
+            contract_question="紧急采购一共发生过多少次？",
+        )
+
+        self.assertEqual(engine.last_question, "请根据资料概括紧急采购规则。")
+        self.assertEqual(answer, "现有笔记没有足够信息。")
+        self.assertEqual(selected_sources, [])
+
     def test_current_question_ignores_prior_conversation_for_retrieval(self) -> None:
         """A complete new question must never borrow previous-turn retrieval terms."""
         self.embedding_service.shutdown()
@@ -783,6 +1132,44 @@ class PocketMemoryServerTests(unittest.TestCase):
         self.assertNotIn("工业互联网", payload["answer"])
         self.assertEqual(payload["conversation"]["mode"], "single_turn")
 
+    def test_explicit_followup_inherits_only_the_previous_user_subject(self) -> None:
+        self.embedding_service.shutdown()
+        self.intelligence_service.shutdown()
+        self.server.embedding_service = EmbeddingService(self.store, SimpleEmbeddingEngine())
+        self.server.rag_pipeline = RagPipeline(self.store, self.server.embedding_service)
+        self.server.intelligence_service = IntelligenceService(self.store, EchoContextTextEngine())
+        threshold_note = self.store.create_note(
+            "供应商 A 风险阈值",
+            "供应商 A 交货延迟率达到 10% 为红色预警，低于 3% 为绿色状态。",
+        )
+        distractor = self.store.create_note(
+            "项目状态颜色",
+            "绿色表示项目已经完成，红色表示项目尚未启动。",
+        )
+        self.server.embedding_service._process(threshold_note.id)
+        self.server.embedding_service._process(distractor.id)
+
+        _, payload = self.request(
+            "/api/ask",
+            "POST",
+            {
+                "question": "那绿色呢？",
+                "history": [
+                    {"role": "user", "content": "供应商 A 的交货延迟率红色预警是多少？"},
+                    {"role": "assistant", "content": "这段模型回答不能作为检索证据。"},
+                ],
+                "diagnostics": True,
+            },
+        )
+
+        self.assertEqual(payload["sources"][0]["id"], threshold_note.id)
+        self.assertIn("低于 3%", payload["answer"])
+        self.assertEqual(payload["conversation"]["mode"], "contextual_followup")
+        self.assertEqual(payload["conversation"]["subject"], "供应商 A 的交货延迟率")
+        diagnostics = payload["diagnostics"]["query_understanding"]
+        self.assertTrue(diagnostics["history_used"])
+        self.assertEqual(diagnostics["reason"], "deictic_reference")
+
     def test_ambiguous_operation_question_does_not_answer_from_an_unrelated_history(self) -> None:
         self.embedding_service.shutdown()
         self.intelligence_service.shutdown()
@@ -808,6 +1195,16 @@ class PocketMemoryServerTests(unittest.TestCase):
 
                 self.assertEqual(payload["kind"], "clarification")
                 self.assertIn(expected, payload["answer"])
+                self.assertEqual(payload["sources"], [])
+                self.assertEqual(payload["conversation"]["mode"], "single_turn")
+
+    def test_underspecified_subject_questions_return_clarification_without_sources(self) -> None:
+        for question in ("这个期限怎么算？", "哪个项目要上线？", "这份合同怎么付款？"):
+            with self.subTest(question=question):
+                _, payload = self.request("/api/ask", "POST", {"question": question})
+
+                self.assertEqual(payload["kind"], "clarification")
+                self.assertIn("请明确", payload["answer"])
                 self.assertEqual(payload["sources"], [])
                 self.assertEqual(payload["conversation"]["mode"], "single_turn")
 

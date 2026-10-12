@@ -39,7 +39,8 @@ if os.environ.get('POCKET_MEMORY_NO_MODELS') != '1':
         ('models/rapidocr', 'models/rapidocr'),
     ])
     if os.environ.get('POCKET_MEMORY_NO_LLM') != '1':
-        datas.append(('models/Qwen3-4B', 'models/Qwen3-4B'))
+        # Ship complete weights, never leftover download fragments (*.gguf.part).
+        datas.append(('models/Qwen3-4B/*.gguf', 'models/Qwen3-4B'))
 
 # 排除主应用运行时不需要的包（减少体积，不影响功能）
 # - 测试框架：仅 tests/ 目录用，打包不含 tests

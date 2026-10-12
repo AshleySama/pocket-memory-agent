@@ -1,0 +1,237 @@
+{
+  "dataset": {
+    "name": "Pocket Memory 切片与可定位引用冻结评测集",
+    "version": 1,
+    "type": "synthetic-location-ground-truth",
+    "notice": "全部内容为合成资料，用于区分来源命中、证据切片命中和原文位置命中；不代表真实业务结论。",
+    "case_count": 5
+  },
+  "documents": [
+    {
+      "source_type": "document",
+      "title": "设备验收手册",
+      "original_name": "设备验收手册.pdf",
+      "content": "三页合成 PDF，分别描述验收流程、振动记录和冷却泵阈值。",
+      "chunks": [
+        {
+          "text": "设备验收先核对铭牌、安装位置和随机资料，完成后登记验收编号。",
+          "location": "第 1 页",
+          "page": 1
+        },
+        {
+          "text": "运行检查需要记录振动趋势，但本页不规定最终允许值。",
+          "location": "第 2 页",
+          "page": 2
+        },
+        {
+          "text": "冷却泵验收要求：稳定运行十分钟后，最大振动值不得超过 4.5 mm/s。",
+          "location": "第 3 页",
+          "page": 3
+        }
+      ]
+    },
+    {
+      "source_type": "document",
+      "title": "采购审批矩阵",
+      "original_name": "采购审批矩阵.xlsx",
+      "content": "合成 Excel 审批矩阵，金额区间分布在不同表格行。",
+      "chunks": [
+        {
+          "text": "采购金额低于 50 万元，由部门经理审批。",
+          "location": "工作表：审批矩阵，第 2-4 行",
+          "sheet": "审批矩阵",
+          "cell_range": "A2:D4"
+        },
+        {
+          "text": "采购金额为 50 万元至 100 万元，由区域采购总监审批。",
+          "location": "工作表：审批矩阵，第 5-7 行",
+          "sheet": "审批矩阵",
+          "cell_range": "A5:D7"
+        },
+        {
+          "text": "采购金额超过 100 万元，由业务副总裁审批。",
+          "location": "工作表：审批矩阵，第 8-10 行",
+          "sheet": "审批矩阵",
+          "cell_range": "A8:D10"
+        }
+      ]
+    },
+    {
+      "source_type": "document",
+      "title": "故障响应规范",
+      "original_name": "故障响应规范.docx",
+      "content": "合成 Word 规范，P1 与 P2 故障采用不同升级时限。",
+      "chunks": [
+        {
+          "text": "P2 故障应在三十分钟内升级至支持团队，并在当日形成处理记录。",
+          "location": "章节：P2 故障响应",
+          "section": "P2 故障响应"
+        },
+        {
+          "text": "P1 故障必须在 15 分钟内升级至值班经理，并同步通知业务负责人。",
+          "location": "章节：P1 故障响应",
+          "section": "P1 故障响应"
+        }
+      ]
+    },
+    {
+      "source_type": "document",
+      "title": "项目交付清单",
+      "original_name": "项目交付清单.xlsx",
+      "content": "合成交付清单，记录上线前的数据质量检查。",
+      "chunks": [
+        {
+          "text": "上线前质量检查：抽样核对二十条迁移记录，确认必填字段完整率达到 100%。",
+          "location": "工作表：质量检查，第 12-16 行",
+          "sheet": "质量检查",
+          "cell_range": "A12:E16"
+        },
+        {
+          "text": "项目成员和联系信息在工作表首页维护。",
+          "location": "工作表：首页，第 1-5 行",
+          "sheet": "首页",
+          "cell_range": "A1:E5"
+        }
+      ]
+    },
+    {
+      "source_type": "document",
+      "title": "项目上线手册",
+      "original_name": "项目上线手册.pdf",
+      "content": "合成上线手册，记录发布前的安全检查。",
+      "chunks": [
+        {
+          "text": "上线前安全检查：完成最小权限复核，并关闭全部临时测试账号。",
+          "location": "第 9 页",
+          "page": 9
+        },
+        {
+          "text": "上线窗口确定后向项目成员发送通知。",
+          "location": "第 2 页",
+          "page": 2
+        }
+      ]
+    },
+    {
+      "source_type": "document",
+      "title": "退款处理制度",
+      "original_name": "退款处理制度.pdf",
+      "content": "合成制度包含旧版与新版时限，测试冲突信息的精确定位。",
+      "chunks": [
+        {
+          "text": "2024 旧版流程规定，退款申请在材料齐全后五个工作日内审批。",
+          "location": "第 2 页（2024 旧版）",
+          "page": 2
+        },
+        {
+          "text": "2026 新版流程规定，退款申请在材料齐全后两个工作日内审批。",
+          "location": "第 4 页（2026 新版）",
+          "page": 4
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "location-pdf-001",
+      "kind": "pdf_page_location",
+      "question": "冷却泵验收允许的最大振动值是多少？",
+      "expected_titles": ["设备验收手册"],
+      "expected_passages": [
+        {
+          "id": "pump-vibration-limit",
+          "title": "设备验收手册",
+          "required_terms": ["最大振动值不得超过", "4.5 mm/s"],
+          "locations": ["第 3 页"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["4.5 mm/s"],
+      "expected_evidence_terms": ["最大振动值不得超过 4.5 mm/s"],
+      "forbidden_terms": ["本页不规定最终允许值"],
+      "priority": "P0"
+    },
+    {
+      "id": "location-xlsx-001",
+      "kind": "excel_row_location",
+      "question": "采购金额为 80 万元时由谁审批？",
+      "expected_titles": ["采购审批矩阵"],
+      "expected_passages": [
+        {
+          "id": "purchase-50-to-100",
+          "title": "采购审批矩阵",
+          "required_terms": ["50 万元至 100 万元", "区域采购总监"],
+          "locations": ["工作表：审批矩阵，第 5-7 行"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["区域采购总监"],
+      "expected_evidence_terms": ["50 万元至 100 万元"],
+      "forbidden_terms": ["部门经理审批", "业务副总裁审批"],
+      "priority": "P0"
+    },
+    {
+      "id": "location-docx-001",
+      "kind": "word_heading_location",
+      "question": "系统发生 P1 故障后多少分钟内升级？",
+      "expected_titles": ["故障响应规范"],
+      "expected_passages": [
+        {
+          "id": "p1-escalation",
+          "title": "故障响应规范",
+          "required_terms": ["P1 故障", "15 分钟内升级"],
+          "locations": ["章节：P1 故障响应"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["15 分钟"],
+      "expected_evidence_terms": ["P1 故障必须在 15 分钟内升级"],
+      "forbidden_terms": ["三十分钟"],
+      "priority": "P0"
+    },
+    {
+      "id": "location-multisource-001",
+      "kind": "multi_document_location",
+      "question": "项目上线前需要完成哪两项质量与安全检查？",
+      "expected_titles": ["项目交付清单", "项目上线手册"],
+      "expected_passages": [
+        {
+          "id": "launch-quality-check",
+          "title": "项目交付清单",
+          "required_terms": ["抽样核对二十条迁移记录", "完整率达到 100%"],
+          "locations": ["工作表：质量检查，第 12-16 行"],
+          "relevance": 3
+        },
+        {
+          "id": "launch-security-check",
+          "title": "项目上线手册",
+          "required_terms": ["最小权限复核", "关闭全部临时测试账号"],
+          "locations": ["第 9 页"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["完整率达到 100%", "最小权限复核", "关闭全部临时测试账号"],
+      "expected_evidence_terms": ["质量检查", "安全检查"],
+      "priority": "P0"
+    },
+    {
+      "id": "location-conflict-001",
+      "kind": "version_conflict_location",
+      "question": "2026 新版退款申请的审批时限是多久？",
+      "expected_titles": ["退款处理制度"],
+      "expected_passages": [
+        {
+          "id": "refund-2026-policy",
+          "title": "退款处理制度",
+          "required_terms": ["2026 新版", "两个工作日内审批"],
+          "locations": ["第 4 页（2026 新版）"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["两个工作日"],
+      "expected_evidence_terms": ["2026 新版流程规定"],
+      "forbidden_terms": ["五个工作日"],
+      "priority": "P0"
+    }
+  ]
+}

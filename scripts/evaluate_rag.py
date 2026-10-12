@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 from pocket_memory.embedding import EmbeddingService
 from pocket_memory.rag import RagPipeline
 from pocket_memory.storage import NoteStore
+from scripts.rag_eval_matching import contains_eval_term
 
 
 class LexicalEmbeddingEngine:
@@ -59,11 +60,11 @@ def score_case(case: dict, sources: list[dict], answer: str) -> dict:
     evidence_text = "\n".join(source.get("evidence", "") for source in sources)
     retrieval_hits = sum(1 for title in case.get("expected_titles", []) if any(title in actual for actual in source_titles))
     retrieval_total = max(1, len(case.get("expected_titles", [])))
-    answer_hits = sum(1 for term in case.get("expected_answer_terms", []) if term in answer)
+    answer_hits = sum(1 for term in case.get("expected_answer_terms", []) if contains_eval_term(answer, term))
     answer_total = max(1, len(case.get("expected_answer_terms", [])))
-    evidence_hits = sum(1 for term in case.get("expected_evidence_terms", []) if term in evidence_text or term in source_text)
+    evidence_hits = sum(1 for term in case.get("expected_evidence_terms", []) if contains_eval_term(evidence_text, term) or contains_eval_term(source_text, term))
     evidence_total = max(1, len(case.get("expected_evidence_terms", [])))
-    forbidden_ok = not any(term in answer or term in source_text for term in case.get("forbidden_terms", []))
+    forbidden_ok = not any(contains_eval_term(answer, term) or contains_eval_term(evidence_text, term) for term in case.get("forbidden_terms", []))
     retrieval_score = retrieval_hits / retrieval_total
     answer_score = answer_hits / answer_total
     evidence_score = evidence_hits / evidence_total if case.get("expected_evidence_terms") else 1.0
@@ -96,6 +97,12 @@ def score_case(case: dict, sources: list[dict], answer: str) -> dict:
                 "title": source.get("title", ""),
                 "location": source.get("location", ""),
                 "evidence": source.get("evidence", ""),
+                "excerpt": source.get("excerpt", ""),
+                "fallback_excerpt": source.get("fallback_excerpt", ""),
+                "evidence_locations": list(source.get("evidence_locations") or []),
+                "chunk_id": source.get("chunk_id"),
+                "chunk_ids": list(source.get("chunk_ids") or []),
+                "type": source.get("type", ""),
             }
             for source in sources
         ],

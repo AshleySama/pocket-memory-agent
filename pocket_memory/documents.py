@@ -230,17 +230,96 @@ class DocumentExtractor:
             if len(text) <= settings["max_chunk_size"]:
                 bounded.append(chunk)
                 continue
-            lines = text.splitlines()
-            header = lines[0] if lines and lines[0].startswith("表头：") else ""
-            body = "\n".join(lines[1:] if header else lines)
-            limit = max(120, settings["max_chunk_size"] - len(header) - (1 if header else 0))
-            pieces = split_note_text(body, target_size=limit, overlap=0) or [body[:limit]]
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            context_lines: list[str] = []
+            while lines and (lines[0].startswith("工作表：") or lines[0].startswith("表头：")):
+                context_lines.append(lines.pop(0))
+
+            # Repeat worksheet/header context in every derived chunk.  XLSX
+            # content starts with ``工作表`` and then ``表头``; preserving only
+            # the first line made later fragments lose both column meaning and
+            # row identity after a long cell was split.
+            max_context = max(0, settings["max_chunk_size"] - 121)
+            context = "\n".join(context_lines)
+            if len(context) > max_context:
+                context = context[:max_context].rstrip(" |；;")
+            limit = max(1, settings["max_chunk_size"] - len(context) - (1 if context else 0))
+
+            pieces: list[str] = []
+            for line in lines or [""]:
+                pieces.extend(cls._split_bounded_table_row(line, limit))
+            pieces = [piece for piece in pieces if piece] or [""]
             for index, piece in enumerate(pieces, 1):
                 item = dict(chunk)
-                item["text"] = f"{header}\n{piece}".strip() if header else piece
+                item["text"] = f"{context}\n{piece}".strip() if context else piece
                 item["location"] = f"{chunk.get('location', '正文')}，片段 {index}/{len(pieces)}"
                 bounded.append(item)
         return bounded
+
+    @classmethod
+    def _split_bounded_table_row(cls, line: str, limit: int) -> list[str]:
+        """Split one oversized table row while repeating its identity field.
+
+        A fragment containing only the tail of ``风险说明`` is ambiguous in
+        retrieval.  Repeating ``合同编号：...`` or the first compact field in
+        every fragment keeps parent-row identity without inventing data or
+        merging neighbouring rows.
+        """
+        clean = str(line or "").strip()
+        if not clean:
+            return []
+        if len(clean) <= limit:
+            return [clean]
+
+        fields = [part.strip() for part in re.split(r"[；;]", clean) if part.strip()]
+        labelled = [field for field in fields if re.match(r"[^：:\n]{1,40}[：:]", field)]
+        if len(labelled) < 2:
+            return [clean[index:index + limit] for index in range(0, len(clean), limit)]
+
+        identity_pattern = re.compile(
+            r"^(?:序号|编号|合同编号|项目编号|订单编号|工单编号|申请编号|"
+            r"ID|名称|项目|合同|订单|工单|Agent名称)\s*[：:]",
+            flags=re.IGNORECASE,
+        )
+        identity = next((field for field in fields if identity_pattern.match(field)), fields[0])
+        if len(identity) >= limit:
+            return [clean[index:index + limit] for index in range(0, len(clean), limit)]
+
+        payload = [field for field in fields if field != identity]
+        pieces: list[str] = []
+        current = identity
+
+        def flush() -> None:
+            nonlocal current
+            if current and current != identity:
+                pieces.append(current)
+            current = identity
+
+        for field in payload:
+            candidate = f"{current}；{field}"
+            if len(candidate) <= limit:
+                current = candidate
+                continue
+            flush()
+            candidate = f"{identity}；{field}"
+            if len(candidate) <= limit:
+                current = candidate
+                continue
+
+            match = re.match(r"(?P<label>[^：:\n]{1,40}[：:])(?P<value>.*)", field)
+            label = match.group("label") if match else ""
+            value = match.group("value") if match else field
+            prefix = f"{identity}；{label}"
+            if len(prefix) >= limit:
+                # Repeating an oversized identity/label would consume the
+                # entire fragment and silently drop every value character.
+                # Preserve the complete row once using bounded raw slices.
+                return [clean[index:index + limit] for index in range(0, len(clean), limit)]
+            capacity = limit - len(prefix)
+            for start in range(0, len(value), capacity):
+                pieces.append((prefix + value[start:start + capacity])[:limit])
+        flush()
+        return pieces or [clean[:limit]]
 
     @classmethod
     def _extract_pdf(cls, document: Document, path: Path, ocr=None, settings=None) -> list[dict]:

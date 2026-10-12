@@ -1,0 +1,213 @@
+{
+  "dataset": {
+    "name": "Pocket Memory 用户反馈可移植冻结回归集",
+    "version": 1,
+    "type": "portable-user-observed-regression",
+    "notice": "内容为依据历史失败模式重新编写的合成资料，不包含用户私有文件；用于干净环境 P0/P1 回归，不替代真实业务人工验收。",
+    "case_count": 8
+  },
+  "documents": [
+    {
+      "title": "项目决策记录",
+      "category": "项目",
+      "subcategory": "决策",
+      "content": "本次演示资料需要遵守三项原则。第一，资料不足时拒答，不把相似内容拼成答案。第二，不牺牲成品质量，功能必须通过真实接口测试。第三，用户参与标签与分类维护，自动整理只给建议。"
+    },
+    {
+      "title": "RAG 与全文搜索",
+      "category": "技术",
+      "subcategory": "检索",
+      "content": "全文搜索擅长查找完全出现过的词语；RAG 会先检索候选片段，再让模型依据证据组织答案。两者可以组合，但搜索命中不等于证据足以回答问题。"
+    },
+    {
+      "title": "项目复盘",
+      "category": "项目",
+      "subcategory": "复盘",
+      "content": "本周完成了资料导入、可追溯问答和专题报告演示。风险一：导入资料主题过杂，会让检索命中很多相似词，却缺少能够直接回答问题的证据。风险二：长 Excel 或扫描 PDF 的原文很难阅读，用户即使打开来源也可能看不出答案在哪里。风险三：本地 4B 模型首次加载较慢，需要预热并保留可解释的备用检索路径。"
+    },
+    {
+      "title": "AI工业互联网协同赋能摘要.txt",
+      "category": "技术",
+      "subcategory": "AI制造",
+      "content": "制造业智能化不是单独部署一个模型。工业互联网承担设备、系统、文档和人员之间的连接与数据基础角色；人工智能承担从已有信息中发现模式、生成摘要、回答问题和提出建议的角色。模型给出的判断仍需人工核验。"
+    },
+    {
+      "title": "AI制造行动方案节选.pdf",
+      "category": "政策",
+      "subcategory": "AI制造",
+      "content": "工业互联网和人工智能融合赋能行动方案提出推进基础设施升级、能力优化和服务创新。本节只说明政策方向，没有定义两者各自承担的具体角色。"
+    },
+    {
+      "title": "Agent场景清单",
+      "category": "图文",
+      "subcategory": "Agent",
+      "content": "图片识别文字。编号：1；Agent名称：会议行动项提取Agent；核心功能：汇总会议结论和待办；适用场景：周例会；输入资料：会议纪要。编号：2；Agent名称：项目风险扫描Agent；核心功能：识别项目资料中的风险、缺口和待确认项；适用场景：项目复盘；输入资料：周报、问题清单；输出：风险清单。编号：3；Agent名称：制度问答Agent；核心功能：依据制度资料回答流程问题并返回来源；适用场景：制度查询；输入资料：PDF、Word。"
+    },
+    {
+      "title": "初赛作品准备清单",
+      "category": "比赛",
+      "subcategory": "准备",
+      "content": "初赛作品需要准备文字资料和视频展示，确保重点清晰。最小实验包括：列出评审维度、写一页说明文档、录一段三分钟演示视频。风险提示：时间有限时，文字和视频可能准备不充分或重点不清，但风险提示不能替代准备事项。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "conversation-001",
+      "kind": "conversation_topic_reset",
+      "history": [
+        {"role": "user", "content": "全文搜索和 RAG 问答有什么区别？"},
+        {"role": "assistant", "content": "全文搜索查字面命中，RAG 会基于检索证据组织回答。"}
+      ],
+      "question": "这次演示资料需要遵守哪些原则？",
+      "expected_titles": ["项目决策记录"],
+      "expected_passages": [
+        {
+          "id": "demo-principles",
+          "title": "项目决策记录",
+          "required_terms": ["资料不足时拒答", "不牺牲成品质量", "用户参与标签与分类维护"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["资料不足时拒答", "不牺牲成品质量", "用户参与标签与分类维护"],
+      "expected_evidence_terms": ["第一", "第二", "第三"],
+      "forbidden_terms": ["全文搜索擅长"],
+      "priority": "P0"
+    },
+    {
+      "id": "relation-001",
+      "kind": "same_note_paraphrase",
+      "question": "项目复盘里提到的风险是什么？",
+      "expected_titles": ["项目复盘"],
+      "expected_passages": [
+        {
+          "id": "project-three-risks",
+          "title": "项目复盘",
+          "required_terms": ["风险一", "风险二", "风险三"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["风险一", "风险二", "风险三"],
+      "expected_evidence_terms": ["风险一", "风险二", "风险三"],
+      "priority": "P0"
+    },
+    {
+      "id": "conversation-002",
+      "kind": "prior_history_must_not_contaminate_current_question",
+      "history": [
+        {"role": "user", "content": "工业互联网和人工智能各自承担什么角色？"},
+        {"role": "assistant", "content": "一个提供连接与数据基础，一个从信息中识别与生成。"}
+      ],
+      "question": "项目有哪些风险？",
+      "expected_titles": ["项目复盘"],
+      "expected_passages": [
+        {
+          "id": "project-three-risks",
+          "title": "项目复盘",
+          "required_terms": ["风险一", "风险二", "风险三"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["风险一", "风险二", "风险三"],
+      "expected_evidence_terms": ["风险一", "风险二", "风险三"],
+      "forbidden_terms": ["连接与数据基础角色"],
+      "priority": "P0"
+    },
+    {
+      "id": "enumeration-002",
+      "kind": "count_phrased_enumeration",
+      "question": "项目有几个风险？",
+      "expected_titles": ["项目复盘"],
+      "expected_passages": [
+        {
+          "id": "project-three-risks",
+          "title": "项目复盘",
+          "required_terms": ["风险一", "风险二", "风险三"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["三个", "风险一", "风险二", "风险三"],
+      "expected_evidence_terms": ["风险一", "风险二", "风险三"],
+      "priority": "P0"
+    },
+    {
+      "id": "ocr-table-001",
+      "kind": "ocr_table_row",
+      "question": "项目风险扫描Agent 的核心功能和适用场景是什么？",
+      "expected_titles": ["Agent场景清单"],
+      "expected_passages": [
+        {
+          "id": "project-risk-agent-row",
+          "title": "Agent场景清单",
+          "required_terms": ["项目风险扫描Agent", "识别项目资料中的风险、缺口和待确认项", "适用场景：项目复盘"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["识别项目资料中的风险、缺口和待确认项", "项目复盘"],
+      "expected_evidence_terms": ["Agent名称：项目风险扫描Agent", "核心功能", "适用场景"],
+      "forbidden_terms": ["会议行动项提取Agent"],
+      "priority": "P0"
+    },
+    {
+      "id": "ocr-table-002",
+      "kind": "entity_optional_space",
+      "question": "项目风险扫描 Agent 的核心功能和适用场景是什么？",
+      "expected_titles": ["Agent场景清单"],
+      "expected_passages": [
+        {
+          "id": "project-risk-agent-row",
+          "title": "Agent场景清单",
+          "required_terms": ["项目风险扫描Agent", "识别项目资料中的风险、缺口和待确认项", "适用场景：项目复盘"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["识别项目资料中的风险、缺口和待确认项", "项目复盘"],
+      "expected_evidence_terms": ["Agent名称：项目风险扫描Agent", "核心功能", "适用场景"],
+      "forbidden_terms": ["会议行动项提取Agent"],
+      "priority": "P0"
+    },
+    {
+      "id": "role-001",
+      "kind": "two_subject_role",
+      "question": "工业互联网和人工智能各自承担什么角色？",
+      "expected_titles": ["AI工业互联网协同赋能摘要.txt"],
+      "expected_passages": [
+        {
+          "id": "industrial-ai-roles",
+          "title": "AI工业互联网协同赋能摘要.txt",
+          "required_terms": ["工业互联网承担", "人工智能承担"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["连接与数据基础", "发现模式", "生成摘要", "回答问题"],
+      "expected_evidence_terms": ["工业互联网承担", "人工智能承担"],
+      "forbidden_terms": ["融合赋能行动方案提出"],
+      "priority": "P0"
+    },
+    {
+      "id": "evidence-role-001",
+      "kind": "evidence_role_alignment",
+      "question": "初赛的作品，需要准备什么？",
+      "expected_titles": ["初赛作品准备清单"],
+      "expected_passages": [
+        {
+          "id": "contest-materials",
+          "title": "初赛作品准备清单",
+          "required_terms": ["准备文字资料和视频展示"],
+          "locations": ["正文 1"],
+          "relevance": 3
+        }
+      ],
+      "expected_answer_terms": ["文字资料", "视频展示"],
+      "expected_evidence_terms": ["准备文字资料和视频展示"],
+      "forbidden_terms": ["风险提示不能替代准备事项"],
+      "priority": "P1"
+    }
+  ]
+}

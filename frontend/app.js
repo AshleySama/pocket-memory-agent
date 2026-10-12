@@ -34,6 +34,7 @@ const state = {
   reportDraft: null,
   newNoteDraft: null,
   resultSortDirection: "desc",
+  askHistory: [],
 };
 
 /* ---- 风格定义 ----
@@ -302,12 +303,63 @@ function citationHighlightTerms(evidence = "") {
     const withoutTableEdges = tableLine.replace(/^\|\s*/, "").replace(/\s*\|$/, "").trim();
     add(withoutTableEdges);
     add(withoutTableEdges.replace(/^[-*+]\s+/, ""));
-    withoutTableEdges.split("|").forEach((cell) => {
-      add(cell);
-      add(String(cell).replace(/^[-*+]\s+/, ""));
-    });
   });
   return [...terms].sort((a, b) => b.length - a.length || a.localeCompare(b));
+}
+
+function citationTableRecords(evidence = "") {
+  // Keep cells together as a record. A repeated owner/status is not evidence
+  // for every other row that happens to contain the same value.
+  const records = [];
+  let fields = [];
+  const flushFields = () => {
+    if (fields.length >= 2) records.push({ fields });
+    fields = [];
+  };
+  for (const line of String(evidence).split(/\r?\n/)) {
+    const separator = line.includes("|") ? "|" : line.includes("\t") ? "\t" : null;
+    if (separator) {
+      flushFields();
+      const cells = line.trim().replace(/^\|/, "").replace(/\|$/, "")
+        .split(separator).map((cell) => cell.trim()).filter(Boolean);
+      if (cells.length >= 2 && !cells.every((cell) => /^:?-{2,}:?$/.test(cell))) records.push({ cells });
+      continue;
+    }
+    for (const segment of line.split(/[；;。！？!?]/)) {
+      const match = segment.trim().match(/^([^：:]{1,32})[：:]\s*(.+)$/);
+      if (!match) continue;
+      const label = match[1].replace(/\s+/g, "").toLowerCase();
+      if (fields.some((field) => field.label === label)) flushFields();
+      fields.push({ label, value: match[2].trim() });
+    }
+  }
+  flushFields();
+  return records;
+}
+
+function citationTableRowTerms(row, headers, records) {
+  const normalize = (value) => String(value).replace(/\s+/g, "").toLowerCase();
+  const values = row.map(normalize);
+  const labels = headers.map(normalize);
+  const terms = new Set();
+  for (const record of records) {
+    if (record.cells) {
+      let cursor = 0;
+      const matches = record.cells.every((cell) => {
+        const index = values.indexOf(normalize(cell), cursor);
+        if (index < 0) return false;
+        cursor = index + 1;
+        return true;
+      });
+      if (matches) row.filter(Boolean).forEach((cell) => terms.add(cell));
+    } else {
+      const indexes = record.fields.map((field) => labels.indexOf(field.label));
+      if (record.fields.every((field, index) => indexes[index] >= 0 && values[indexes[index]] === normalize(field.value))) {
+        indexes.forEach((index) => { if (row[index]) terms.add(row[index]); });
+      }
+    }
+  }
+  return [...terms].sort((a, b) => b.length - a.length);
 }
 
 function scrollToCitation(root) {
@@ -388,12 +440,13 @@ function renderInlineNoteContent(text, terms = []) {
   return html + renderText(source.slice(cursor));
 }
 
-function renderNoteContent(content, terms = []) {
+function renderNoteContent(content, terms = [], { citationEvidence = "" } = {}) {
   // 渲染笔记正文：将表格块渲染为 HTML <table>，其余文本走高亮+双链。
   // 支持两种表格格式：
   //   1. Markdown 表格：每行以 | 开头并以 | 结尾
   //   2. Tab 分隔表格：每行含 \t，且至少 2 行有相同列数（兼容旧笔记和 Excel 粘贴）
   const lines = String(content).split("\n");
+  const citationRecords = citationTableRecords(citationEvidence);
   let html = "";
   let tableLines = [];
   let tableType = null; // "markdown" | "tab"
@@ -418,7 +471,10 @@ function renderNoteContent(content, terms = []) {
     html += '<table class="note-table"><tbody>';
     rows.forEach((row, i) => {
       const tag = i === 0 ? "th" : "td";
-      const cells = row.map((cell) => `<${tag}>${highlightText(cell, terms)}</${tag}>`).join("");
+      const rowTerms = citationRecords.length
+        ? (i === 0 ? [] : citationTableRowTerms(row, rows[0], citationRecords))
+        : terms;
+      const cells = row.map((cell) => `<${tag}>${highlightText(cell, rowTerms)}</${tag}>`).join("");
       html += `<tr>${cells}</tr>`;
     });
     html += "</tbody></table>";
@@ -521,7 +577,7 @@ function renderFolderTree(folders, depth = 0) {
     return `
       <div class="folder-node" data-folder-id="${folder.id}">
         <div class="folder-row ${isActive}" data-drop-folder-id="${folder.id}" style="padding-left:${12 + depth * 14}px">
-          ${hasChildren ? `<button class="folder-toggle" data-toggle-folder="${folder.id}" type="button">${isExpanded ? "▾" : "▸"}</button>` : `<span class="folder-toggle-placeholder"></span>`}
+          ${hasChildren ? `<button class="folder-toggle" data-toggle-folder="${folder.id}" type="button" aria-expanded="${isExpanded}" aria-label="${isExpanded ? "收起" : "展开"}${escapeHtml(folder.name)}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4"/></svg></button>` : `<span class="folder-toggle-placeholder"></span>`}
           <button class="folder-name" data-folder-id="${folder.id}" type="button" title="点击筛选，右键菜单">
             <span>${escapeHtml(folder.name)}</span><b>${folder.note_count}</b>
           </button>
@@ -805,6 +861,7 @@ function renderAnswer(payload, question) {
         }).join("")}
       </div>` : ""}`;
   const closeAnswer = () => {
+    state.askHistory = [];
     $("#answer-panel").innerHTML = `<div class="empty-guide"><p class="muted">在搜索框输入问题，点击「智能问答」<br>会基于你的本地笔记生成回答。</p></div>`;
     $("#result-count").textContent = "";
   };
@@ -961,7 +1018,7 @@ function renderNoteHtml(note, terms) {
     </article>`;
 }
 
-function renderReferenceNoteHtml(note, terms = []) {
+function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "" } = {}) {
   const tags = (note.tags || []).slice(0, 2).map((tag) => (
     `<span class="tag-chip"><span>#${highlightText(tag, terms)}</span></span>`
   )).join("");
@@ -978,7 +1035,7 @@ function renderReferenceNoteHtml(note, terms = []) {
       ${note.attachment_path ? `<img class="note-image" src="/data/${escapeHtml(note.attachment_path)}" alt="笔记图片">` : ""}
       <div class="note-tabs-bar" data-note-id="${note.id}" data-active-tab="${note.id}"></div>
       <div class="note-tab-content" data-note-id="${note.id}">
-        <div class="note-content reference-note-content">${note.content ? renderNoteContent(note.content, terms) : "<p class='muted'>此页签暂无正文。</p>"}</div>
+        <div class="note-content reference-note-content">${note.content ? renderNoteContent(note.content, terms, { citationEvidence }) : "<p class='muted'>此页签暂无正文。</p>"}</div>
       </div>
       ${ocr}
     </article>`;
@@ -2007,7 +2064,7 @@ async function askWith(endpoint, loadingText) {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, stream: true }),
+      body: JSON.stringify({ question, stream: true, history: state.askHistory }),
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
@@ -2060,6 +2117,12 @@ async function askWith(endpoint, loadingText) {
           sources = event.sources || sources;
           resultKind = event.kind || resultKind;
           resultData = event.data || resultData;
+          state.askHistory = resultKind === "clarification" || !answerText.trim()
+            ? []
+            : [
+                { role: "user", content: question },
+                { role: "assistant", content: answerText.slice(0, 1200) },
+              ];
           renderAnswer({ answer: answerText, sources, expanded_terms: expandedTerms, kind: resultKind, data: resultData, timing: event.timing || {} }, question);
         } else if (event.type === "error") {
           $("#answer-panel").innerHTML = `<p class="ocr-error">${escapeHtml(event.message)}</p>`;
@@ -2120,6 +2183,7 @@ function renderAnswerStreaming(question, sources, currentText, expandedTerms) {
       <div class="answer-body typing-cursor">${escapeHtml(cleanText)}</div>
   </div>`;
   $("#close-answer").addEventListener("click", () => {
+    state.askHistory = [];
     $("#answer-panel").innerHTML = `<div class="empty-guide"><p class="muted">在搜索框输入问题，点击「智能问答」<br>会基于你的本地笔记生成回答。</p></div>`;
     $("#result-count").textContent = "";
   });
@@ -3313,7 +3377,7 @@ function renderTabsBar(tabsBar, tabs, activeId) {
   tabsBar.innerHTML = `${chips}${addButton}`;
 }
 
-async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = [], tabsBar: scopedTabsBar = null } = {}) {
+async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = [], citationEvidence = "", tabsBar: scopedTabsBar = null } = {}) {
   await flushPendingContentSaves();
   const tabsBar = scopedTabsBar || document.querySelector(`.note-tabs-bar[data-note-id="${noteId}"]`);
   const noteEl = tabsBar?.closest(".note");
@@ -3325,7 +3389,7 @@ async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = 
     const contentEl = noteEl.querySelector(".note-tab-content");
     contentEl.dataset.activeTab = tabId;
     contentEl.innerHTML = isReference
-      ? `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, highlightTerms) : "<p class='muted'>此页签暂无正文。</p>"}</div>`
+      ? `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, highlightTerms, { citationEvidence }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`
       : `<div class="note-content editable" contenteditable="true" data-note-id="${tabId}" data-field="content" data-placeholder="点击此处开始编辑..." title="点击直接编辑">${tabNote.content ? renderNoteContent(tabNote.content, highlightTerms) : ""}</div>`;
     // 折叠状态下，更新 excerpt 预览为当前页签内容
     const detail = noteEl.querySelector("details.note-detail");
@@ -3611,35 +3675,103 @@ document.querySelectorAll(".settings-tab").forEach((tab) => {
   });
 });
 
-$("#settings-button").addEventListener("click", async () => {
-  const settings = await request("/api/settings");
-  $("#data-dir").value = settings.data_dir;
+let settingsLoadSession = null;
+const SETTINGS_LOAD_TIMEOUT_MS = 10000;
+const SETTINGS_REMOTE_CONTROLS = [
+  "#data-dir", "#choose-directory", "#export-data", "#background-input",
+  "#upload-background", "#clear-background", "#ai-auto-apply", "#ai-warmup-on-start",
+];
+
+function cancelSettingsLoad() {
+  if (!settingsLoadSession) return;
+  const session = settingsLoadSession;
+  settingsLoadSession = null;
+  clearTimeout(session.timer);
+  session.controller.abort();
+}
+
+function setSettingsLoadStatus(message = "", phase = "") {
+  const status = $("#settings-load-status");
+  status.classList.toggle("hidden", !message);
+  status.dataset.state = phase;
+  $("#settings-load-message").textContent = message;
+  $("#settings-retry").hidden = phase !== "error";
+  $("#settings-dialog").setAttribute("aria-busy", String(phase === "loading"));
+}
+
+async function loadSettingsDialog() {
+  cancelSettingsLoad();
+  const session = { controller: new AbortController(), timer: null, timedOut: false };
+  settingsLoadSession = session;
+  const isCurrent = () => settingsLoadSession === session && $("#settings-dialog").open;
+  const requestContext = { signal: session.controller.signal, isCurrent };
+  SETTINGS_REMOTE_CONTROLS.forEach((selector) => { $(selector).disabled = true; });
+  ["#switch-directory", "#migrate-directory", "#unload-model-btn", "#llm-model-select", "#apply-model-btn"]
+    .forEach((selector) => { $(selector).disabled = true; });
   state.selectedDirectory = null;
-  $("#switch-directory").disabled = true;
-  $("#migrate-directory").disabled = true;
-  // 填充风格下拉，以 localStorage 保存的值为准
+  $("#data-dir").value = "";
+  $("#ai-mode-label").textContent = "正在读取设置…";
+  $("#ai-warmup-label").textContent = "正在读取设置…";
+  $("#model-status-text").textContent = "等待设置加载…";
+  $("#unload-model-btn").textContent = "当前未加载";
+  $("#llm-model-select").innerHTML = '<option value="">正在读取…</option>';
+  toggleClearBtn("#clear-background", false);
+  setSettingsLoadStatus("正在读取设置，界面风格可先调整。", "loading");
+  session.timer = setTimeout(() => {
+    session.timedOut = true;
+    session.controller.abort();
+  }, SETTINGS_LOAD_TIMEOUT_MS);
+  try {
+    const settings = await request("/api/settings", { signal: session.controller.signal });
+    if (!isCurrent()) return;
+    $("#data-dir").value = settings.data_dir;
+    toggleClearBtn("#clear-background", !!settings.background);
+    $("#ai-auto-apply").checked = settings.ai_auto_apply !== false;
+    updateAiModeLabel();
+    $("#ai-warmup-on-start").checked = settings.ai_warmup_on_start !== false;
+    updateAiWarmupLabel();
+    SETTINGS_REMOTE_CONTROLS.forEach((selector) => { $(selector).disabled = false; });
+    setSettingsLoadStatus();
+    refreshModelStatus(requestContext);
+    loadModelList(requestContext);
+  } catch (err) {
+    if (!isCurrent()) return;
+    setSettingsLoadStatus(session.timedOut
+      ? "读取设置超时，请确认应用服务仍在运行后重试。界面风格仍可调整。"
+      : "暂时无法读取设置，请确认应用服务仍在运行后重试。界面风格仍可调整。", "error");
+    $("#ai-mode-label").textContent = "未读取到设置";
+    $("#ai-warmup-label").textContent = "未读取到设置";
+    $("#model-status-text").textContent = "服务暂不可用";
+    $("#llm-model-select").innerHTML = '<option value="">服务暂不可用</option>';
+  } finally {
+    clearTimeout(session.timer);
+  }
+}
+
+$("#settings-button").addEventListener("click", () => {
+  // 本地外观设置立即可用，远端读取失败也不能阻止弹窗打开。
   const current = savedTheme();
   $("#theme-select").innerHTML = THEMES.map((t) =>
     `<option value="${t.id}" ${t.id === current ? "selected" : ""}>${t.name}</option>`
   ).join("");
   applyTheme(current);
-  // 背景图状态
-  toggleClearBtn("#clear-background", !!settings.background);
-  // AI 整理模式
-  $("#ai-auto-apply").checked = settings.ai_auto_apply !== false;
-  updateAiModeLabel();
-  $("#ai-warmup-on-start").checked = settings.ai_warmup_on_start !== false;
-  updateAiWarmupLabel();
-  $("#settings-dialog").showModal();
-  refreshModelStatus();
-  loadModelList();
+  if (!$("#settings-dialog").open) $("#settings-dialog").showModal();
+  loadSettingsDialog();
 });
 
-async function refreshModelStatus() {
+$("#settings-retry").addEventListener("click", () => { loadSettingsDialog(); });
+$("#settings-dialog").addEventListener("close", () => {
+  // close 事件可能晚于随后的重新打开；此时保留新弹窗的请求。
+  if (!$("#settings-dialog").open) cancelSettingsLoad();
+});
+$("#settings-dialog").addEventListener("cancel", cancelSettingsLoad);
+
+async function refreshModelStatus({ signal, isCurrent = () => true } = {}) {
   const el = $("#model-status-text");
   if (!el) return;
   try {
-    const status = await request("/api/intelligence/status");
+    const status = await request("/api/intelligence/status", { signal });
+    if (!isCurrent()) return;
     if (!status.available) {
       el.textContent = `模型不可用：${status.reason || "未返回具体原因"}`;
     } else if (status.warming) {
@@ -3653,6 +3785,7 @@ async function refreshModelStatus() {
     unloadButton.disabled = !status.model_loaded;
     unloadButton.textContent = status.model_loaded ? "释放模型内存" : "当前未加载";
   } catch (err) {
+    if (!isCurrent()) return;
     el.textContent = "状态查询失败";
     $("#unload-model-btn").disabled = true;
     $("#unload-model-btn").textContent = "当前未加载";
@@ -3673,11 +3806,12 @@ $("#unload-model-btn").addEventListener("click", async () => {
 });
 
 // ---------- 模型选择（可插拔替换） ----------
-async function loadModelList() {
+async function loadModelList({ signal, isCurrent = () => true } = {}) {
   const select = $("#llm-model-select");
   if (!select) return;
   try {
-    const data = await request("/api/intelligence/models");
+    const data = await request("/api/intelligence/models", { signal });
+    if (!isCurrent()) return;
     const models = data.models || [];
     const current = data.current || "";
     select.innerHTML = models.length
@@ -3688,8 +3822,13 @@ async function loadModelList() {
                   </option>`;
         }).join("")
       : `<option value="" disabled>未找到模型文件</option>`;
+    select.disabled = !models.length;
+    $("#apply-model-btn").disabled = !models.length;
   } catch (err) {
+    if (!isCurrent()) return;
     select.innerHTML = `<option value="" disabled>加载失败</option>`;
+    select.disabled = true;
+    $("#apply-model-btn").disabled = true;
   }
 }
 
@@ -3989,7 +4128,7 @@ async function openDoc(url, title, evidence = "") {
       // 引用视图只展示可核对原文，不能携带编辑、删除或整理操作。
       const citationTerms = citationHighlightTerms(evidence);
       const terms = citationTerms.length ? citationTerms : searchHighlightTerms();
-      $("#doc-preview-body").innerHTML = `<div class="timeline reference-timeline">${renderReferenceNoteHtml(note, terms)}</div>`;
+      $("#doc-preview-body").innerHTML = `<div class="timeline reference-timeline">${renderReferenceNoteHtml(note, terms, { citationEvidence: evidence })}</div>`;
       const tabsBar = $("#doc-preview-body .note-tabs-bar");
       if (tabsBar) {
         if (tabId && tabId !== noteId) {
@@ -3997,7 +4136,7 @@ async function openDoc(url, title, evidence = "") {
         }
         await loadTabsBar(Number(tabsBar.dataset.noteId), tabsBar);
         if (tabId && tabId !== noteId) {
-          await switchTab(noteId, tabId, { highlightTerms: terms, tabsBar });
+          await switchTab(noteId, tabId, { highlightTerms: terms, citationEvidence: evidence, tabsBar });
         }
       }
       if (!tabId || tabId === noteId) scrollToCitation($("#doc-preview-body"));

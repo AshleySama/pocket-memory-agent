@@ -51,6 +51,7 @@ DEFAULT_MODEL_REL = "Qwen3-4B/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 MIN_MODEL_SIZE_BYTES = 10 * 1024 * 1024
 DEFAULT_CONTEXT_TOKENS = 3072
 DEFAULT_RESPONSE_TOKENS = 220
+DEFAULT_EVIDENCE_CHAR_BUDGET = 1500
 
 
 def list_available_models() -> list[dict]:
@@ -381,12 +382,16 @@ class LlamaCppTextEngine:
     @staticmethod
     def _trim_text(text: str, limit: int) -> str:
         text = str(text or "").strip()
+        if limit <= 0:
+            return ""
         if len(text) <= limit:
             return text
         cutoff = max(text.rfind(mark, 0, limit) for mark in ("。", "！", "？", "\n", ";", "；"))
         if cutoff >= limit // 2:
             return text[:cutoff + 1]
-        return text[:limit].rstrip() + "..."
+        if limit <= 3:
+            return text[:limit]
+        return text[:limit - 3].rstrip() + "..."
 
     @staticmethod
     def _evidence_aligned_question(question: str, contexts: list[dict]) -> str:
@@ -412,6 +417,167 @@ class LlamaCppTextEngine:
         normalized = re.sub(r"\s{2,}", " ", normalized).strip()
         return normalized or question
 
+    @staticmethod
+    def _normalise_context_text(text: str) -> str:
+        return re.sub(r"\s+", "", str(text or "")).casefold()
+
+    @classmethod
+    def _context_parts(cls, item: dict) -> tuple[str, str]:
+        """Split the verified evidence from its optional surrounding excerpt."""
+        text = str(item.get("text", "") or "").strip()
+        marker = "\n上下文："
+        if marker not in text:
+            return text, ""
+        evidence, excerpt = text.split(marker, 1)
+        evidence = evidence.strip()
+        excerpt = excerpt.strip()
+        evidence_key = cls._normalise_context_text(evidence)
+        excerpt_key = cls._normalise_context_text(excerpt)
+        # The pipeline may return an excerpt that already contains the exact
+        # evidence sentence. It is useful in the UI, but repeating it in the
+        # model prompt spends context without adding a fact.
+        if evidence_key and evidence_key in excerpt_key:
+            excerpt_key = excerpt_key.replace(evidence_key, "", 1)
+            if not excerpt_key:
+                excerpt = ""
+        return evidence, excerpt
+
+    @classmethod
+    def _pack_evidence_contexts(
+        cls,
+        question: str,
+        contexts: list[dict],
+        *,
+        budget: int = DEFAULT_EVIDENCE_CHAR_BUDGET,
+    ) -> tuple[list[str], dict]:
+        """Pack source evidence fairly before adding lower-value context.
+
+        Retrieval has already ranked and verified these source rows. The packer
+        therefore preserves their order, reserves evidence space for every
+        source, removes exact duplicate rows, and uses any remaining budget for
+        surrounding excerpts. This avoids a long first source starving a later
+        source that answers another requested field.
+        """
+        offered = list(contexts[:5])
+        prepared: list[dict] = []
+        seen_rows: set[tuple[str, str]] = set()
+        deduplicated = 0
+        for original_index, item in enumerate(offered, 1):
+            evidence, excerpt = cls._context_parts(item)
+            if not evidence and not excerpt:
+                continue
+            title = str(item.get("title", "相关资料") or "相关资料").strip()
+            row_key = (
+                cls._normalise_context_text(title),
+                cls._normalise_context_text(evidence or excerpt),
+            )
+            if row_key in seen_rows:
+                deduplicated += 1
+                continue
+            seen_rows.add(row_key)
+            prepared.append({
+                "index": original_index,
+                "title": title,
+                "evidence": evidence or excerpt,
+                "excerpt": excerpt if evidence else "",
+            })
+
+        if not prepared or budget <= 0:
+            return [], {
+                "budget_chars": max(0, budget),
+                "offered_source_count": len(offered),
+                "packed_source_count": 0,
+                "deduplicated_source_count": deduplicated,
+                "evidence_chars": 0,
+                "excerpt_chars": 0,
+                "truncated_evidence_count": 0,
+            }
+
+        headers = [f"[{row['index']}] 标题：{row['title']}\n证据：" for row in prepared]
+        separator_cost = max(0, len(prepared) - 1) * 2
+        available = max(0, budget - sum(len(header) for header in headers) - separator_cost)
+
+        # Give every source an initial evidence slot. Short evidence returns
+        # unused space to the pool; long evidence may expand to 520 characters
+        # before any surrounding excerpt is considered.
+        base_share = max(1, min(520, available // max(1, len(prepared))))
+        caps = [min(len(row["evidence"]), base_share, 520) for row in prepared]
+        remaining = max(0, available - sum(caps))
+        while remaining > 0:
+            expandable = [
+                index for index, row in enumerate(prepared)
+                if caps[index] < min(len(row["evidence"]), 520)
+            ]
+            if not expandable:
+                break
+            share = max(1, remaining // len(expandable))
+            consumed = 0
+            for index in expandable:
+                maximum = min(len(prepared[index]["evidence"]), 520)
+                growth = min(maximum - caps[index], share)
+                caps[index] += growth
+                consumed += growth
+            if consumed <= 0:
+                break
+            remaining -= consumed
+
+        evidence_texts = [
+            cls._trim_text(row["evidence"], max(1, cap))
+            for row, cap in zip(prepared, caps)
+        ]
+        evidence_chars = sum(len(text) for text in evidence_texts)
+        remaining = max(0, available - evidence_chars)
+
+        excerpt_texts = ["" for _row in prepared]
+        excerpt_chars = 0
+        if remaining > 24:
+            candidates = [
+                index for index, row in enumerate(prepared)
+                if row["excerpt"]
+                and cls._normalise_context_text(row["excerpt"])
+                != cls._normalise_context_text(evidence_texts[index])
+            ]
+            for offset, index in enumerate(candidates):
+                slots_left = len(candidates) - offset
+                allowance = min(220, max(0, remaining // max(1, slots_left) - len("\n上下文：")))
+                if allowance < 24:
+                    continue
+                excerpt = cls._trim_text(prepared[index]["excerpt"], allowance)
+                if not excerpt:
+                    continue
+                excerpt_texts[index] = excerpt
+                cost = len("\n上下文：") + len(excerpt)
+                excerpt_chars += len(excerpt)
+                remaining = max(0, remaining - cost)
+
+        rows = []
+        for header, evidence, excerpt in zip(headers, evidence_texts, excerpt_texts):
+            body = evidence
+            if excerpt:
+                body += f"\n上下文：{excerpt}"
+            rows.append(header + body)
+
+        diagnostics = {
+            "budget_chars": budget,
+            "offered_source_count": len(offered),
+            "packed_source_count": len(rows),
+            "deduplicated_source_count": deduplicated,
+            "evidence_chars": evidence_chars,
+            "excerpt_chars": excerpt_chars,
+            "truncated_evidence_count": sum(
+                len(evidence_texts[index]) < len(row["evidence"])
+                for index, row in enumerate(prepared)
+            ),
+            "question_chars": len(str(question or "")),
+        }
+        return rows, diagnostics
+
+    @classmethod
+    def context_pack_diagnostics(cls, question: str, contexts: list[dict]) -> dict:
+        """Expose content-free packing counters for API diagnostics and tests."""
+        _rows, diagnostics = cls._pack_evidence_contexts(question, contexts)
+        return diagnostics
+
     @classmethod
     def _answer_messages(cls, question: str, contexts: list[dict], history: list[dict] | None) -> list[dict]:
         """Pack evidence and history conservatively so the answer remains grounded.
@@ -421,20 +587,7 @@ class LlamaCppTextEngine:
         discard the evidence at the end.  Keep the prompt comfortably below the
         3K window while reserving room for a concise answer.
         """
-        evidence_budget = 1200
-        evidence_rows: list[str] = []
-        remaining = evidence_budget
-        for index, item in enumerate(contexts[:5], 1):
-            header = f"[{index}] 标题：{item['title']}\n证据："
-            if remaining <= len(header) + 80:
-                break
-            text_limit = min(360, remaining - len(header))
-            text = cls._trim_text(item.get("text", ""), text_limit)
-            if not text:
-                continue
-            row = header + text
-            evidence_rows.append(row)
-            remaining -= len(row) + 2
+        evidence_rows, _packing = cls._pack_evidence_contexts(question, contexts)
 
         messages = [
             {
@@ -447,7 +600,10 @@ class LlamaCppTextEngine:
                     "- 问题中的对象若与证据标题或内容冲突，但证据明确覆盖同一主题：先简短纠正错误前提，再依据正确证据继续回答；此时不能只回复信息不足。例如证据是 BGE 向量检索方案而问题误写 Qwen，应说明对象不符后给出 BGE 方案中的优化。纠正对象不是答案本身，仍须提取并回答用户所问的具体做法、参数或结论。\n"
                     "- 证据只提到相近对象、没有具体数值，或无法支持完整结论时，明确说明「现有笔记没有足够信息」，不要用常识补全。\n"
                     "- 不要猜测、不要扩写证据之外的原因，也不要引用不存在的编号。\n"
+                    "- 多来源比较、关系或条件题：先分别陈述各来源能直接支持的事实并各自引用；综合结论依赖多条来源时必须同时引用相应编号，如 [1][2]。缺少可比较字段时要明确说缺什么，不得把比例当金额，也不得臆测共同目的。\n"
+                    "- 不能因为一个证据片段没有展示某项要求，就声称该来源“没有”或“未涉及”该要求；只有证据明确否定时才能作此结论。\n"
                     "- 用户问“有哪些/哪些风险/分别是什么”时，必须列出证据中全部编号项；不要只举第一项。\n"
+                    "- 问题同时询问多个字段、数值、动作或结果时，必须逐项覆盖证据中已有的每一项，不能只回答第一项，也不能只复述标题。\n"
                     "- 直接回答问题；默认不超过 120 个汉字或 5 个要点，用户明确要求全文时除外。\n"
                     "- 不要复述这些规则，也不要输出思考过程。"
                 ),

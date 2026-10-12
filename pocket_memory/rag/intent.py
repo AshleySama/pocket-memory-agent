@@ -41,6 +41,7 @@ class IntentResult:
     expanded_terms: list[str] = field(default_factory=list)
     prompt_override: str = ""      # summary/compare 时传给引擎的改写问题
     empty_answer: str = ""         # 无命中时的兜底文案
+    diagnostics: dict = field(default_factory=dict)  # 可选、无正文的 RAG 分阶段诊断
 
 
 class IntentRouter:

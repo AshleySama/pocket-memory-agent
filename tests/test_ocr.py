@@ -1,14 +1,16 @@
-from __future__ import annotations
-
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
+
+from __future__ import annotations
 
 import base64
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from pocket_memory import ocr
 from pocket_memory.ocr import OcrService
 from pocket_memory.storage import NoteStore
 
@@ -51,6 +53,34 @@ class OcrServiceTests(unittest.TestCase):
         markdown = (self.store.data_dir / note.markdown_path).read_text(encoding="utf-8")
         self.assertIn("## OCR 识别文本", markdown)
         self.assertIn("采购风险监控", markdown)
+
+
+class OcrResourceTests(unittest.TestCase):
+    def test_external_llm_directory_does_not_hide_bundled_ocr(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "models" / "Qwen3-4B").mkdir(parents=True)
+            bundled = root / "_internal" / "models" / "rapidocr"
+            bundled.mkdir(parents=True)
+            with patch.object(ocr.sys, "_MEIPASS", str(root / "_internal"), create=True), patch.object(
+                ocr.sys, "executable", str(root / "PocketMemory.exe")
+            ):
+                engine = ocr.RapidOcrEngine()
+            self.assertEqual(engine.model_dir, bundled.resolve())
+            self.assertIsNone(engine._engine)
+
+    def test_exact_external_ocr_directory_takes_precedence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            external = root / "models" / "rapidocr"
+            external.mkdir(parents=True)
+            (root / "_internal" / "models" / "rapidocr").mkdir(parents=True)
+            with patch.object(ocr.sys, "_MEIPASS", str(root / "_internal"), create=True), patch.object(
+                ocr.sys, "executable", str(root / "PocketMemory.exe")
+            ):
+                engine = ocr.RapidOcrEngine()
+            self.assertEqual(engine.model_dir, external.resolve())
+            self.assertIsNone(engine._engine)
 
 
 if __name__ == "__main__":

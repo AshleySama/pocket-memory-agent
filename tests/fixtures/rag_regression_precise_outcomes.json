@@ -1,0 +1,122 @@
+{
+  "dataset": {
+    "name": "Pocket Memory 精确结果字段回归集",
+    "version": 1,
+    "type": "portable-precise-outcome-regression",
+    "notice": "合成资料仅用于验证对象与精确结果必须在同一证据中出现；不包含用户私有或公司业务数据。",
+    "case_count": 7
+  },
+  "documents": [
+    {
+      "title": "候选人终面决策记录",
+      "category": "人事",
+      "subcategory": "招聘",
+      "content": "三名候选人均完成终面。张岚在结构化表达与跨团队协作两项得分最高；李川的技术深度突出；周宁的行业经验最丰富。综合岗位要求后，评审组最终录用候选人张岚，计划于 8 月 3 日入职。"
+    },
+    {
+      "title": "客户数据事件复盘",
+      "category": "安全",
+      "subcategory": "事件",
+      "content": "制度要求疑似泄露应在一小时内通知数据保护负责人。本月已发生 1 起客户数据泄露事件，原因是测试文件被错误放入公开目录；文件已撤回，并完成访问日志核查。"
+    },
+    {
+      "title": "订单 P1 故障复盘",
+      "category": "运维",
+      "subcategory": "故障",
+      "content": "订单 P1 故障持续 47 分钟，09:28 完成人工扩容。财务与业务联合核算确认，本次故障造成损失 12 万元，其中退款 7 万元，服务补偿 5 万元。"
+    },
+    {
+      "title": "AI影子团队Agent试点状态",
+      "category": "产品",
+      "subcategory": "试点",
+      "content": "AI影子团队Agent适用于大型项目的会议跟进与角色协同。截至本周，已有 6 家真实客户正式在用，另有 3 家客户仍处于概念验证阶段，不能计入正式使用数。"
+    },
+    {
+      "title": "合同 HT-2026-021 摘要",
+      "category": "合同",
+      "subcategory": "台账",
+      "content": "合同编号：HT-2026-021；签约日期：2026-07-18；供应商：海岳数据；付款安排：签约后 15 天支付 20% 预付款，验收后 45 天支付尾款。"
+    },
+    {
+      "title": "紧急采购季度台账",
+      "category": "采购",
+      "subcategory": "台账",
+      "content": "紧急采购仍须完成审批，并在申请后两个工作日内补齐比价依据。本季度紧急采购共发生 4 次，分别涉及产线备件、实验耗材、网络设备和临时物流。同期供应商质量异常发生 2 起，该数字不属于紧急采购次数。"
+    },
+    {
+      "title": "夏季会员周效果复盘",
+      "category": "营销",
+      "subcategory": "复盘",
+      "content": "夏季会员周先对 10% 用户灰度 24 小时，再逐步扩大范围。活动结束后完成成本与增量收入核算，夏季会员周最终 ROI 为 138%，高于立项时设定的 120% 目标。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "outcome-positive-001",
+      "kind": "final_selection",
+      "question": "最后录用了哪位候选人？",
+      "expected_titles": ["候选人终面决策记录"],
+      "expected_answer_terms": ["张岚"],
+      "expected_evidence_terms": ["最终录用候选人张岚"],
+      "forbidden_terms": ["李川"],
+      "priority": "P0"
+    },
+    {
+      "id": "outcome-positive-002",
+      "kind": "occurrence_status",
+      "question": "客户数据泄露是否真的发生过？",
+      "expected_titles": ["客户数据事件复盘"],
+      "expected_answer_terms": ["已发生", "1 起"],
+      "expected_evidence_terms": ["已发生 1 起客户数据泄露事件"],
+      "priority": "P0"
+    },
+    {
+      "id": "outcome-positive-003",
+      "kind": "money_loss",
+      "question": "订单 P1 故障实际损失多少钱？",
+      "expected_titles": ["订单 P1 故障复盘"],
+      "expected_answer_terms": ["12 万元"],
+      "expected_evidence_terms": ["造成损失 12 万元"],
+      "priority": "P0"
+    },
+    {
+      "id": "outcome-positive-004",
+      "kind": "observed_customer_count",
+      "question": "AI影子团队Agent目前有几家真实客户正式在用？",
+      "expected_titles": ["AI影子团队Agent试点状态"],
+      "expected_answer_terms": ["6 家"],
+      "expected_evidence_terms": ["6 家真实客户正式在用"],
+      "forbidden_terms": ["9 家"],
+      "priority": "P0"
+    },
+    {
+      "id": "outcome-positive-005",
+      "kind": "signing_date",
+      "question": "HT-2026-021 是哪天签约的？",
+      "expected_titles": ["合同 HT-2026-021 摘要"],
+      "expected_answer_terms": ["2026-07-18"],
+      "expected_evidence_terms": ["签约日期：2026-07-18"],
+      "priority": "P0"
+    },
+    {
+      "id": "outcome-positive-006",
+      "kind": "occurrence_count",
+      "question": "紧急采购累计发生了几次？",
+      "expected_titles": ["紧急采购季度台账"],
+      "expected_answer_terms": ["4 次"],
+      "expected_evidence_terms": ["紧急采购共发生 4 次"],
+      "forbidden_terms": ["2 起"],
+      "priority": "P0"
+    },
+    {
+      "id": "outcome-positive-007",
+      "kind": "final_roi",
+      "question": "夏季会员周最后的 ROI 结果是多少？",
+      "expected_titles": ["夏季会员周效果复盘"],
+      "expected_answer_terms": ["138%"],
+      "expected_evidence_terms": ["最终 ROI 为 138%"],
+      "forbidden_terms": ["10%"],
+      "priority": "P0"
+    }
+  ]
+}

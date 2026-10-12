@@ -32,7 +32,7 @@ from pocket_memory.embedding import EmbeddingService
 from pocket_memory.intelligence import IntelligenceService, resolve_model_path, writable_models_path
 from pocket_memory.model_download import ModelDownloadService
 from pocket_memory.ocr import OcrService
-from pocket_memory.rag import IntentRouter, RagPipeline
+from pocket_memory.rag import IntentRouter, QueryResolver, RagPipeline
 from pocket_memory.reporting import ReportService
 from pocket_memory.storage import NoteStore
 from pocket_memory.tools import ToolRegistry
@@ -444,10 +444,12 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             if not question:
                 self._json({"error": "问题不能为空"}, HTTPStatus.BAD_REQUEST)
                 return
-            # 问答默认是单轮独立检索。忽略旧客户端传来的 history / conversation，
-            # 避免上一题的主体或答案污染当前问题的召回。
+            diagnostics_requested = body.get("diagnostics") is True
+            understanding = QueryResolver.resolve(question, body.get("history"))
+            # History is used only by the deterministic subject resolver. The
+            # model never receives a prior answer as factual evidence.
             history: list[dict] = []
-            conversation = {"mode": "single_turn", "subject": question, "questions": [question]}
+            conversation = understanding.conversation_payload()
             needs_action_target_clarification = self._needs_action_target_clarification(question)
             # Explicit notebook statistics are deterministic database queries.
             # Run them before checking local model runtimes: users should still
@@ -459,11 +461,47 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                 timing = self._ask_timing(request_started, retrieval_seconds=0.0)
                 if body.get("stream"):
                     self._send_simple_stream(result.answer, result.kind, result.data, timing=timing,
-                                             conversation=conversation)
+                                             conversation=conversation,
+                                             diagnostics=result.diagnostics if diagnostics_requested else None)
                 else:
-                    self._json({"answer": result.answer, "sources": [], "kind": result.kind,
-                                "data": result.data, "expanded_terms": [], "timing": timing,
-                                "conversation": conversation})
+                    payload = {"answer": result.answer, "sources": [], "kind": result.kind,
+                               "data": result.data, "expanded_terms": [], "timing": timing,
+                               "conversation": conversation}
+                    if diagnostics_requested:
+                        payload["diagnostics"] = result.diagnostics
+                    self._json(payload)
+                return
+            # Clarification is deterministic and must stay available while the
+            # embedding or LLM runtime is missing, warming up or unloaded. It
+            # also avoids paying model-startup cost for a question that cannot
+            # be retrieved safely until the user names its subject.
+            clarification_question = understanding.evidence_question
+            if needs_action_target_clarification or self.server.rag_pipeline.requires_clarification(clarification_question):
+                answer = (
+                    self._action_target_clarification_answer(question)
+                    if needs_action_target_clarification
+                    else "请明确要咨询的对象名称，例如具体的 Agent、合同或项目名称。"
+                )
+                timing = self._ask_timing(request_started, retrieval_seconds=0.0)
+                if body.get("stream"):
+                    self._send_simple_stream(answer, "clarification", {}, timing=timing,
+                                             conversation=conversation,
+                                             diagnostics={
+                                                 "schema_version": 1,
+                                                 "intent": {"type": "clarification", "source": "rule"},
+                                                 "route_total_ms": 0.0,
+                                             } if diagnostics_requested else None)
+                else:
+                    payload = {"answer": answer, "sources": [], "kind": "clarification",
+                               "expanded_terms": [], "data": {}, "timing": timing,
+                               "conversation": conversation}
+                    if diagnostics_requested:
+                        payload["diagnostics"] = {
+                            "schema_version": 1,
+                            "intent": {"type": "clarification", "source": "rule"},
+                            "route_total_ms": 0.0,
+                        }
+                    self._json(payload)
                 return
             if not self.server.embedding_service.engine.available:
                 self._json({"error": self.server.embedding_service.engine.unavailable_reason,
@@ -477,24 +515,9 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                             "code": "model_missing" if model_missing else "model_runtime_unavailable",
                             "model_download": self.server.model_download_service.status()}, HTTPStatus.SERVICE_UNAVAILABLE)
                 return
-            if needs_action_target_clarification or self.server.rag_pipeline.requires_clarification(question):
-                answer = (
-                    self._action_target_clarification_answer(question)
-                    if needs_action_target_clarification
-                    else "请明确要咨询的对象名称，例如具体的 Agent、合同或项目名称。"
-                )
-                timing = self._ask_timing(request_started, retrieval_seconds=0.0)
-                if body.get("stream"):
-                    self._send_simple_stream(answer, "clarification", {}, timing=timing,
-                                             conversation=conversation)
-                else:
-                    self._json({"answer": answer, "sources": [], "kind": "clarification",
-                                "expanded_terms": [], "data": {}, "timing": timing,
-                                "conversation": conversation})
-                return
             engine = self.server.intelligence_service.engine
             # 意图路由：规则优先 + LLM 兜底分类，覆盖时间/列表/统计/元数据/分类/摘要/比较/实体/关联/通用问答
-            retrieval_question = question
+            retrieval_question = understanding.retrieval_query
             # Keep the pipeline bound to the live service. This also makes a
             # controlled engine reload immediately visible to retrieval.
             self.server.rag_pipeline.embedding_service = self.server.embedding_service
@@ -505,60 +528,88 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             result = self.server.rag_pipeline.route(
                 retrieval_question,
                 engine,
+                extra_terms=list(understanding.aliases),
                 intent=current_intent,
-                evidence_question=question,
+                evidence_question=understanding.evidence_question,
             )
             retrieval_seconds = time.perf_counter() - retrieval_started
             timing = self._ask_timing(request_started, retrieval_seconds=retrieval_seconds)
             expanded_terms = result.expanded_terms
+            diagnostics = result.diagnostics if diagnostics_requested else None
+            if diagnostics is not None:
+                diagnostics["query_understanding"] = understanding.diagnostics()
             # stats/taxonomy：答案已预生成，无需调用 LLM
             if result.kind in ("stats", "taxonomy"):
                 if body.get("stream"):
                     self._send_simple_stream(result.answer, result.kind, result.data, timing=timing,
-                                             conversation=conversation)
+                                             conversation=conversation, diagnostics=diagnostics)
                 else:
-                    self._json({"answer": result.answer, "sources": [], "kind": result.kind,
-                                "data": result.data, "expanded_terms": [], "timing": timing,
-                                "conversation": conversation})
+                    payload = {"answer": result.answer, "sources": [], "kind": result.kind,
+                               "data": result.data, "expanded_terms": [], "timing": timing,
+                               "conversation": conversation}
+                    if diagnostics is not None:
+                        payload["diagnostics"] = diagnostics
+                    self._json(payload)
                 return
             # 列表型意图（time/metadata/list/entity/related）：生成笔记清单，不调 LLM 流式复述
             # 用户只想知道"有哪些笔记符合"，下方有笔记链接可点击查看内容
             if result.kind in ("time", "metadata", "list", "entity", "related") and result.chunks:
-                sources = self.server.rag_pipeline.source_payloads(question, result.chunks)
+                sources = self.server.rag_pipeline.source_payloads(understanding.evidence_question, result.chunks)
                 answer = self._build_list_answer(result.kind, sources)
                 if body.get("stream"):
                     self._send_simple_stream(answer, result.kind, result.data, sources=sources, timing=timing,
-                                             conversation=conversation)
+                                             conversation=conversation, diagnostics=diagnostics)
                 else:
-                    self._json({"answer": answer, "sources": sources, "kind": result.kind,
-                                "expanded_terms": [], "data": result.data, "timing": timing,
-                                "conversation": conversation})
+                    payload = {"answer": answer, "sources": sources, "kind": result.kind,
+                               "expanded_terms": [], "data": result.data, "timing": timing,
+                               "conversation": conversation}
+                    if diagnostics is not None:
+                        payload["diagnostics"] = diagnostics
+                    self._json(payload)
                 return
-            sources = self.server.rag_pipeline.source_payloads(question, result.chunks)
+            sources = self.server.rag_pipeline.source_payloads(understanding.evidence_question, result.chunks)
             contexts = self.server.rag_pipeline.contexts(result.chunks, sources=sources)
             if not contexts:
                 empty_answer = result.empty_answer or "没有找到足够相似的笔记，暂时无法基于笔记回答。"
                 if body.get("stream"):
                     self._send_simple_stream(empty_answer, result.kind, result.data, timing=timing,
-                                             conversation=conversation)
+                                             conversation=conversation, diagnostics=diagnostics)
                 else:
-                    self._json({"answer": empty_answer, "sources": [], "kind": result.kind,
-                                "expanded_terms": expanded_terms, "data": result.data, "timing": timing,
-                                "conversation": conversation})
+                    payload = {"answer": empty_answer, "sources": [], "kind": result.kind,
+                               "expanded_terms": expanded_terms, "data": result.data, "timing": timing,
+                               "conversation": conversation}
+                    if diagnostics is not None:
+                        payload["diagnostics"] = diagnostics
+                    self._json(payload)
                 return
-            gen_question = result.prompt_override or question
+            gen_question = result.prompt_override or understanding.evidence_question
+            if diagnostics is not None:
+                pack_diagnostics = getattr(engine, "context_pack_diagnostics", None)
+                if callable(pack_diagnostics):
+                    diagnostics["context"] = pack_diagnostics(gen_question, contexts)
             if body.get("stream"):
                 self._ask_stream(gen_question, contexts, sources, history=history,
                                  expanded_terms=expanded_terms, kind=result.kind,
-                                 data=result.data, display_question=question,
+                                 data=result.data, display_question=understanding.contract_question,
                                  request_started=request_started, retrieval_seconds=retrieval_seconds,
-                                 conversation=conversation)
+                                 conversation=conversation, diagnostics=diagnostics)
             else:
-                answer, answer_sources = self._answer_with_history(engine, gen_question, contexts, history, sources)
-                self._json({"answer": answer, "sources": answer_sources, "kind": result.kind,
-                            "expanded_terms": expanded_terms, "data": result.data,
-                            "timing": self._ask_timing(request_started, retrieval_seconds=retrieval_seconds),
-                            "conversation": conversation})
+                answer, answer_sources = self._answer_with_history(
+                    engine,
+                    gen_question,
+                    contexts,
+                    history,
+                    sources,
+                    contract_question=understanding.contract_question,
+                    diagnostics=diagnostics,
+                )
+                payload = {"answer": answer, "sources": answer_sources, "kind": result.kind,
+                           "expanded_terms": expanded_terms, "data": result.data,
+                           "timing": self._ask_timing(request_started, retrieval_seconds=retrieval_seconds),
+                           "conversation": conversation}
+                if diagnostics is not None:
+                    payload["diagnostics"] = diagnostics
+                self._json(payload)
         elif parsed.path == "/api/ask/llama-index":
             body = self._read_json()
             question = str(body.get("question", "")).strip()
@@ -1166,7 +1217,8 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def _send_simple_stream(self, answer: str, kind: str, data: dict | None = None,
                             sources: list[dict] | None = None, timing: dict | None = None,
-                            conversation: dict | None = None) -> None:
+                            conversation: dict | None = None,
+                            diagnostics: dict | None = None) -> None:
         """发送不含 token 流的 SSE：仅 sources + done，用于预生成答案（stats/taxonomy/列表型/空结果）。"""
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -1179,10 +1231,15 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         src = sources or []
-        write_event({"type": "sources", "sources": src, "expanded_terms": [], "kind": kind,
-                     "data": data or {}, "timing": timing or {}, "conversation": conversation or {}})
-        write_event({"type": "done", "answer": answer, "sources": src, "kind": kind,
-                     "data": data or {}, "timing": timing or {}, "conversation": conversation or {}})
+        sources_event = {"type": "sources", "sources": src, "expanded_terms": [], "kind": kind,
+                         "data": data or {}, "timing": timing or {}, "conversation": conversation or {}}
+        done_event = {"type": "done", "answer": answer, "sources": src, "kind": kind,
+                      "data": data or {}, "timing": timing or {}, "conversation": conversation or {}}
+        if diagnostics is not None:
+            sources_event["diagnostics"] = diagnostics
+            done_event["diagnostics"] = diagnostics
+        write_event(sources_event)
+        write_event(done_event)
 
     # 列表型意图的答案模板：用简短清单代替 LLM 流式复述笔记内容
     _LIST_ANSWER_TEMPLATES = {
@@ -1209,7 +1266,7 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                 lines.append(f"{i}. {title}")
         return template.format(n=len(sources), list="\n".join(lines))
 
-    def _ask_stream(self, question: str, contexts: list[dict], sources: list[dict], history: list[dict] | None = None, expanded_terms: list[str] | None = None, kind: str = "qa", data: dict | None = None, display_question: str | None = None, request_started: float | None = None, retrieval_seconds: float = 0.0, conversation: dict | None = None) -> None:
+    def _ask_stream(self, question: str, contexts: list[dict], sources: list[dict], history: list[dict] | None = None, expanded_terms: list[str] | None = None, kind: str = "qa", data: dict | None = None, display_question: str | None = None, request_started: float | None = None, retrieval_seconds: float = 0.0, conversation: dict | None = None, diagnostics: dict | None = None) -> None:
         """SSE 流式问答：先发 sources，再逐 token 发答案，最后发 done。"""
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -1225,11 +1282,14 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         request_started = request_started if request_started is not None else time.perf_counter()
         engine = self.server.intelligence_service.engine
         model_warm = bool(getattr(engine, "model_loaded", False))
-        write_event({"type": "sources", "sources": sources, "expanded_terms": expanded_terms or [],
-                     "kind": kind, "data": data or {},
-                     "timing": self._ask_timing(request_started, retrieval_seconds=retrieval_seconds,
-                                                model_warm=model_warm),
-                     "conversation": conversation or {}})
+        sources_event = {"type": "sources", "sources": sources, "expanded_terms": expanded_terms or [],
+                         "kind": kind, "data": data or {},
+                         "timing": self._ask_timing(request_started, retrieval_seconds=retrieval_seconds,
+                                                    model_warm=model_warm),
+                         "conversation": conversation or {}}
+        if diagnostics is not None:
+            sources_event["diagnostics"] = diagnostics
+        write_event(sources_event)
 
         full_answer = ""
         generation_started = time.perf_counter()
@@ -1244,11 +1304,32 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             write_event({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             return
 
+        model_finished = time.perf_counter()
         clean_answer = getattr(self.server.intelligence_service.engine, "_clean_answer", None)
         cleaned = clean_answer(full_answer) if callable(clean_answer) else full_answer.strip()
+        answer_before_contract = cleaned
+        verification_started = time.perf_counter()
         cleaned, answer_sources = self.server.rag_pipeline.enforce_answer_contract(
             display_question or question, cleaned, sources
         )
+        if diagnostics is not None:
+            claim_summary = self._claim_verification_summary(
+                display_question or question,
+                cleaned,
+                answer_sources,
+            )
+            diagnostics["generation"] = {
+                "model_ms": round((model_finished - generation_started) * 1000, 3),
+                "first_token_ms": round((first_token_at - generation_started) * 1000, 3)
+                if first_token_at else None,
+            }
+            diagnostics["verification"] = {
+                "contract_ms": round((time.perf_counter() - verification_started) * 1000, 3),
+                "source_count_before": len(sources),
+                "source_count_after": len(answer_sources),
+                "answer_changed": cleaned != answer_before_contract,
+                **claim_summary,
+            }
         timing = self._ask_timing(
             request_started,
             retrieval_seconds=retrieval_seconds,
@@ -1256,9 +1337,12 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             generation_seconds=time.perf_counter() - generation_started,
             model_warm=model_warm,
         )
-        write_event({"type": "done", "answer": cleaned, "sources": answer_sources,
-                     "kind": kind, "data": data or {}, "timing": timing,
-                     "conversation": conversation or {}})
+        done_event = {"type": "done", "answer": cleaned, "sources": answer_sources,
+                      "kind": kind, "data": data or {}, "timing": timing,
+                      "conversation": conversation or {}}
+        if diagnostics is not None:
+            done_event["diagnostics"] = diagnostics
+        write_event(done_event)
 
     @staticmethod
     def _accepts_history(method: Callable) -> bool:
@@ -1302,8 +1386,19 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         target = action.group(1) if action else "操作"
         return f"请明确要{target}的对象或功能，例如“{examples.get(target, '当前操作为什么失败？')}”。"
 
-    def _answer_with_history(self, engine, question: str, contexts: list[dict], history: list[dict], sources: list[dict]) -> tuple[str, list[dict]]:
+    def _answer_with_history(
+        self,
+        engine,
+        question: str,
+        contexts: list[dict],
+        history: list[dict],
+        sources: list[dict],
+        *,
+        contract_question: str | None = None,
+        diagnostics: dict | None = None,
+    ) -> tuple[str, list[dict]]:
         method = engine.answer
+        generation_started = time.perf_counter()
         if self._accepts_history(method):
             # Conversation history resolves retrieval only. It is not source
             # evidence and a small local model may otherwise repeat an earlier
@@ -1311,7 +1406,40 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             answer = method(question, contexts, history=[])
         else:
             answer = method(question, contexts)
-        return self.server.rag_pipeline.enforce_answer_contract(question, answer, sources)
+        model_finished = time.perf_counter()
+        verification_started = time.perf_counter()
+        contracted_answer, answer_sources = self.server.rag_pipeline.enforce_answer_contract(
+            contract_question or question,
+            answer,
+            sources,
+        )
+        if diagnostics is not None:
+            claim_summary = self._claim_verification_summary(
+                contract_question or question,
+                contracted_answer,
+                answer_sources,
+            )
+            diagnostics["generation"] = {
+                "model_ms": round((model_finished - generation_started) * 1000, 3),
+            }
+            diagnostics["verification"] = {
+                "contract_ms": round((time.perf_counter() - verification_started) * 1000, 3),
+                "source_count_before": len(sources),
+                "source_count_after": len(answer_sources),
+                "answer_changed": contracted_answer != str(answer or "").strip(),
+                **claim_summary,
+            }
+        return contracted_answer, answer_sources
+
+    def _claim_verification_summary(self, question: str, answer: str, sources: list[dict]) -> dict:
+        """Return content-free claim verification counters for diagnostics."""
+        mapping = self.server.rag_pipeline.answer_evidence_mapping(question, answer, sources)
+        supported = sum(1 for item in mapping if item.get("status") == "supported")
+        return {
+            "claim_count": len(mapping),
+            "supported_claim_count": supported,
+            "unsupported_claim_count": len(mapping) - supported,
+        }
 
     @classmethod
     def _answer_stream_with_history(cls, engine, question: str, contexts: list[dict], history: list[dict]):

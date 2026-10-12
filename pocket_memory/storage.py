@@ -428,6 +428,10 @@ class NoteStore:
                 self.connection.execute("ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
             if "favorite" not in columns:
                 self.connection.execute("ALTER TABLE notes ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0")
+            # The ordering backfill below filters child tabs.  Pre-tab schemas
+            # need this column before that query can run during an upgrade.
+            if "parent_note_id" not in columns:
+                self.connection.execute("ALTER TABLE notes ADD COLUMN parent_note_id INTEGER REFERENCES notes(id) ON DELETE CASCADE")
             if "sort_order" not in columns:
                 self.connection.execute("ALTER TABLE notes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
                 rows = self.connection.execute(
@@ -441,8 +445,6 @@ class NoteStore:
                     self.connection.execute("UPDATE notes SET sort_order = ? WHERE id = ?", (index * 100, row["id"]))
             if "folder_id" not in columns:
                 self.connection.execute("ALTER TABLE notes ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL")
-            if "parent_note_id" not in columns:
-                self.connection.execute("ALTER TABLE notes ADD COLUMN parent_note_id INTEGER REFERENCES notes(id) ON DELETE CASCADE")
             if "tab_name" not in columns:
                 self.connection.execute("ALTER TABLE notes ADD COLUMN tab_name TEXT NOT NULL DEFAULT ''")
             if "tab_order" not in columns:
@@ -1610,6 +1612,27 @@ class NoteStore:
             ).fetchall()
             return [NoteChunk(**dict(row)) for row in rows]
 
+    def list_note_chunk_window(
+        self,
+        note_id: int,
+        center_order: int,
+        radius: int = 2,
+    ) -> list[NoteChunk]:
+        """Return a bounded same-note neighbourhood for parent-child retrieval."""
+        radius = max(0, min(int(radius), 4))
+        lower = max(0, int(center_order) - radius)
+        upper = int(center_order) + radius
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT * FROM note_chunks
+                WHERE note_id = ? AND chunk_order BETWEEN ? AND ?
+                ORDER BY chunk_order, id
+                """,
+                (note_id, lower, upper),
+            ).fetchall()
+            return [NoteChunk(**dict(row)) for row in rows]
+
     def get_note_chunk(self, chunk_id: int) -> NoteChunk:
         with self._lock:
             row = self.connection.execute("SELECT * FROM note_chunks WHERE id = ?", (chunk_id,)).fetchone()
@@ -1918,6 +1941,27 @@ class NoteStore:
         with self._lock:
             rows = self.connection.execute(
                 "SELECT * FROM document_chunks WHERE document_id = ? ORDER BY chunk_order, id", (document_id,)
+            ).fetchall()
+            return [DocumentChunk(**dict(row)) for row in rows]
+
+    def list_document_chunk_window(
+        self,
+        document_id: int,
+        center_order: int,
+        radius: int = 2,
+    ) -> list[DocumentChunk]:
+        """Return nearby persisted chunks without loading an entire long document."""
+        radius = max(0, min(int(radius), 4))
+        lower = max(0, int(center_order) - radius)
+        upper = int(center_order) + radius
+        with self._lock:
+            rows = self.connection.execute(
+                """
+                SELECT * FROM document_chunks
+                WHERE document_id = ? AND chunk_order BETWEEN ? AND ?
+                ORDER BY chunk_order, id
+                """,
+                (document_id, lower, upper),
             ).fetchall()
             return [DocumentChunk(**dict(row)) for row in rows]
 

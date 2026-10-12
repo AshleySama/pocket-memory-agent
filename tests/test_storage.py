@@ -1,13 +1,15 @@
-from __future__ import annotations
-
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 import base64
 import json
+import sqlite3
 import tempfile
 import unittest
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 from pocket_memory.storage import MAX_NOTE_CONTENT_CHARS, MAX_TAGS_PER_NOTE, MAX_TABS_PER_NOTE, NoteStore
@@ -112,6 +114,58 @@ class NoteStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不能互相包含"):
             self.store.migrate_data_dir(self.store.data_dir / "nested")
 
+    def test_legacy_schema_without_tabs_or_sort_order_upgrades_and_reopens(self) -> None:
+        legacy_dir = Path(self.temp.name) / "legacy-data"
+        legacy_dir.mkdir()
+        with closing(sqlite3.connect(legacy_dir / "pocket_memory.db")) as connection, connection:
+            connection.execute("""
+                CREATE TABLE notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL, content TEXT NOT NULL,
+                    markdown_path TEXT NOT NULL UNIQUE,
+                    source_type TEXT NOT NULL DEFAULT 'text', attachment_path TEXT,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                )
+            """)
+            connection.executemany(
+                "INSERT INTO notes(title, content, markdown_path, source_type, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    ("older", "preserved old content", "notes/older.md", "text", "2026-01-01", "2026-01-01"),
+                    ("newer", "preserved new content", "notes/newer.md", "text", "2026-02-01", "2026-02-01"),
+                    ("welcome", "onboarding", "notes/welcome.md", "welcome", "2026-03-01", "2026-03-01"),
+                ],
+            )
+            # FTS5 existed in the initial MVP; retain its indexed content so
+            # update triggers see the same state as a real pre-tab database.
+            connection.execute("""
+                CREATE VIRTUAL TABLE notes_fts USING fts5(
+                    title, content, tokenize='trigram', content='notes', content_rowid='id'
+                )
+            """)
+            connection.execute("INSERT INTO notes_fts(notes_fts) VALUES ('rebuild')")
+
+        upgraded = NoteStore(legacy_dir)
+        try:
+            self.assertEqual(upgraded.get_note(1).content, "preserved old content")
+            self.assertEqual(upgraded.get_note(2).content, "preserved new content")
+            self.assertEqual([upgraded.get_note(index).sort_order for index in (1, 2, 3)], [200, 100, 0])
+            self.assertIsNone(upgraded.get_note(1).parent_note_id)
+            self.assertEqual(upgraded.connection.execute("PRAGMA foreign_key_check").fetchall(), [])
+            self.assertEqual(upgraded.connection.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            self.assertEqual({note.id for note in upgraded.search_notes("preserved")}, {1, 2})
+        finally:
+            upgraded.close()
+
+        reopened = NoteStore(legacy_dir)
+        try:
+            self.assertEqual([reopened.get_note(index).sort_order for index in (1, 2, 3)], [200, 100, 0])
+            child = reopened.create_note("new tab", "tab after upgrade", parent_note_id=1, tab_name="Details")
+            self.assertEqual(child.parent_note_id, 1)
+            self.assertEqual(reopened.get_note(1).content, "preserved old content")
+        finally:
+            reopened.close()
+
     def test_complete_backup_contains_database_notes_tabs_and_attachments(self) -> None:
         image = base64.b64encode(b"backup-image").decode("ascii")
         parent = self.store.create_note(
@@ -159,6 +213,28 @@ class NoteStoreTests(unittest.TestCase):
             self.store.create_note("页签超限", "内容", parent_note_id=parent.id, tab_name="页签超限")
         with self.assertRaisesRegex(ValueError, "字符"):
             self.store.update_note(parent.id, content="x" * (MAX_NOTE_CONTENT_CHARS + 1))
+
+    def test_chunk_window_queries_are_bounded_and_ordered(self) -> None:
+        note = self.store.create_note("邻域检索", "占位正文")
+        self.store.replace_note_chunks(note.id, [
+            {"title": note.title, "text": f"笔记切片 {index}", "location": f"正文 {index + 1}"}
+            for index in range(7)
+        ])
+
+        note_window = self.store.list_note_chunk_window(note.id, center_order=3, radius=2)
+
+        self.assertEqual([chunk.chunk_order for chunk in note_window], [1, 2, 3, 4, 5])
+
+        data_url = "data:text/plain;base64," + base64.b64encode(b"placeholder").decode("ascii")
+        document = self.store.create_document_from_data_url("window.txt", data_url)
+        self.store.replace_document_chunks(document.id, [
+            {"title": "window", "text": f"文档切片 {index}", "location": f"正文 {index + 1}"}
+            for index in range(7)
+        ])
+
+        document_window = self.store.list_document_chunk_window(document.id, center_order=0, radius=2)
+
+        self.assertEqual([chunk.chunk_order for chunk in document_window], [0, 1, 2])
 
     def test_categories_tags_and_markdown_metadata(self) -> None:
         note = self.store.create_note(

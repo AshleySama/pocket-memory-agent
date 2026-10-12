@@ -193,6 +193,66 @@ class IntelligenceServiceTests(unittest.TestCase):
         self.assertTrue(all(len(item["content"]) <= 140 for item in messages[1:-1]))
         self.assertIn("[1] 标题：笔记 0", messages[-1]["content"])
 
+    def test_context_packer_reserves_evidence_for_each_selected_source(self) -> None:
+        contexts = [
+            {
+                "title": "长资料",
+                "text": "风险一：导入主题过杂。" + "补充背景。" * 300,
+            },
+            {
+                "title": "性能资料",
+                "text": "实测上限为 5000 条，响应延迟为 50ms。\n上下文：这是性能验收记录。",
+            },
+            {
+                "title": "发布资料",
+                "text": "发布前必须完成回归测试。\n上下文：发布前必须完成回归测试。",
+            },
+        ]
+
+        rows, diagnostics = LlamaCppTextEngine._pack_evidence_contexts(
+            "风险、性能和发布要求分别是什么？",
+            contexts,
+            budget=900,
+        )
+        rendered = "\n\n".join(rows)
+
+        self.assertIn("[1] 标题：长资料", rendered)
+        self.assertIn("[2] 标题：性能资料", rendered)
+        self.assertIn("5000 条", rendered)
+        self.assertIn("50ms", rendered)
+        self.assertIn("[3] 标题：发布资料", rendered)
+        self.assertIn("必须完成回归测试", rendered)
+        self.assertEqual(diagnostics["packed_source_count"], 3)
+        self.assertLessEqual(len(rendered), 900)
+
+    def test_context_packer_deduplicates_identical_source_rows(self) -> None:
+        contexts = [
+            {"title": "同一资料", "text": "审批阈值为 50 万元。"},
+            {"title": "同一资料", "text": "审批阈值为 50 万元。"},
+            {"title": "补充资料", "text": "超过阈值后升级审批。"},
+        ]
+
+        rows, diagnostics = LlamaCppTextEngine._pack_evidence_contexts(
+            "审批阈值及后续动作是什么？",
+            contexts,
+            budget=500,
+        )
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(diagnostics["deduplicated_source_count"], 1)
+        self.assertEqual("\n".join(rows).count("审批阈值为 50 万元"), 1)
+
+    def test_context_packer_does_not_repeat_excerpt_that_is_only_the_evidence(self) -> None:
+        rows, diagnostics = LlamaCppTextEngine._pack_evidence_contexts(
+            "风险是什么？",
+            [{"title": "复盘", "text": "风险一：资料主题过杂。\n上下文：风险一：资料主题过杂。"}],
+            budget=300,
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].count("风险一：资料主题过杂"), 1)
+        self.assertEqual(diagnostics["excerpt_chars"], 0)
+
     def test_answer_prompt_hides_unmatched_versioned_identifier_only(self) -> None:
         messages = LlamaCppTextEngine._answer_messages(
             "Qwen3-0.6B 向量检索方案对比里提到了什么优化？",

@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 def resource_path(relative_path: str) -> Path:
     if hasattr(sys, "_MEIPASS"):
         external = Path(sys.executable).resolve().parent / relative_path
-        external_root = Path(sys.executable).resolve().parent / Path(relative_path).parts[0]
-        if external.exists() or external_root.exists():
+        # Optional external LLM downloads must not hide bundled OCR assets.
+        if external.exists():
             return external
         return Path(sys._MEIPASS) / relative_path
     return Path(__file__).resolve().parent.parent / relative_path

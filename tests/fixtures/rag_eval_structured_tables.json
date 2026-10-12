@@ -1,0 +1,207 @@
+{
+  "dataset": {
+    "name": "Pocket Memory 结构化表格与行级证据回归集",
+    "version": 1,
+    "type": "portable-structured-table-regression",
+    "notice": "全量合成资料，用于验证表格行身份、字段选择、相邻行隔离、缺失字段拒答与位置引用；不包含用户或公司真实数据。",
+    "case_count": 12
+  },
+  "documents": [
+    {
+      "title": "asset-register.xlsx",
+      "source_type": "document",
+      "original_name": "asset-register.xlsx",
+      "content": "合成设备资产台账，记录设备责任人与状态。",
+      "chunks": [
+        {
+          "title": "asset-register.xlsx",
+          "location": "工作表：设备资产，第 2-3 行",
+          "text": "工作表：设备资产\n表头：资产编号 | 设备名称 | 负责人 | 状态 | 安装位置 | 保修到期日\n资产编号：SN-A17；设备名称：热成像仪；负责人：林岚；状态：在役；安装位置：二号线；保修到期日：2027-03-31\n资产编号：SN-B22；设备名称：振动仪；负责人：周宁；状态：维修；安装位置：实验室；保修到期日：2026-11-30"
+        }
+      ]
+    },
+    {
+      "title": "partner-contracts.xlsx",
+      "source_type": "document",
+      "original_name": "partner-contracts.xlsx",
+      "content": "合成合同付款与争议解决条款。",
+      "chunks": [
+        {
+          "title": "partner-contracts.xlsx",
+          "location": "工作表：付款条款，第 2-3 行",
+          "text": "工作表：付款条款\n表头：合同编号 | 合作伙伴 | 付款节点 | 预付款比例 | 币种 | 争议条款\n合同编号：HT-2026-018；合作伙伴：远川科技；付款节点：签约后 10 天付款；预付款比例：0%；币种：人民币；争议条款：适用上海仲裁\n合同编号：HT-2026-021；合作伙伴：星港数据；付款节点：签约后 15 天支付 20% 预付款，验收后 45 天支付尾款；预付款比例：20%；币种：美元；争议条款：适用北京仲裁"
+        }
+      ]
+    },
+    {
+      "title": "supplier-actions.xlsx",
+      "source_type": "document",
+      "original_name": "supplier-actions.xlsx",
+      "content": "合成供应商风险与行动项清单。",
+      "chunks": [
+        {
+          "title": "supplier-actions.xlsx",
+          "location": "工作表：供应商风险，第 2-3 行",
+          "text": "工作表：供应商风险\n表头：供应商 | 风险等级 | 行动项 | 负责人 | 截止日期\n供应商：海岳数据；风险等级：黄色；行动项：本周补齐灾备演练记录；负责人：陈琳；截止日期：2026-10-16\n供应商：北辰云；风险等级：红色；行动项：暂停新增订单；负责人：周宁；截止日期：2026-10-09"
+        }
+      ]
+    },
+    {
+      "title": "incident-review.xlsx",
+      "source_type": "document",
+      "original_name": "incident-review.xlsx",
+      "content": "合成生产事件的持续时间、损失、根因和状态。",
+      "chunks": [
+        {
+          "title": "incident-review.xlsx",
+          "location": "工作表：事件复盘，第 2-3 行",
+          "text": "工作表：事件复盘\n表头：事件编号 | 系统 | 持续时间 | 损失金额 | 根因 | 状态\n事件编号：INC-A17；系统：订单平台；持续时间：47 分钟；损失金额：12 万元；根因：容量告警未及时升级；状态：已关闭\n事件编号：INC-B04；系统：结算平台；持续时间：18 分钟；损失金额：8 万元；根因：证书过期；状态：复盘中"
+        }
+      ]
+    },
+    {
+      "title": "agent-catalog.xlsx",
+      "source_type": "document",
+      "original_name": "agent-catalog.xlsx",
+      "content": "合成 Agent 功能与适用场景目录。",
+      "chunks": [
+        {
+          "title": "agent-catalog.xlsx",
+          "location": "工作表：Agent 清单，第 2-3 行",
+          "text": "工作表：Agent 清单\n表头：编号 | Agent名称 | 核心功能 | 适用场景 | 状态\n编号：1；Agent名称：项目风险扫描Agent；核心功能：识别项目资料中的风险、缺口和待确认项；适用场景：项目复盘；状态：已验证\n编号：2；Agent名称：会议行动项提取Agent；核心功能：提取行动项、责任人和截止日期；适用场景：周例会；状态：试用"
+        }
+      ]
+    },
+    {
+      "title": "采购审批规则",
+      "category": "制度",
+      "subcategory": "采购",
+      "content": "采购金额低于 20 万元时由采购经理审批。采购金额 20 万元（含）以上，增加法务与财务负责人会签。金额达到 100 万元时，还需要业务总监审批。"
+    }
+  ],
+  "cases": [
+    {
+      "id": "table-001",
+      "kind": "row_field_lookup",
+      "question": "SN-A17 的负责人和状态是什么？",
+      "expected_titles": ["asset-register.xlsx"],
+      "expected_answer_terms": ["林岚", "在役"],
+      "expected_evidence_terms": ["资产编号：SN-A17", "负责人：林岚", "状态：在役"],
+      "forbidden_terms": ["周宁", "维修"],
+      "expected_passages": [
+        {"id": "asset-a17", "title": "asset-register.xlsx", "required_terms": ["SN-A17", "林岚", "在役"], "locations": ["工作表：设备资产，第 2-3 行"], "relevance": 3}
+      ],
+      "priority": "P0"
+    },
+    {
+      "id": "table-002",
+      "kind": "row_field_lookup",
+      "question": "SN-B22 安装在哪里，目前是什么状态？",
+      "expected_titles": ["asset-register.xlsx"],
+      "expected_answer_terms": ["实验室", "维修"],
+      "expected_evidence_terms": ["资产编号：SN-B22", "安装位置：实验室", "状态：维修"],
+      "forbidden_terms": ["二号线", "林岚"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-003",
+      "kind": "contract_multi_field",
+      "question": "HT-2026-021 的预付款比例和尾款付款节点是什么？",
+      "expected_titles": ["partner-contracts.xlsx"],
+      "expected_answer_terms": ["20%", "验收后 45 天"],
+      "expected_evidence_terms": ["合同编号：HT-2026-021", "预付款比例：20%", "验收后 45 天支付尾款"],
+      "forbidden_terms": ["0%", "上海仲裁"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-004",
+      "kind": "contract_text_field",
+      "question": "HT-2026-018 的争议解决方式是什么？",
+      "expected_titles": ["partner-contracts.xlsx"],
+      "expected_answer_terms": ["上海仲裁"],
+      "expected_evidence_terms": ["合同编号：HT-2026-018", "争议条款：适用上海仲裁"],
+      "forbidden_terms": ["北京仲裁", "20%"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-005",
+      "kind": "row_selector",
+      "question": "哪份合同使用美元，并在验收后 45 天支付尾款？",
+      "expected_titles": ["partner-contracts.xlsx"],
+      "expected_answer_terms": ["HT-2026-021", "美元", "验收后 45 天"],
+      "expected_evidence_terms": ["合同编号：HT-2026-021", "币种：美元", "验收后 45 天支付尾款"],
+      "forbidden_terms": ["HT-2026-018", "人民币"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-006",
+      "kind": "generic_named_row",
+      "question": "海岳数据供应商的风险和行动项是什么？",
+      "expected_titles": ["supplier-actions.xlsx"],
+      "expected_answer_terms": ["黄色", "本周补齐灾备演练记录"],
+      "expected_evidence_terms": ["供应商：海岳数据", "风险等级：黄色", "行动项：本周补齐灾备演练记录"],
+      "forbidden_terms": ["红色", "暂停新增订单"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-007",
+      "kind": "incident_multi_field",
+      "question": "INC-A17 持续了多久，损失多少？",
+      "expected_titles": ["incident-review.xlsx"],
+      "expected_answer_terms": ["47 分钟", "12 万元"],
+      "expected_evidence_terms": ["事件编号：INC-A17", "持续时间：47 分钟", "损失金额：12 万元"],
+      "forbidden_terms": ["18 分钟", "8 万元"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-008",
+      "kind": "incident_text_field",
+      "question": "INC-B04 的根因和当前状态是什么？",
+      "expected_titles": ["incident-review.xlsx"],
+      "expected_answer_terms": ["证书过期", "复盘中"],
+      "expected_evidence_terms": ["事件编号：INC-B04", "根因：证书过期", "状态：复盘中"],
+      "forbidden_terms": ["容量告警", "已关闭"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-009",
+      "kind": "agent_row",
+      "question": "项目风险扫描Agent的核心功能和适用场景是什么？",
+      "expected_titles": ["agent-catalog.xlsx"],
+      "expected_answer_terms": ["识别项目资料中的风险、缺口和待确认项", "项目复盘"],
+      "expected_evidence_terms": ["项目风险扫描Agent", "核心功能：识别项目资料中的风险、缺口和待确认项", "适用场景：项目复盘"],
+      "forbidden_terms": ["会议行动项提取Agent", "周例会"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-010",
+      "kind": "missing_field_refusal",
+      "question": "SN-A17 的采购价格是多少？",
+      "expected_titles": [],
+      "expected_refusal": true,
+      "expected_answer_terms": ["没有足够信息"],
+      "forbidden_terms": ["林岚", "在役"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-011",
+      "kind": "missing_field_refusal",
+      "question": "项目风险扫描Agent由谁负责？",
+      "expected_titles": [],
+      "expected_refusal": true,
+      "expected_answer_terms": ["没有足够信息"],
+      "forbidden_terms": ["已验证", "项目复盘"],
+      "priority": "P0"
+    },
+    {
+      "id": "table-012",
+      "kind": "numeric_interval_rule",
+      "question": "采购金额 25 万元，审批上要额外关注什么？",
+      "expected_titles": ["采购审批规则"],
+      "expected_answer_terms": ["法务", "财务负责人会签"],
+      "expected_evidence_terms": ["20 万元（含）以上", "法务与财务负责人会签"],
+      "forbidden_terms": ["低于 20 万元"],
+      "priority": "P0"
+    }
+  ]
+}

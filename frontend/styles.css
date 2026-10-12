@@ -239,16 +239,6 @@ html[data-theme="paper-warm"] .note {
     var(--surface-elev);
   padding-left: 48px;
 }
-html[data-theme="paper-warm"] .note::after {
-  content: "";
-  position: absolute;
-  left: 27px;
-  top: 16px;
-  bottom: 16px;
-  width: 1px;
-  background: repeating-linear-gradient(to bottom, rgba(127,100,71,0.2), rgba(127,100,71,0.2) 4px, transparent 4px, transparent 9px);
-  pointer-events: none;
-}
 
 /* ============================================================
    主题：Ink Scholar（墨色学者）
@@ -3810,62 +3800,145 @@ body.knowledge-workbench .search-shortcut {
   right: 10px;
   display: inline-flex;
   align-items: center;
-  height: 18px;
+  gap: 3px;
+  height: 20px;
   padding: 0 6px;
+  border: 1px solid #e5e9ef;
   border-radius: 5px;
-  background: #f4f6f8;
-  color: #97a1ad;
+  background: #f7f8fb;
+  color: #8793a5;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .2px;
   pointer-events: none;
 }
+body.knowledge-workbench .search-shortcut svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 body.knowledge-workbench .search-clear { right: 12px; z-index: 2; }
-body.knowledge-workbench .search-input-wrap:has(#search-clear:not(.hidden)) .search-shortcut { display: none; }
+body.knowledge-workbench .search-input-wrap:has(#search-clear:not(.hidden)) .search-shortcut { right: 39px; }
+body.knowledge-workbench .global-search .search-input-wrap:has(#search-clear:not(.hidden)) #search { padding-right: 98px; }
 body.knowledge-workbench .global-search #ask-button {
   height: 30px;
-  min-width: 101px;
+  min-width: 112px;
   padding: 0 13px;
-  border: 1px solid rgba(255, 255, 255, 0.84);
+  justify-content: center;
+  border: 1px solid rgba(126, 105, 255, .45);
   border-radius: 999px;
-  background: linear-gradient(104deg, #e8dcff 0%, #e7dcff 24%, #d9f0f7 61%, #c9f4de 100%);
-  color: #263744;
+  background: linear-gradient(108deg, #343bce 0%, #6240dc 42%, #8735da 72%, #4c43d9 100%);
+  color: #fff;
   font-size: 12px;
   font-weight: 700;
-  box-shadow: 0 3px 10px rgba(111, 176, 188, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+  text-shadow: 0 1px 3px rgba(27, 16, 104, .4);
+  box-shadow: 0 3px 12px rgba(97, 62, 211, .22), inset 0 1px 0 rgba(255, 255, 255, .24);
+  transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+/* Only decorative layers move; the label and hit target remain still. */
+body.knowledge-workbench .global-search #ask-button::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -70% -35%;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 28% 42%, rgba(87, 135, 255, .72), transparent 42%),
+    radial-gradient(ellipse at 68% 64%, rgba(188, 79, 255, .65), transparent 44%),
+    radial-gradient(ellipse at 84% 24%, rgba(119, 95, 255, .72), transparent 38%);
+  animation: ask-aurora-flow 7s ease-in-out infinite alternate;
+}
+body.knowledge-workbench .global-search #ask-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 9% 68%, #fff 0 .8px, transparent 1.5px),
+    radial-gradient(circle at 19% 22%, #fff9 0 .6px, transparent 1.2px),
+    radial-gradient(circle at 32% 78%, #fffd 0 .7px, transparent 1.3px),
+    radial-gradient(circle at 43% 18%, #fffb 0 .7px, transparent 1.4px),
+    radial-gradient(circle at 57% 84%, #fff9 0 .6px, transparent 1.2px),
+    radial-gradient(circle at 70% 20%, #fff 0 .9px, transparent 1.7px),
+    radial-gradient(circle at 83% 71%, #fffc 0 .7px, transparent 1.5px),
+    radial-gradient(circle at 94% 35%, #fff9 0 .6px, transparent 1.2px);
+  animation: ask-aurora-stars 3.8s ease-in-out infinite alternate;
+}
+body.knowledge-workbench .global-search #ask-button > span {
+  position: relative;
 }
 body.knowledge-workbench .global-search #ask-button:hover {
-  border-color: rgba(255, 255, 255, 0.94);
-  color: #1e3140;
-  background: linear-gradient(104deg, #e7d8ff 0%, #e5dcff 24%, #d4eff8 61%, #bff2d6 100%);
-  box-shadow: 0 6px 16px rgba(104, 175, 185, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  border-color: rgba(170, 147, 255, .85);
+  color: #fff;
+  background: linear-gradient(108deg, #343bce 0%, #6240dc 42%, #8735da 72%, #4c43d9 100%);
+  box-shadow: 0 5px 18px rgba(106, 61, 227, .34), 0 0 0 3px rgba(141, 105, 255, .09), inset 0 1px 0 rgba(255, 255, 255, .3);
   transform: translateY(-1px);
 }
+body.knowledge-workbench .global-search #ask-button:focus-visible {
+  outline: 2px solid #7750dc;
+  outline-offset: 3px;
+}
+body.knowledge-workbench .global-search #ask-button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 7px rgba(97, 62, 211, .22);
+}
+body.knowledge-workbench .global-search #ask-button:disabled {
+  opacity: .55;
+  transform: none;
+  box-shadow: none;
+}
+body.knowledge-workbench .global-search #ask-button:disabled::before,
+body.knowledge-workbench .global-search #ask-button:disabled::after,
+body.knowledge-workbench .global-search #ask-button:disabled .ask-button-star::before {
+  animation-play-state: paused;
+}
 body.knowledge-workbench .ask-button-star {
-  width: 16px;
-  height: 16px;
-  color: #6f8fff;
-  font-size: 17px;
+  width: 15px;
+  height: 15px;
+  color: #fff;
+  font-size: 16px;
+  text-shadow: 0 0 7px rgba(233, 218, 255, .65);
 }
 body.knowledge-workbench .ask-button-star::before {
-  top: 9px;
-  left: 9px;
-  width: 2px;
-  height: 2px;
-  opacity: .82;
-  background: #6e93ff;
-  box-shadow: -7px -5px 0 -1px #e891d7, 5px -7px 0 -1px #75d7db, 8px 4px 0 -1px #7bdba8;
-  animation: none;
+  content: "\2727";
+  top: -2px;
+  right: -4px;
+  left: auto;
+  width: 7px;
+  height: 7px;
+  color: #eee4ff;
+  font-size: 8px;
+  background: none;
+  box-shadow: none;
+  opacity: .8;
+  animation: ask-aurora-spark 3.8s ease-in-out infinite alternate;
 }
 body.knowledge-workbench .ask-button-star::after {
-  inset: 0;
-  opacity: 1;
-  transform: none;
-  background: linear-gradient(135deg, #7c8ef5, #5ec7e0 58%, #6fd69d);
-  background-clip: text;
-  -webkit-background-clip: text;
+  content: none;
   animation: none;
+}
+@keyframes ask-aurora-flow {
+  from { transform: translate3d(-8%, -6%, 0) rotate(-8deg); }
+  to { transform: translate3d(8%, 6%, 0) rotate(8deg); }
+}
+@keyframes ask-aurora-stars {
+  from { opacity: .45; transform: translate3d(-2px, 1px, 0); }
+  to { opacity: .95; transform: translate3d(2px, -1px, 0); }
+}
+@keyframes ask-aurora-spark {
+  from { opacity: .45; transform: scale(.75); }
+  to { opacity: 1; transform: scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.knowledge-workbench .global-search #ask-button { transition: none; }
+  body.knowledge-workbench .global-search #ask-button:hover { transform: none; }
+  body.knowledge-workbench .global-search #ask-button::before,
+  body.knowledge-workbench .global-search #ask-button::after,
+  body.knowledge-workbench .ask-button-star::before { animation: none; }
 }
 body.knowledge-workbench .ai-answer-tab {
   display: inline-flex;
@@ -3897,4 +3970,6 @@ body.knowledge-workbench .answer-cat-mark {
 @media (max-width: 780px) {
   body.knowledge-workbench .global-search #ask-button { min-width: 94px; padding: 0 10px; }
   body.knowledge-workbench .search-shortcut { display: none; }
+  body.knowledge-workbench .global-search #search,
+  body.knowledge-workbench .global-search .search-input-wrap:has(#search-clear:not(.hidden)) #search { padding-right: 36px; }
 }

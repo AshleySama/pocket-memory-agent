@@ -1,0 +1,262 @@
+/*
+ * Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* Local control improvements only. Theme palettes and workspace styling stay in styles.css. */
+@media (min-width: 781px) {
+  /* Align visible artwork at 32px, allowing for the logo's ~5px transparent inset. */
+  body.knowledge-workbench .app-header > .app-brand {
+    min-width: 0;
+    padding-left: 27px;
+  }
+
+  body.knowledge-workbench .app-brand-copy h1 {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
+html[data-theme] body.knowledge-workbench .detail-tabs {
+  gap: 8px;
+  padding: 0 0 14px;
+  margin-bottom: 17px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+html[data-theme] body.knowledge-workbench button.detail-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 35px;
+  padding: 7px 14px;
+  margin-right: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+html[data-theme] body.knowledge-workbench button.detail-tab:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-elev);
+  color: var(--text);
+}
+
+html[data-theme] body.knowledge-workbench button.detail-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+html[data-theme] body.knowledge-workbench button.detail-tab.active,
+html[data-theme] body.knowledge-workbench button.detail-tab.active:is(:hover, :focus-visible) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-blue) !important;
+  font-weight: 650;
+}
+
+html[data-theme] body.knowledge-workbench .detail-tab.active .ai-answer-spark {
+  color: currentColor;
+}
+
+html[data-theme] body.knowledge-workbench .settings-load-status:not(.hidden) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+html[data-theme] body.knowledge-workbench .settings-load-status[data-state="error"] {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-solid));
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+
+html[data-theme] body.knowledge-workbench #settings-retry {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+html[data-theme] body.knowledge-workbench #settings-retry[hidden] {
+  display: none;
+}
+
+/* Defined category rows; all navigation counts share one right-aligned column. */
+#category-nav .folder-row {
+  min-height: 38px;
+  margin: 6px 0;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-right: 8px;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 7px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+#category-nav .folder-row:hover {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: var(--text);
+}
+
+#category-nav .folder-row.active,
+#category-nav .folder-row.drop-target {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+#category-nav .folder-row.drop-target {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+#category-nav .folder-children .folder-row:not(.active):not(.drop-target) {
+  min-height: 32px;
+  margin: 3px 0;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+#category-nav .folder-children .folder-row:not(.active):not(.drop-target):hover {
+  background: var(--accent-soft);
+  border-color: var(--border);
+}
+
+#category-nav button.folder-toggle,
+#category-nav button.folder-name {
+  min-width: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  transform: none;
+}
+
+#category-nav button.folder-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 26px;
+  padding: 3px;
+  color: var(--accent);
+}
+
+#category-nav button.folder-toggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+#category-nav .folder-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#category-nav .folder-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+#category-nav .folder-toggle-placeholder { width: 22px; }
+
+#category-nav button.folder-name {
+  min-height: 28px;
+  gap: 8px;
+  padding: 3px 0 3px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+#category-nav .folder-name span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#category-nav > .nav-item[data-filter="all"] {
+  padding-right: 9px;
+  min-height: 38px;
+}
+
+body.knowledge-workbench .favorites-section > summary {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 9px;
+  padding-right: 9px;
+  min-height: 32px;
+}
+
+#category-nav > .nav-item[data-filter="all"] > b,
+#category-nav .folder-name > b,
+body.knowledge-workbench .favorites-section #favorite-count {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 22px;
+  padding: 0 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--text-soft) !important;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  text-align: center;
+  opacity: 1;
+}
+
+#category-nav .folder-row.active .folder-name { font-weight: 650; }
+#category-nav .folder-children .folder-row:not(.active) .folder-name { font-weight: 500; }
+#category-nav > .nav-item[data-filter="all"].active > b,
+#category-nav .folder-row.active .folder-name > b {
+  color: var(--text-on-blue) !important;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Child counts keep the shared column without adding another badge. */
+#category-nav .folder-children .folder-row .folder-name > b {
+  background: transparent;
+  border-color: transparent;
+  color: inherit !important;
+  font-weight: 500;
+}
+
+#category-nav button.folder-toggle:focus-visible,
+#category-nav button.folder-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

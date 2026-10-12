@@ -15,7 +15,9 @@ Never treat an answer as the authoritative record when a source document is avai
 
 ## Public synthetic fixtures
 
-The fixture files under `tests/fixtures/` are synthetic or publicly verifiable regression materials. They exercise retrieval behavior and answer contracts, but they do not establish production readiness. They intentionally do not include the project's real user-library data or real-feedback regression cases.
+The fixture files under `tests/fixtures/` are synthetic or publicly verifiable regression materials. They exercise retrieval behavior and answer contracts, but they do not establish production readiness. Reported failures are represented by portable synthetic or demonstration cases; actual user libraries, attachments, private acceptance results, and raw feedback logs are not included.
+
+The October 2026 updates add coverage for table identity and header mapping, single/multiple field requests, Chinese/English name spacing, source-tab coverage, and citation highlighting. A successful targeted test does not imply that arbitrary table layouts, OCR output, or business questions are supported without error.
 
 ## Recommended acceptance set
 

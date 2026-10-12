@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.1 - 2026-10-12
+
+RAG correctness, source navigation, and interface updates.
+
+- Preserve complete table headers and row identity when answering named field questions; prefer complete table text over partial OCR evidence.
+- Handle Chinese/English spacing, single-field requests, and multiple fields for one named subject without confusing them with multi-subject comparisons or source-relation questions.
+- Strengthen evidence checks for numeric limits, conditions, negation, causal explanations, and explicit conversational follow-ups.
+- Keep relevant note-tab sources and highlight the requested table row and fields when opening a citation.
+- Repair settings interactions and refine navigation, editor tabs, Enter hints, the animated Q&A button, and Windows icons while preserving the existing themes.
+- Add synthetic query, source-location, structured-table, evaluation-artifact, and frontend regression coverage.
+- Preserve complete GGUF files in full-model builds while excluding incomplete download fragments. Model weights and release archives remain outside Git.
+
 ## 1.1.1 - 2026-10-02
 
 Public-source synchronization and attribution hardening.

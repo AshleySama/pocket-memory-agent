@@ -82,6 +82,56 @@ class DocumentImportTests(unittest.TestCase):
         self.assertEqual(pdf_chunks[0]["page"], 1)
         self.assertEqual(pdf_chunks[0]["location"], "第 1 页")
 
+    def test_real_xlsx_shared_record_fields_remain_answerable_without_neighbour_values(self) -> None:
+        # Keep the exact workbook and question used by the packaged-app smoke.
+        path = self.root / "打包合同台账.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "合同台账"
+        sheet.append(["合同编号", "负责人", "付款状态", "付款比例"])
+        sheet.append(["EQ-C31", "林岚", "待付款", "0%"])
+        sheet.append(["EQ-C310", "周远", "已付款", "80%"])
+        workbook.save(path)
+        workbook.close()
+        document = self.create_document(path.name, path.read_bytes())
+        extracted = DocumentExtractor.extract(document, self.store.data_dir / document.stored_path)
+        self.assertEqual(len(extracted), 1)
+        self.assertIn("合同编号：EQ-C31；负责人：林岚；付款状态：待付款；付款比例：0%", extracted[0]["text"])
+        stored = self.store.replace_document_chunks(document.id, extracted)
+        embedding = EmbeddingService(self.store, DocumentEmbeddingEngine())
+        try:
+            embedding._process_document(document.id)
+            rag = RagPipeline(self.store, embedding)
+            question = "合同 EQ-C31 的负责人、付款状态和付款比例分别是什么？"
+            retrieved = rag.retrieve(question, limit=5, semantic_min_score=0.0)
+            self.assertTrue(rag.has_answerable_evidence(question, retrieved))
+            sources = rag.source_payloads(question, retrieved)
+            for generated in (
+                "现有笔记没有足够信息。",
+                "合同 EQ-C31 的负责人是林岚，付款状态为待付款，付款比例为80% [1]。",
+            ):
+                with self.subTest(generated=generated):
+                    answer, selected = rag.enforce_answer_contract(question, generated, sources)
+                    self.assertEqual(len(selected), 1)
+                    for value in ("EQ-C31", "林岚", "待付款", "0%"):
+                        self.assertIn(value, answer)
+                        self.assertIn(value, selected[0]["evidence"])
+                    for wrong in ("EQ-C310", "周远", "80%"):
+                        self.assertNotIn(wrong, answer)
+                        self.assertNotIn(wrong, selected[0]["evidence"])
+                    self.assertEqual(selected[0]["type"], "document")
+                    self.assertEqual(selected[0]["id"], document.id)
+                    self.assertEqual(selected[0]["chunk_id"], stored[0].id)
+                    self.assertIn("合同台账", selected[0]["location"])
+
+            missing_amount = "合同 EQ-C31 的合同金额是多少？"
+            self.assertFalse(rag.has_answerable_evidence(missing_amount, retrieved))
+            answer, selected = rag.enforce_answer_contract(missing_amount, "合同金额为0元 [1]。", sources)
+            self.assertEqual(selected, [])
+            self.assertIn("没有足够信息", answer)
+        finally:
+            embedding.shutdown()
+
     def test_txt_extractor_decodes_gb18030_and_preserves_folder_display_name(self) -> None:
         document = self.create_document(
             "项目资料/制度/供应商阈值.txt",
@@ -111,6 +161,14 @@ class DocumentImportTests(unittest.TestCase):
         self.assertTrue(chunks)
         self.assertTrue(chunks[0]["text"].startswith("# 报销范围"))
         self.assertTrue(all(len(chunk["text"]) <= DocumentExtractor.max_chunk_size for chunk in chunks))
+
+    def test_oversized_identity_and_label_preserve_every_payload_character(self) -> None:
+        row = "编号：" + "A" * 32 + "；风险说明：必须保留全部内容甲乙丙丁戊己庚辛壬癸"
+        pieces = DocumentExtractor._split_bounded_table_row(row, 40)
+
+        self.assertGreater(len(pieces), 1)
+        self.assertTrue(all(len(piece) <= 40 for piece in pieces))
+        self.assertEqual(row, "".join(pieces))
 
     def test_profiles_change_automatic_chunk_granularity_with_bounded_sizes(self) -> None:
         text = "\n\n".join(f"第 {index} 条：" + "审批条件、责任人和例外情况需要完整记录。" * 14 for index in range(1, 7))
@@ -242,3 +300,33 @@ class DocumentImportTests(unittest.TestCase):
         self.assertTrue(chunks)
         self.assertTrue(all(len(chunk["text"]) <= DocumentExtractor.max_chunk_size for chunk in chunks))
         self.assertTrue(all(chunk["cell_range"].startswith("A3:C3") for chunk in chunks))
+        self.assertTrue(all(chunk["text"].startswith("工作表：Sheet\n表头：项目 | 风险说明 | 责任人") for chunk in chunks))
+        self.assertTrue(all("项目：项目 A" in chunk["text"] for chunk in chunks))
+        self.assertTrue(all("片段" in chunk["location"] for chunk in chunks))
+
+    def test_excel_long_rows_keep_their_own_identity_without_cross_row_mixing(self) -> None:
+        excel_path = self.root / "双行长表.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "风险台账"
+        sheet.append(["合同编号", "风险说明", "责任人"])
+        sheet.append(["HT-2026-021", "甲类风险" * 500, "张三"])
+        sheet.append(["HT-2026-027", "乙类风险" * 500, "李四"])
+        workbook.save(excel_path)
+        document = self.create_document("双行长表.xlsx", excel_path.read_bytes())
+
+        chunks = DocumentExtractor.extract(document, self.store.data_dir / document.stored_path)
+
+        self.assertGreater(len(chunks), 2)
+        self.assertTrue(all(len(chunk["text"]) <= DocumentExtractor.max_chunk_size for chunk in chunks))
+        self.assertTrue(all("工作表：风险台账" in chunk["text"] and "表头：" in chunk["text"] for chunk in chunks))
+        for chunk in chunks:
+            has_021 = "合同编号：HT-2026-021" in chunk["text"]
+            has_027 = "合同编号：HT-2026-027" in chunk["text"]
+            self.assertNotEqual(has_021, has_027)
+            if has_021:
+                self.assertEqual(chunk["cell_range"], "A2:C2")
+                self.assertNotIn("乙类风险", chunk["text"])
+            if has_027:
+                self.assertEqual(chunk["cell_range"], "A3:C3")
+                self.assertNotIn("甲类风险", chunk["text"])

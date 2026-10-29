@@ -43,6 +43,11 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def source_kind(source: dict) -> str:
+    """Accept the retained source contract and the legacy response spelling."""
+    return source.get("source_type") or source.get("type") or ""
+
+
 def wait_until(operation, predicate, *, timeout: float = 90):
     deadline = time.monotonic() + timeout
     last = None
@@ -93,34 +98,41 @@ def import_workbook(base: str, directory: Path) -> dict:
     return imported
 
 
-def check_table_answers(base: str, imported: dict) -> dict:
+def check_table_answers(base: str, imported: dict, evidence_sink: dict | None = None, *, release_mechanics: bool = False) -> dict:
     document_id = imported["document"]["id"]
     positive = request(base, "/api/ask", {
         "question": "合同 EQ-C31 的负责人、付款状态和付款比例分别是什么？", "diagnostics": True,
     }, timeout=180)
     answer = positive.get("answer", "")
+    if evidence_sink is not None:
+        evidence_sink["positive"] = positive
     require("林岚" in answer and re.search(r"(?<!\d)0%", answer)
             and any(term in answer for term in ("待付款", "未付款", "尚未付款")),
             f"XLSX target row answer is incomplete: {positive}")
     require(not any(term in answer for term in ("EQ-C310", "周远", "80%")), f"Neighbouring row leaked into answer: {positive}")
     sources = [source for source in positive.get("sources", [])
-               if source.get("type") == "document" and source.get("id") == document_id]
+               if source_kind(source) == "document" and source.get("id") == document_id]
     require(sources, "XLSX answer has no citation to the imported document")
     require(any(all(term in source.get("evidence", "") for term in ("EQ-C31", "林岚", "待付款", "0%")) for source in sources),
             "Visible XLSX evidence lost target identity or row fields")
-    require(not any(term in source.get("evidence", "") for source in sources for term in ("EQ-C310", "周远", "80%")),
-            "Visible XLSX evidence includes the neighbouring contract")
+    adjacent_context = any(term in source.get("evidence", "") for source in sources for term in ("EQ-C310", "周远", "80%"))
+    if not release_mechanics:
+        require(not adjacent_context, "Visible XLSX evidence includes the neighbouring contract")
     require(any(source.get("location") for source in sources), "XLSX citation has no source location")
     negative = request(base, "/api/ask", {
         "question": "合同 EQ-C31 的合同金额是多少？", "diagnostics": True,
     }, timeout=180)
     negative_text = negative.get("answer", "")
+    if evidence_sink is not None:
+        evidence_sink["absent_price"] = negative
     require(any(term in negative_text for term in ("未提及", "未提供", "没有", "无法", "不足", "未找到", "未记录", "未列出", "未载明", "不包含")),
             f"Missing XLSX price was not refused: {negative}")
     require(not negative.get("sources"), "Missing XLSX amount returned unrelated answer citations")
     require(not re.search(r"\d+(?:\.\d+)?\s*(?:亿元|万元|元)", negative_text), f"Unlabelled contract amount invented: {negative}")
     require(not any(term in negative_text for term in ("EQ-C310", "周远", "80%")), f"Absent price borrowed neighbouring values: {negative}")
-    return {"document": imported["document"], "chunk_count": len(imported["chunks"]), "positive": positive, "absent_price": negative}
+    return {"document": imported["document"], "chunk_count": len(imported["chunks"]), "positive": positive, "absent_price": negative,
+            "evidence_scope_passed": not adjacent_context,
+            "known_limitations": ["Correct target answer and document citation, but displayed evidence also includes adjacent row"] if adjacent_context else []}
 
 
 def check_explicit_field_answers(base: str) -> dict:
@@ -356,7 +368,7 @@ def check_backup(data: bytes, directory: Path, note: dict, image_note: dict, doc
             "imported_document_preserved": document is not None}
 
 
-def run(executable: Path, output: Path, llm_model: Path | None = None) -> dict:
+def run(executable: Path, output: Path, llm_model: Path | None = None, *, skip_historical_fields: bool = False, release_mechanics: bool = False) -> dict:
     executable = executable.resolve(strict=True)
     if llm_model is not None:
         llm_model = llm_model.resolve(strict=True)
@@ -453,15 +465,21 @@ def run(executable: Path, output: Path, llm_model: Path | None = None) -> dict:
                         # Preserve parsed rows and import metadata even if the
                         # following answer assertion rejects this candidate.
                         report["checks"]["xlsx_import"] = imported
-                        report["checks"]["xlsx_rag"] = check_table_answers(owned_base, imported)
-                        report["checks"]["explicit_field_rag"] = check_explicit_field_answers(owned_base)
+                        report["checks"]["xlsx_rag"] = {}
+                        report["checks"]["xlsx_rag"] = check_table_answers(owned_base, imported, report["checks"]["xlsx_rag"], release_mechanics=release_mechanics)
+                        if skip_historical_fields:
+                            report["checks"]["explicit_field_rag"] = {"skipped": True, "reason": "Reuse frozen RAG evidence; package mechanics smoke only"}
+                        else:
+                            report["checks"]["explicit_field_rag"] = check_explicit_field_answers(owned_base)
                     else:
                         report["checks"]["ask"] = {"skipped": True, "reason": "No available model; pass --llm-model for Qwen smoke"}
                     backup = request(owned_base, "/api/export/backup", raw=True, timeout=60)
                     report["checks"]["backup_restore"] = check_backup(backup, root, note, image_note,
                                                                       imported["document"] if imported else None)
                     require(config_path.read_bytes() == config_bytes, "Read-only smoke settings changed unexpectedly")
-                    report["passed"] = True
+                    report["package_mechanics_passed"] = True
+                    report["known_limitations"] = report["checks"].get("xlsx_rag", {}).get("known_limitations", [])
+                    report["passed"] = not report["known_limitations"]
                 finally:
                     # Only address the PID-owned endpoint discovered in this
                     # disposable directory. Never call the general --quit path.
@@ -498,8 +516,10 @@ def main() -> int:
     parser.add_argument("--exe", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--llm-model", type=Path, help="Existing external GGUF read without copying/downloading")
+    parser.add_argument("--skip-historical-fields", action="store_true", help="Reuse unchanged frozen RAG evidence; do not repeat legacy exact-layout questions")
+    parser.add_argument("--release-mechanics", action="store_true", help="Continue package checks after adjacent-row evidence scope limitation; keep that quality check failed")
     args = parser.parse_args()
-    report = run(args.exe, args.output, args.llm_model)
+    report = run(args.exe, args.output, args.llm_model, skip_historical_fields=args.skip_historical_fields, release_mechanics=args.release_mechanics)
     print(json.dumps({"passed": report["passed"], "error": report.get("error"), "report": str(args.output)}, ensure_ascii=False))
     return 0 if report["passed"] else 1
 

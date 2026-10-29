@@ -1,6 +1,5 @@
-REM Copyright 2026 AshleySama
-REM SPDX-License-Identifier: Apache-2.0
-
+@REM Copyright 2026 AshleySama
+@REM SPDX-License-Identifier: Apache-2.0
 @echo off
 title Pocket Memory - Setup Virtual Environment
 cd /d "%~dp0"
@@ -95,10 +94,18 @@ if errorlevel 1 (
 
 echo.
 echo ============================================
+echo  Installing the complete pinned application requirements ...
+".venv\Scripts\python.exe" -m pip install -r requirements.txt --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+if errorlevel 1 (
+    echo [ERROR] Application or retained RAG dependencies are incomplete.
+    pause
+    exit /b 1
+)
 echo  Setup complete!
 echo ============================================
 echo  Verifying imports ...
-".venv\Scripts\python.exe" -c "import numpy, onnxruntime, tokenizers, rapidocr, webview, llama_cpp; print('all imports OK')"
+".venv\Scripts\python.exe" -c "import numpy, onnxruntime, tokenizers, rapidocr, webview, llama_cpp, docx, openpyxl, pymupdf, llama_index.core, llama_index.retrievers.bm25, flashrank; print('all imports OK')"
+if errorlevel 1 exit /b 1
 echo ============================================
 echo  Now run run_dev.bat to start the app.
 echo ============================================

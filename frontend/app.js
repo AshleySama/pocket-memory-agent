@@ -22,6 +22,8 @@ const state = {
   selectedNoteId: null,
   resultScope: "note",
   pendingContentSaves: new Map(),
+  noteEditorSessions: new Map(),
+  editorActiveTabs: new Map(),
   editorSelection: null,
   allNotes: [],
   documents: [],
@@ -33,6 +35,7 @@ const state = {
   reportSelection: new Map(),
   reportDraft: null,
   newNoteDraft: null,
+  newNoteSaving: false,
   resultSortDirection: "desc",
   askHistory: [],
 };
@@ -62,6 +65,22 @@ const TABLER_ICON_PATHS = {
   pinned: '<path d="M9 4v6l-2 4v2h10v-2l-2-4v-6"/><path d="M12 16v5"/><path d="M8 4h8"/>',
   "pinned-off": '<path d="M3 3l18 18"/><path d="M15 4.5l-3.249 3.249m-2.57 1.433l-2.181 .818l-1.5 1.5l7 7l1.5-1.5l.82-2.186m1.43-2.563l3.25-3.251"/><path d="M9 15l-4.5 4.5"/><path d="M14.5 4l5.5 5.5"/>',
   trash: '<path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7v-3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/>',
+  heart: '<path d="M19.5 12.6L12 20l-7.5-7.4a5 5 0 1 1 7.5-6.5 5 5 0 1 1 7.5 6.5"/>',
+  edit: '<path d="M8 20H4v-4L16 4a2.8 2.8 0 0 1 4 4L8 20z"/><path d="m14 6 4 4"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  history: '<path d="M3 11a9 9 0 1 1 2.6 7.4"/><path d="M3 4v7h7"/><path d="M12 7v5l3 2"/>',
+  sparkles: '<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/>',
+  "arrow-up": '<path d="M12 19V5m-6 6 6-6 6 6"/>',
+  refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/>',
+  save: '<path d="M6 3h11l4 4v13H3V3h3z"/><path d="M7 3v6h9V3M7 20v-7h10v7"/>',
+  x: '<path d="m6 6 12 12M6 18 18 6"/>',
+  bold: '<path d="M7 4h6a4 4 0 0 1 0 8H7zm0 8h7a4 4 0 0 1 0 8H7z"/>',
+  italic: '<path d="M11 4h6M7 20h6M14 4 10 20"/>',
+  underline: '<path d="M6 4v6a6 6 0 0 0 12 0V4M4 20h16"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+  "list-numbers": '<path d="M10 6h10M10 12h10M10 18h10M3 4h1v5M3 13a2 2 0 0 1 3 1c0 2-3 2-3 5h3"/>',
+  quote: '<path d="M4 6h6v6H6c0 3-1 4-3 5M14 6h6v6h-4c0 3-1 4-3 5"/>',
 };
 
 function tablerIcon(name, className) {
@@ -121,8 +140,191 @@ function syncCachedNote(noteId, patch) {
 }
 
 async function flushPendingContentSaves() {
+  const content = currentNoteEditor();
+  if (content?.getAttribute("contenteditable") === "true") {
+    captureEditorDraft(content);
+    if (!await saveEditorContent(content)) return false;
+  }
   const pending = [...state.pendingContentSaves.values()];
-  if (pending.length) await Promise.allSettled(pending);
+  const results = pending.length ? await Promise.all(pending) : [];
+  return results.every(Boolean);
+}
+
+function currentNoteEditor() {
+  return $("#editor-dock-content .note-content[data-note-id]");
+}
+
+function noteEditorSession(content) {
+  const noteId = Number(content?.dataset.noteId);
+  if (!noteId) return null;
+  if (!state.noteEditorSessions.has(noteId)) {
+    const text = content.querySelector(".note-empty-body") ? "" : editableContentToMarkdown(content);
+    state.noteEditorSessions.set(noteId, { saved: text, draft: text, editing: false, status: "saved", error: "" });
+  }
+  const session = state.noteEditorSessions.get(noteId);
+  content.dataset.saved = session.saved;
+  return session;
+}
+
+function captureEditorDraft(content = currentNoteEditor()) {
+  if (!content || content.getAttribute("contenteditable") !== "true") return null;
+  const session = noteEditorSession(content);
+  if (!session) return null;
+  session.draft = editableContentToMarkdown(content);
+  if (session.status !== "saving" && session.status !== "error") {
+    session.status = session.draft === session.saved ? "saved" : "dirty";
+  }
+  return session;
+}
+
+function paintEditorState(content) {
+  const session = noteEditorSession(content);
+  const note = content?.closest(".note");
+  if (!session || !note) return;
+  note.classList.toggle("is-editing", session.editing);
+  content.classList.toggle("editable", session.editing);
+  const editable = session.editing ? "true" : "false";
+  if (content.getAttribute("contenteditable") !== editable) content.setAttribute("contenteditable", editable);
+  const toolbar = note.querySelector(".editor-toolbar");
+  if (toolbar) toolbar.hidden = !session.editing;
+  const toggle = note.querySelector('[data-action="toggle-note-edit"]');
+  // Saving can repaint between pointerdown and click. Keep the button's child
+  // nodes stable until its mode changes so a blur-save cannot swallow click.
+  if (toggle && toggle.dataset.editorMode !== editable) {
+    toggle.innerHTML = `${tablerIcon(session.editing ? "check" : "edit", "editor-control-icon")}<span>${session.editing ? "完成" : "编辑"}</span>`;
+    toggle.setAttribute("aria-label", session.editing ? "保存并完成编辑" : "编辑当前页签");
+    toggle.dataset.editorMode = editable;
+  }
+  const status = note.querySelector(".note-save-status");
+  if (status) {
+    status.dataset.state = session.status;
+    status.textContent = { dirty: "未保存", saving: "保存中…", error: "保存失败，草稿已保留", saved: "已保存" }[session.status];
+    status.title = session.error || (session.updatedAt ? `最后保存：${session.updatedAt}` : "");
+  }
+  const retry = note.querySelector('[data-action="retry-note-save"]');
+  if (retry) retry.hidden = session.status !== "error";
+  for (const action of note.querySelectorAll('[data-current-tab-action]')) action.dataset.id = content.dataset.noteId;
+}
+
+function refreshEditorSaveState(noteId) {
+  const content = currentNoteEditor();
+  if (Number(content?.dataset.noteId) === noteId) paintEditorState(content);
+}
+
+function saveEditorContent(content = currentNoteEditor()) {
+  const session = captureEditorDraft(content) || (content ? noteEditorSession(content) : null);
+  if (!session) return Promise.resolve(true);
+  const noteId = Number(content.dataset.noteId);
+  if (state.pendingContentSaves.has(noteId)) return state.pendingContentSaves.get(noteId);
+  if (session.draft === session.saved) {
+    session.status = "saved";
+    session.error = "";
+    refreshEditorSaveState(noteId);
+    return Promise.resolve(true);
+  }
+  // A single queue per real note/tab ID prevents an earlier response from
+  // overwriting newer typing. The saved baseline advances only after success.
+  const save = (async () => {
+    while (session.draft !== session.saved) {
+      const submitted = session.draft;
+      session.status = "saving";
+      session.error = "";
+      refreshEditorSaveState(noteId);
+      try {
+        const updated = await request(`/api/notes/${noteId}`, { method: "PUT", body: JSON.stringify({ content: submitted }) });
+        session.saved = submitted;
+        session.updatedAt = updated.updated_at || "";
+        syncCachedNote(noteId, { content: updated.content ?? submitted, updated_at: updated.updated_at });
+      } catch (error) {
+        session.status = "error";
+        session.error = error.message;
+        refreshEditorSaveState(noteId);
+        showToast("保存失败，草稿已保留", `${error.message}；可点击重试或按 Ctrl+S。`);
+        return false;
+      }
+    }
+    session.status = "saved";
+    refreshEditorSaveState(noteId);
+    return true;
+  })();
+  state.pendingContentSaves.set(noteId, save);
+  save.finally(() => {
+    if (state.pendingContentSaves.get(noteId) === save) state.pendingContentSaves.delete(noteId);
+  });
+  return save;
+}
+
+async function toggleNoteEditing(content = currentNoteEditor()) {
+  if (!content) return;
+  const session = noteEditorSession(content);
+  if (session.editing) {
+    if (!await saveEditorContent(content)) return;
+    session.editing = false;
+    delete content.dataset.editing;
+    state.editorSelection = null;
+    const visible = currentNoteEditor();
+    const target = Number(visible?.dataset.noteId) === Number(content.dataset.noteId) ? visible : content;
+    paintEditorState(target);
+    target.closest(".note")?.querySelector('[data-action="toggle-note-edit"]')?.focus();
+  } else {
+    session.editing = true;
+    content.querySelector(".note-empty-body")?.remove();
+    paintEditorState(content);
+    content.focus({ preventScroll: true });
+  }
+}
+
+function saveCurrentEditor() {
+  if (state.newNoteDraft) return saveNewNote();
+  const content = currentNoteEditor();
+  if (content) return saveEditorContent(content);
+  const button = $("#inline-save");
+  if (button && !button.disabled && !$("#inline-composer")?.classList.contains("hidden")) button.click();
+  return Promise.resolve(true);
+}
+
+async function prepareEditorNavigation() {
+  if (!await flushPendingContentSaves()) return false;
+  if (!state.newNoteDraft) return true;
+  if (state.newNoteSaving) return false;
+  syncNewNoteDraftFromDom();
+  const draft = state.newNoteDraft;
+  if ((draft.title.trim() || draft.content.trim() || state.imageDataUrl)
+      && !await showConfirm("离开会放弃这条尚未保存的笔记。", "离开新建笔记", { confirmText: "放弃并离开", isDanger: true })) return false;
+  state.newNoteDraft = null;
+  state.imageDataUrl = null;
+  state.imageName = null;
+  return true;
+}
+
+async function prepareLibraryChange() {
+  if (state.newNoteSaving || !await flushPendingContentSaves()) return false;
+  if (!state.newNoteDraft) return true;
+  syncNewNoteDraftFromDom();
+  const draft = state.newNoteDraft;
+  if (String(draft.title || "").trim() || String(draft.content || "").trim() || state.imageDataUrl) {
+    return Boolean(await saveNewNote());
+  }
+  return true;
+}
+
+function resetEditorForLibraryChange() {
+  // IDs belong to a library. Remove the old DOM before another library can
+  // reuse them, so refreshing cannot recapture an old body as a new draft.
+  currentNoteEditor()?.setAttribute("contenteditable", "false");
+  $("#editor-dock-content")?.replaceChildren();
+  state.noteEditorSessions.clear();
+  state.editorActiveTabs.clear();
+  state.pendingContentSaves.clear();
+  state.editorSelection = null;
+  state.selectedNoteId = null;
+  state.pendingScrollId = null;
+  state.editingId = null;
+  state.newNoteDraft = null;
+  state.imageDataUrl = null;
+  state.imageName = null;
+  state.notes = [];
+  state.allNotes = [];
 }
 
 const WORKBENCH_LAYOUT_KEY = "pocket-memory-workbench-layout-v2";
@@ -624,6 +826,7 @@ function relativeTime(iso) {
 }
 
 async function jumpToNote(noteId) {
+  if (!await prepareEditorNavigation()) return;
   // 若笔记不在当前筛选结果中，先清空筛选再 refresh，最后滚动定位
   const inView = state.notes.some((n) => n.id === noteId);
   if (!inView) {
@@ -798,13 +1001,167 @@ function renderSearchReason(note) {
   return `<span class="score-chip" title="向量相似度，当前低于 0.50 不返回">语义 ${Number(note.search_score).toFixed(2)}</span>`;
 }
 
+function answerSourceLink(source, label, className) {
+  // Keep the backend's citation identity and opening target together. Titles
+  // and evidence are user content, so every inserted value stays escaped.
+  return source.url
+    ? `<a class="${className}" href="#" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title || "")}" data-doc-evidence="${escapeHtml(source.evidence || "")}">${escapeHtml(label)}</a>`
+    : `<span class="${className}">${escapeHtml(label)}</span>`;
+}
+
+function renderAnswerText(answer, sources = []) {
+  const text = String(answer || "");
+  const byIndex = new Map();
+  for (const source of sources) {
+    const index = String(source.index ?? "");
+    if (/^[1-9]\d*$/.test(index) && !byIndex.has(index)) byIndex.set(index, source);
+  }
+  const references = (value) => [...new Set([...value.matchAll(/\[(\d+)\]/g)]
+    .map((match) => match[1]).filter((index) => byIndex.has(index)))];
+  const inline = (value) => {
+    let cursor = 0;
+    let html = "";
+    for (const match of value.matchAll(/\[(\d+)\]/g)) {
+      html += escapeHtml(value.slice(cursor, match.index));
+      const source = byIndex.get(match[1]);
+      html += source ? answerSourceLink(source, match[0], "answer-citation") : escapeHtml(match[0]);
+      cursor = match.index + match[0].length;
+    }
+    return html + escapeHtml(value.slice(cursor));
+  };
+  if (references(text).length < 2) return inline(text);
+
+  // Group only adjacent lines with the same explicit references. Never sort
+  // statements, restart their numbering, or infer a citation for an uncited line.
+  const groups = [];
+  for (const line of text.split(/\r?\n/)) {
+    const isReferenceList = /^(?:支持资料编号|参考资料编号|引用来源|来源编号)\s*[:：]\s*(?:\[\d+\]\s*[,，、;；]?\s*)+[。.]?\s*$/.test(line.trim());
+    const indices = isReferenceList ? [] : references(line);
+    const key = indices.join(",");
+    const previous = groups[groups.length - 1];
+    if (previous && previous.key === key) previous.text += `\n${line}`;
+    else groups.push({ key, indices, text: line });
+  }
+  return `<div class="answer-grouped">${groups.map((group) => {
+    if (!group.indices.length) return `<div class="answer-prose">${inline(group.text)}</div>`;
+    const labels = group.indices.map((index) => {
+      const source = byIndex.get(index);
+      return answerSourceLink(source, `[${index}] ${source.title || "未命名资料"}`, "answer-source-label");
+    }).join("");
+    return `<div class="answer-source-group"><div class="answer-group-sources"><span>本段引用</span>${labels}</div><div class="answer-group-text">${inline(group.text)}</div></div>`;
+  }).join("")}</div>`;
+}
+
+function answerSourceEvidenceCount(source) {
+  const members = Array.isArray(source.citation_members) ? source.citation_members : [];
+  const memberCount = new Set(members.map((member) => member.id || JSON.stringify([
+    member.source_type, member.source_id, member.kind, member.spans,
+  ]))).size;
+  const locations = Array.isArray(source.evidence_locations) ? source.evidence_locations : [];
+  const declaredCount = Number(source.evidence_count);
+  // A table header and its row are spans of one evidence member, not two
+  // independent pieces of evidence. Do not count raw_evidence spans here.
+  return Math.max(memberCount, new Set(locations.filter(Boolean)).size,
+    Number.isSafeInteger(declaredCount) && declaredCount > 0 ? declaredCount : 0,
+    source.evidence ? 1 : 0);
+}
+
+function answerSourceMeta(source, options = {}) {
+  const labels = [];
+  const count = answerSourceEvidenceCount(source);
+  if (count && options.showCount !== false) labels.push(`含 ${count} 处证据`);
+  const members = Array.isArray(source.citation_members) ? source.citation_members : [];
+  const tabs = [...new Set([source, ...members].map((member) => {
+    const name = String(member.tab_name || "").trim();
+    return name || (member.parent_note_id != null ? String(member.title || "").trim() : "");
+  }).filter(Boolean))];
+  for (const tab of tabs) labels.push(`页签：${tab}`);
+
+  // Character offsets remain on the original payload for locating evidence.
+  // Only human-readable page/sheet/location labels belong on the source card.
+  const locations = [source.location, ...(Array.isArray(source.evidence_locations) ? source.evidence_locations : [])];
+  const friendlyLocations = locations.flatMap((location) => String(location || "").split(/[；;]/))
+    .map((location) => location.trim())
+    .filter((location) => !/^(?:完整保存正文|保存正文|原文证据组)(?:\s|[·；]|$)/.test(location))
+    .map((location) => location.replace(/\s*(?:[·•]\s*)?(?:原文)?字符(?:\s*\d|位置).*$/u, "").trim())
+    .map((location) => location.replace(/\s*[·•]\s*\d+\s*[–—-]\s*\d+(?:\s*[,，]\s*\d+\s*[–—-]\s*\d+)*$/u, "").trim())
+    .map((location) => location === "正文表格" ? "表格" : location)
+    .map((location) => location === "OCR原字段" ? "图片文字" : location)
+    .filter((location) => location && location !== "原文" && !/^\d+\s*[–—-]\s*\d+(?:\s*[,，]\s*\d+\s*[–—-]\s*\d+)*$/.test(location));
+  for (const location of new Set(friendlyLocations)) {
+    if (!tabs.some((tab) => location === tab || location === `页签：${tab}`)) labels.push(location);
+  }
+  return labels.map((label) => `<span class="source-chunk">${escapeHtml(label)}</span>`).join("");
+}
+
+function renderAnswerSource(source) {
+  const evidence = String(source.evidence || "");
+  const excerpt = String(source.excerpt || "");
+  const normalize = (value) => value.replace(/\s+/g, " ").trim();
+  const normalizedExcerpt = normalize(excerpt);
+  const hasExtraContext = normalizedExcerpt && (!evidence || !normalize(evidence).includes(normalizedExcerpt));
+  const matchedTerms = Array.isArray(source.matched_terms) ? source.matched_terms.filter((term) => typeof term === "string" && term) : [];
+  const evidenceTerms = evidence.split(/\r?\n/).map((term) => term.trim()).filter(Boolean);
+  const meta = answerSourceMeta(source);
+  return `<div class="answer-source">
+    <b>[${escapeHtml(source.index)}] ${escapeHtml(source.title || "未命名资料")}</b>
+    ${meta ? `<div class="source-reference-meta">${meta}</div>` : ""}
+    ${source.url ? answerSourceLink(source, "打开参考文档", "source-link") : ""}
+    ${evidence ? `<div class="evidence-box"><strong>证据句</strong>${highlightText(evidence, matchedTerms)}</div>` : ""}
+    ${hasExtraContext ? `<details class="source-context"><summary>查看上下文</summary><div class="source-excerpt">${highlightText(excerpt, [...evidenceTerms, ...matchedTerms])}</div></details>` : ""}
+  </div>`;
+}
+
+function groupClarificationSources(sources = []) {
+  const groups = new Map();
+  for (const source of Array.isArray(sources) ? sources : []) {
+    const key = JSON.stringify([source.source_type || "note", source.source_id ?? source.id ?? source.url ?? source.title,
+      source.parent_note_id ?? null, source.tab_name || ""]);
+    if (!groups.has(key)) groups.set(key, { sources: [], entities: [] });
+    const group = groups.get(key);
+    group.sources.push(source);
+    for (const name of Array.isArray(source.clarification_entities) ? source.clarification_entities : []) {
+      if (!group.entities.includes(name)) group.entities.push(name);
+    }
+  }
+  return [...groups.values()];
+}
+
+function renderClarificationSources(sources = []) {
+  const groups = groupClarificationSources(sources);
+  if (!groups.length) return "";
+  return `<section class="clarification-sources" aria-label="帮助确认对象的资料">
+    <div class="clarification-sources-heading"><strong>帮助确认对象的资料</strong><p>打开资料后，告诉我具体对象。</p></div>
+    ${groups.map((group) => {
+      const source = group.sources[0];
+      const meta = answerSourceMeta({ ...source, evidence_locations: group.sources.flatMap((item) =>
+        [item.location, ...(Array.isArray(item.evidence_locations) ? item.evidence_locations : [])]) }, { showCount: false });
+      const excerpts = group.sources.filter((item) => item.evidence).map((item) => {
+        const names = Array.isArray(item.clarification_entities) ? item.clarification_entities : [];
+        return `<div class="source-excerpt clarification-excerpt">${names.length ? `<strong>${escapeHtml(names.join("、"))}</strong>` : ""}<div>${escapeHtml(item.evidence)}</div>${item.url ? answerSourceLink(item, "定位这段原文", "source-link") : ""}</div>`;
+      }).join("");
+      return `<div class="answer-source clarification-source">
+        <b>${escapeHtml(source.title || "未命名资料")}</b>
+        ${group.entities.length ? `<div class="clarification-objects">${group.entities.map((name) => `<span>${escapeHtml(name)}</span>`).join("")}</div>` : ""}
+        ${meta ? `<div class="source-reference-meta">${meta}</div>` : ""}
+        ${source.url ? answerSourceLink(source, "打开资料", "source-link") : ""}
+        ${excerpts ? `<details class="source-context"><summary>查看相关原文</summary>${excerpts}</details>` : ""}
+      </div>`;
+    }).join("")}
+  </section>`;
+}
+
 function renderAnswer(payload, question) {
   const kind = payload.kind || "qa";
   const data = payload.data || {};
   if (kind === "stats" || kind === "taxonomy") {
     $("#result-count").textContent = "即时结果";
   } else {
-    $("#result-count").textContent = `参考 ${(payload.sources || []).length} 条`;
+    const sourceCount = (payload.sources || []).length;
+    const clarificationCount = groupClarificationSources(payload.clarification_sources || []).length;
+    $("#result-count").textContent = !sourceCount && clarificationCount
+      ? `待确认对象 · 相关资料 ${clarificationCount} 条`
+      : `参考 ${sourceCount} 条`;
   }
   const engineLabel = payload.engine === "llama-index" ? "LlamaIndex 实验解答" : "智能解答";
   const intentLabel = INTENT_LABELS[kind] || "智能问答";
@@ -830,36 +1187,13 @@ function renderAnswer(payload, question) {
     ${dataHtml}
     <div class="answer-response">
       <img class="answer-cat-mark" src="/brand/pocket-memory-small-logo.png" alt="智能问答标识">
-      <div class="answer-body">${escapeHtml(payload.answer || "没有生成回答。")}</div>
+      <div class="answer-body">${renderAnswerText(payload.answer || "没有生成回答。", payload.sources || [])}</div>
     </div>
     ${(payload.sources || []).length ? `
       <div class="answer-sources">
-        ${(payload.sources || []).map((source) => {
-          const reasonParts = [];
-          if (source.reason) reasonParts.push(escapeHtml(source.reason));
-          if (source.rank_score != null) reasonParts.push(`综合 ${Number(source.rank_score).toFixed(2)}`);
-          const chunkOrders = Array.isArray(source.chunk_orders) && source.chunk_orders.length
-            ? [...new Set(source.chunk_orders.map((order) => Number(order) + 1))]
-            : (Number.isInteger(source.chunk_order) ? [Number(source.chunk_order) + 1] : []);
-          const chunkLabel = source.type === "document" && chunkOrders.length
-            ? `<span class="source-chunk">切片 ${chunkOrders.join("、")}</span>`
-            : "";
-          const evidenceCount = Array.isArray(source.evidence_locations) && source.evidence_locations.length > 1
-            ? `<span class="source-chunk">含 ${source.evidence_locations.length} 处证据</span>`
-            : "";
-          const evidenceTerms = String(source.evidence || "").split(/\r?\n/).map((term) => term.trim()).filter(Boolean);
-          const contextTerms = [...evidenceTerms, ...(source.matched_terms || [])].filter(Boolean);
-          return `
-           <div class="answer-source">
-              <b>[${source.index}] ${escapeHtml(source.title)}</b>
-              <em>${reasonParts.join("；")}</em>
-              <div class="source-reference-meta">${chunkLabel}${evidenceCount}${source.location ? `<span class="source-location">${escapeHtml(source.location)}</span>` : ""}</div>
-              ${source.url ? `<a class="source-link" href="javascript:void(0)" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title)}" data-doc-evidence="${escapeHtml(source.evidence || "")}">打开参考文档</a>` : ""}
-             ${source.evidence ? `<div class="evidence-box"><strong>证据句</strong>${highlightText(source.evidence, source.matched_terms || [])}</div>` : ""}
-             <p class="source-excerpt"><span>${evidenceCount ? "同一来源上下文" : "同一切片上下文"}</span>${highlightText(source.excerpt, contextTerms)}</p>
-           </div>`;
-        }).join("")}
-      </div>` : ""}`;
+        ${(payload.sources || []).map(renderAnswerSource).join("")}
+      </div>` : ""}
+    ${renderClarificationSources(payload.clarification_sources || [])}`;
   const closeAnswer = () => {
     state.askHistory = [];
     $("#answer-panel").innerHTML = `<div class="empty-guide"><p class="muted">在搜索框输入问题，点击「智能问答」<br>会基于你的本地笔记生成回答。</p></div>`;
@@ -971,22 +1305,38 @@ function renderRecallCard() {
     </section>`;
 }
 
+function renderNoteBody(note, terms = []) {
+  const session = state.noteEditorSessions.get(Number(note.id));
+  const editing = Boolean(session?.editing);
+  const content = editing ? session.draft : note.content;
+  return `<div class="note-content${editing ? " editable" : ""}" contenteditable="${editing ? "true" : "false"}" data-note-id="${note.id}" data-field="content" data-placeholder="从这里开始记录…" aria-label="当前页签正文">${content ? renderNoteContent(content, editing ? [] : terms) : (editing ? "" : "<p class='muted note-empty-body'>此页签暂无正文。点击「编辑」开始记录。</p>")}</div>`;
+}
+
 function renderNoteHtml(note, terms) {
   const preview = note.matched_excerpt || excerpt(note.content || note.ocr_text || (note.attachment_path ? "图片笔记，展开后查看 OCR 文字。" : ""));
   const subcategoryChip = note.subcategory
     ? `<span class="category-chip editable" data-action="edit-category" data-id="${note.id}" data-field="subcategory" title="点击编辑小分类">${highlightText(note.subcategory, terms)}</span>`
     : `<span class="category-chip editable muted-chip" data-action="edit-category" data-id="${note.id}" data-field="subcategory" title="点击添加小分类">+ 小分类</span>`;
   return `
-    <article class="note${note.pinned ? " pinned" : ""}">
+    <article class="note${note.pinned ? " pinned" : ""}" data-note-id="${note.id}">
       <div class="note-header">
-        <h3 class="editable-note-title" data-action="edit-title" data-id="${note.id}" title="点击编辑标题">${note.pinned ? `${tablerIcon("pinned", "pin-title-icon")} ` : ""}${highlightText(note.title, terms)}</h3>
+        <h3 class="editable-note-title" data-action="edit-title" data-id="${note.id}" title="编辑模式下可修改标题">${note.pinned ? `${tablerIcon("pinned", "pin-title-icon")} ` : ""}${highlightText(note.title, terms)}</h3>
         <div class="note-header-actions">
-          <button class="ghost note-action-btn scroll-top-btn" data-action="scroll-editor-top" data-id="${note.id}" type="button" title="返回笔记顶部" aria-label="返回笔记顶部">↑</button>
-          <button class="ghost note-action-btn danger delete-note-btn" data-action="delete" data-id="${note.id}" type="button" title="删除笔记" aria-label="删除笔记">${tablerIcon("trash", "trash-icon")}</button>
-          <button class="ghost note-action-btn pin-btn ${note.pinned ? "active" : ""}" data-action="pin" data-id="${note.id}" type="button" title="${note.pinned ? "取消置顶" : "置顶"}" aria-label="${note.pinned ? "取消置顶" : "置顶"}">${tablerIcon("pinned", "pin-icon")}</button>
-          <button class="ghost note-action-btn favorite-btn ${note.favorite ? "active" : ""}" data-action="favorite" data-id="${note.id}" type="button" title="${note.favorite ? "取消收藏" : "收藏"}" aria-label="${note.favorite ? "取消收藏" : "收藏"}">${note.favorite ? "♥" : "♡"}</button>
-          <button class="ghost note-action-btn" data-action="intelligence" data-id="${note.id}" title="AI 重新整理">重新整理</button>
-          <time title="最后编辑时间">${escapeHtml((note.updated_at || note.created_at).slice(11, 16))}</time>
+          <div class="note-mark-actions" role="group" aria-label="标记笔记">
+            <button class="ghost note-action-btn pin-btn ${note.pinned ? "active" : ""}" data-action="pin" data-id="${note.id}" type="button" title="${note.pinned ? "取消置顶" : "置顶"}" aria-label="${note.pinned ? "取消置顶" : "置顶"}" aria-pressed="${Boolean(note.pinned)}">${tablerIcon("pinned", "editor-control-icon")}</button>
+            <button class="ghost note-action-btn favorite-btn ${note.favorite ? "active" : ""}" data-action="favorite" data-id="${note.id}" type="button" title="${note.favorite ? "取消收藏" : "收藏"}" aria-label="${note.favorite ? "取消收藏" : "收藏"}" aria-pressed="${Boolean(note.favorite)}">${tablerIcon("heart", "editor-control-icon")}</button>
+          </div>
+          <details class="note-more-menu">
+            <summary class="editor-more-trigger" title="更多操作" aria-label="更多操作">${tablerIcon("more", "editor-control-icon")}</summary>
+            <div class="note-more-items" role="group" aria-label="更多笔记操作">
+              <button class="ghost" data-action="intelligence" data-current-tab-action data-id="${note.id}" type="button">${tablerIcon("sparkles", "editor-control-icon")}<span>重新整理</span></button>
+              <button class="ghost" data-action="versions" data-current-tab-action data-id="${note.id}" type="button">${tablerIcon("history", "editor-control-icon")}<span>历史版本</span></button>
+              ${note.attachment_path && note.ocr_status !== "not_applicable" ? `<button class="ghost" data-action="ocr" data-id="${note.id}" type="button">${tablerIcon("refresh", "editor-control-icon")}<span>重新识别图片</span></button>` : ""}
+              <button class="ghost" data-action="scroll-editor-top" type="button">${tablerIcon("arrow-up", "editor-control-icon")}<span>返回顶部</span></button>
+              <div class="note-menu-divider" role="separator"></div>
+              <button class="ghost danger" data-action="delete" data-id="${note.id}" type="button">${tablerIcon("trash", "editor-control-icon")}<span>删除笔记</span></button>
+            </div>
+          </details>
         </div>
       </div>
       <div class="note-meta">
@@ -1005,13 +1355,11 @@ function renderNoteHtml(note, terms) {
         <summary>展开全文与操作</summary>
         <div class="editor-detail-body"><div class="editor-detail-inner">
           <div class="note-tab-content" data-note-id="${note.id}">
-            <div class="note-content editable" contenteditable="true" data-note-id="${note.id}" data-field="content" data-placeholder="点击此处开始编辑..." title="点击直接编辑">${note.content ? renderNoteContent(note.content, terms) : ""}</div>
+            ${renderNoteBody(note, terms)}
           </div>
           ${renderOcr(note, terms)}
           <div class="note-footer-actions">
             ${note.attachment_path && note.ocr_status !== "not_applicable" ? `<button class="ghost" data-action="toggle-ocr" data-id="${note.id}" type="button">展开OCR内容</button>` : ""}
-            ${note.attachment_path && note.ocr_status !== "not_applicable" ? `<button class="ghost" data-action="ocr" data-id="${note.id}">重新识别</button>` : ""}
-            <button class="ghost" data-action="versions" data-id="${note.id}" type="button" title="查看历史版本与差异对比">历史版本</button>
           </div>
         </div></div>
       </details>
@@ -1189,7 +1537,17 @@ function groupNoteSearchResults(results) {
 function renderEditorDock(terms = []) {
   const dock = $("#editor-dock-content");
   if (!dock) return;
+  const previous = currentNoteEditor();
+  const previousSession = captureEditorDraft(previous);
+  if (previousSession && (previousSession.draft !== previousSession.saved || previousSession.status === "saving")) {
+    // Background refresh/filter results may change; a failed draft stays on its
+    // original note/tab until a successful save permits navigation.
+    state.selectedNoteId = Number(previous.closest(".note")?.dataset.noteId);
+    paintEditorState(previous);
+    return;
+  }
   if (state.newNoteDraft) {
+    if (state.newNoteSaving && $("#new-note-content")) return;
     syncNewNoteDraftFromDom();
     renderNewNoteDraft(dock);
     return;
@@ -1198,7 +1556,7 @@ function renderEditorDock(terms = []) {
     || state.allNotes.find((note) => Number(note.id) === Number(state.selectedNoteId))
     || state.notes[0];
   if (!selected) {
-    dock.innerHTML = `<div class="editor-empty"><strong>选择一条笔记开始编辑</strong><span>从中栏检索结果选择一条笔记。</span></div>`;
+    dock.innerHTML = `<div class="editor-empty"><strong>选择一条笔记开始阅读</strong><span>需要修改时，点击笔记上方的「编辑」。</span></div>`;
     return;
   }
   state.selectedNoteId = selected.id;
@@ -1209,20 +1567,29 @@ function renderEditorDock(terms = []) {
   if (noteEl && tabsBar) {
     const noteHeader = noteEl.querySelector(":scope > .note-header");
     const noteMeta = noteEl.querySelector(":scope > .note-meta");
-    const organizeButton = noteHeader?.querySelector("[data-action='intelligence']");
     const chrome = document.createElement("div");
     chrome.className = "editor-chrome";
     chrome.innerHTML = `
-      <div class="editor-metadata-row"><div class="editor-organize-slot"></div></div>
+      <div class="editor-metadata-row"></div>
       <div class="editor-tabs-row"><div class="editor-tabs-slot"></div></div>
-      ${renderEditorToolbar()}`;
+      <div class="note-edit-actions"><span class="note-save-status" role="status" aria-live="polite">已保存</span><button class="ghost editor-text-action" data-action="retry-note-save" type="button" hidden>${tablerIcon("refresh", "editor-control-icon")}<span>重试</span></button><button class="ghost editor-text-action note-edit-toggle" data-action="toggle-note-edit" type="button">${tablerIcon("edit", "editor-control-icon")}<span>编辑</span></button></div>
+      ${renderEditorToolbar({ hidden: true })}`;
     noteEl.prepend(chrome);
     if (noteHeader) chrome.prepend(noteHeader);
     if (noteMeta) chrome.querySelector(".editor-metadata-row").prepend(noteMeta);
-    if (organizeButton) chrome.querySelector(".editor-organize-slot").append(organizeButton);
     chrome.querySelector(".editor-tabs-slot").append(tabsBar);
   }
-  if (tabsBar) loadTabsBar(Number(tabsBar.dataset.noteId), tabsBar);
+  const content = noteEl?.querySelector(".note-content[data-note-id]");
+  if (content) {
+    const session = state.noteEditorSessions.get(Number(content.dataset.noteId));
+    if (session && !session.editing && session.status === "saved") state.noteEditorSessions.delete(Number(content.dataset.noteId));
+    paintEditorState(content);
+  }
+  if (tabsBar) {
+    const activeTab = state.editorActiveTabs.get(Number(selected.id));
+    if (activeTab && activeTab !== Number(selected.id)) switchTab(Number(selected.id), activeTab, { tabsBar });
+    else loadTabsBar(Number(tabsBar.dataset.noteId), tabsBar);
+  }
 }
 
 function folderOptionsHtml(selectedFolderId = null) {
@@ -1240,17 +1607,17 @@ function folderOptionsHtml(selectedFolderId = null) {
   )).join("")}`;
 }
 
-function renderEditorToolbar() {
+function renderEditorToolbar({ hidden = false } = {}) {
   return `
-    <div class="editor-toolbar" role="toolbar" aria-label="编辑工具栏">
+    <div class="editor-toolbar" role="toolbar" aria-label="编辑工具栏"${hidden ? " hidden" : ""}>
       <select class="editor-format-select" aria-label="段落样式" data-editor-command="formatBlock">
         <option value="p">正文</option>
         <option value="h2">标题</option>
         <option value="h3">小标题</option>
       </select>
-      <button class="editor-tool" type="button" data-editor-command="bold" title="加粗"><b>B</b></button>
-      <button class="editor-tool editor-tool-italic" type="button" data-editor-command="italic" title="斜体">I</button>
-      <button class="editor-tool" type="button" data-editor-command="underline" title="下划线"><u>U</u></button>
+      <button class="editor-tool" type="button" data-editor-command="bold" title="加粗" aria-label="加粗">${tablerIcon("bold", "editor-control-icon")}</button>
+      <button class="editor-tool" type="button" data-editor-command="italic" title="斜体" aria-label="斜体">${tablerIcon("italic", "editor-control-icon")}</button>
+      <button class="editor-tool" type="button" data-editor-command="underline" title="下划线" aria-label="下划线">${tablerIcon("underline", "editor-control-icon")}</button>
       <label class="editor-color-swatch" title="文字颜色">
         <span aria-hidden="true">A</span><input type="color" class="editor-color-input" data-editor-color="foreColor" value="#1f2f2d" aria-label="文字颜色">
       </label>
@@ -1258,9 +1625,9 @@ function renderEditorToolbar() {
         <span aria-hidden="true"></span><input type="color" class="editor-color-input" data-editor-color="hiliteColor" value="#fff3a6" aria-label="文字背景颜色">
       </label>
       <span class="editor-tool-divider" aria-hidden="true"></span>
-      <button class="editor-tool" type="button" data-editor-command="insertUnorderedList" title="无序列表">&#8226;&#8801;</button>
-      <button class="editor-tool" type="button" data-editor-command="insertOrderedList" title="有序列表">1&#8801;</button>
-      <button class="editor-tool" type="button" data-editor-command="formatBlock" data-editor-value="blockquote" title="引用">&#8220;</button>
+      <button class="editor-tool" type="button" data-editor-command="insertUnorderedList" title="无序列表" aria-label="无序列表">${tablerIcon("list", "editor-control-icon")}</button>
+      <button class="editor-tool" type="button" data-editor-command="insertOrderedList" title="有序列表" aria-label="有序列表">${tablerIcon("list-numbers", "editor-control-icon")}</button>
+      <button class="editor-tool" type="button" data-editor-command="formatBlock" data-editor-value="blockquote" title="引用" aria-label="引用">${tablerIcon("quote", "editor-control-icon")}</button>
     </div>`;
 }
 
@@ -1285,8 +1652,9 @@ function renderNewNoteDraft(dock) {
             <input id="new-note-title" class="new-note-title" value="${escapeHtml(draft.title || "")}" placeholder="给这条笔记起个标题" aria-label="笔记标题">
           </div>
           <div class="new-note-actions">
-            <button class="ghost" data-action="cancel-new-note" type="button">取消</button>
-            <button data-action="save-new-note" type="button">保存笔记</button>
+            <span class="note-save-status" data-state="${draft.saveError ? "error" : "dirty"}" role="status" aria-live="polite">${draft.saveError ? "保存失败，草稿已保留" : "未保存"}</span>
+            <button class="ghost editor-text-action" data-action="cancel-new-note" type="button">${tablerIcon("x", "editor-control-icon")}<span>取消</span></button>
+            <button class="editor-text-action" data-action="save-new-note" type="button">${tablerIcon("save", "editor-control-icon")}<span>保存笔记</span></button>
           </div>
         </header>
         <div class="new-note-metadata">
@@ -1304,7 +1672,7 @@ function renderNewNoteDraft(dock) {
 
 function renderTimeline() {
   // 如果用户正在编辑正文（contenteditable 获焦），跳过本次渲染避免打断编辑
-  if (document.activeElement?.closest(".note-content.editable")) return;
+  if (document.activeElement?.closest(".note-content.editable")?.getAttribute("contenteditable") === "true") return;
   const terms = $("#search-mode").value === "semantic"
     ? [...new Set(state.notes.flatMap((note) => note.matched_terms || []))]
     : searchHighlightTerms();
@@ -1665,8 +2033,9 @@ function focusInlineComposer(folderId) {
   beginNewNote(folderId);
 }
 
-function scrollToNote(noteId) {
+async function scrollToNote(noteId) {
   // 在结果列表中定位指定笔记，并在右栏编辑器中打开它。
+  if (!await prepareEditorNavigation()) return;
   state.selectedNoteId = Number(noteId);
   renderTimeline();
   switchPane("editor-pane");
@@ -1776,7 +2145,13 @@ function populateFolderSelect() {
   select.innerHTML = folderOptionsHtml();
 }
 
-function beginNewNote(folderId = null, { keepAttachment = false } = {}) {
+async function beginNewNote(folderId = null, { keepAttachment = false } = {}) {
+  if (state.newNoteDraft) {
+    switchPane("editor-pane");
+    $("#new-note-content")?.focus();
+    return;
+  }
+  if (!await flushPendingContentSaves()) return;
   if (!keepAttachment) {
     state.imageDataUrl = null;
     state.imageName = null;
@@ -1793,6 +2168,7 @@ function beginNewNote(folderId = null, { keepAttachment = false } = {}) {
 }
 
 async function cancelNewNote() {
+  if (state.newNoteSaving) return;
   syncNewNoteDraftFromDom();
   const draft = state.newNoteDraft || {};
   const hasContent = Boolean(String(draft.title || "").trim() || String(draft.content || "").trim() || state.imageDataUrl);
@@ -1805,6 +2181,7 @@ async function cancelNewNote() {
 }
 
 async function saveNewNote() {
+  if (state.newNoteSaving) return false;
   syncNewNoteDraftFromDom();
   const draft = state.newNoteDraft || {};
   const content = String(draft.content || "").trim();
@@ -1813,7 +2190,16 @@ async function saveNewNote() {
     return;
   }
   const button = $("#editor-dock-content [data-action='save-new-note']");
-  const originalText = button?.textContent || "保存笔记";
+  const originalHtml = button?.innerHTML || "保存笔记";
+  const status = $("#editor-dock-content .note-save-status");
+  const contentEl = $("#new-note-content");
+  const titleEl = $("#new-note-title");
+  const folderEl = $("#new-note-folder");
+  state.newNoteSaving = true;
+  if (contentEl) contentEl.setAttribute("contenteditable", "false");
+  if (titleEl) titleEl.disabled = true;
+  if (folderEl) folderEl.disabled = true;
+  if (status) { status.dataset.state = "saving"; status.textContent = "保存中…"; }
   if (button) {
     button.disabled = true;
     button.textContent = "保存中...";
@@ -1839,12 +2225,20 @@ async function saveNewNote() {
     $("#search-clear").classList.add("hidden");
     showToast("保存成功", "新笔记已创建");
     await refresh();
+    return true;
   } catch (error) {
+    draft.saveError = error.message;
+    if (status) { status.dataset.state = "error"; status.textContent = "保存失败，草稿已保留"; }
     showToast("保存失败", error.message);
+    return false;
   } finally {
+    state.newNoteSaving = false;
+    if (contentEl?.isConnected) contentEl.setAttribute("contenteditable", "true");
+    if (titleEl?.isConnected) titleEl.disabled = false;
+    if (folderEl?.isConnected) folderEl.disabled = false;
     if (button?.isConnected) {
       button.disabled = false;
-      button.textContent = originalText;
+      button.innerHTML = originalHtml;
     }
   }
 }
@@ -2123,7 +2517,7 @@ async function askWith(endpoint, loadingText) {
                 { role: "user", content: question },
                 { role: "assistant", content: answerText.slice(0, 1200) },
               ];
-          renderAnswer({ answer: answerText, sources, expanded_terms: expandedTerms, kind: resultKind, data: resultData, timing: event.timing || {} }, question);
+          renderAnswer({ answer: answerText, sources, clarification_sources: event.clarification_sources || [], expanded_terms: expandedTerms, kind: resultKind, data: resultData, timing: event.timing || {} }, question);
         } else if (event.type === "error") {
           $("#answer-panel").innerHTML = `<p class="ocr-error">${escapeHtml(event.message)}</p>`;
         }
@@ -2756,6 +3150,7 @@ async function showVersionsDialog(noteId) {
     if (!await showConfirm("恢复到此版本？当前内容会被覆盖（已自动保存为新版本，可再次恢复）。", "恢复版本", { confirmText: "恢复" })) return;
     try {
       await request(`/api/versions/${targetId}/restore`, { method: "POST", body: "{}" });
+      state.noteEditorSessions.delete(Number(noteId));
       showToast("已恢复", "当前内容已覆盖为历史版本");
       dlg.close();
       await refresh();
@@ -3123,7 +3518,7 @@ function applyEditorCommand(editor, command, value = null) {
 
 document.addEventListener("selectionchange", rememberEditorSelection);
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".editor-color-swatch")) rememberEditorSelection();
+  if (event.target.closest(".editor-toolbar")) rememberEditorSelection();
 }, true);
 
 document.addEventListener("mousedown", (event) => {
@@ -3134,7 +3529,7 @@ document.addEventListener("click", (event) => {
   const tool = event.target.closest(".editor-tool");
   if (!tool) return;
   const editor = $("#editor-dock-content .note-content.editable");
-  if (!editor) return;
+  if (!editor || editor.getAttribute("contenteditable") !== "true") return;
   applyEditorCommand(editor, tool.dataset.editorCommand, tool.dataset.editorValue || null);
 });
 
@@ -3143,7 +3538,7 @@ document.addEventListener("change", (event) => {
   const colorInput = event.target.closest(".editor-color-input");
   if (!select && !colorInput) return;
   const editor = $("#editor-dock-content .note-content.editable");
-  if (!editor) return;
+  if (!editor || editor.getAttribute("contenteditable") !== "true") return;
   if (select) {
     applyEditorCommand(editor, "formatBlock", `<${select.value}>`);
   } else {
@@ -3204,7 +3599,7 @@ async function handleNoteInteraction(event) {
   }
   const resultSelect = event.target.closest("[data-action='select-note']");
   if (resultSelect) {
-    await flushPendingContentSaves();
+    if (!await prepareEditorNavigation()) return;
     state.selectedNoteId = Number(resultSelect.dataset.id);
     renderTimeline();
     switchPane("editor-pane");
@@ -3219,7 +3614,7 @@ async function handleNoteInteraction(event) {
     return;
   }
   const title = event.target.closest("[data-action='edit-title']");
-  if (title) { makeTitleEditable(title); return; }
+  if (title) { if (title.closest(".note")?.classList.contains("is-editing")) makeTitleEditable(title); return; }
   const removeTag = event.target.closest("[data-action='remove-tag']");
   if (removeTag) {
     try {
@@ -3236,14 +3631,24 @@ async function handleNoteInteraction(event) {
   }
   // 分类 chip 内联编辑（点击大分类/小分类直接编辑）
   const catChip = event.target.closest("[data-action='edit-category']");
-  if (catChip) { makeCategoryEditable(catChip); return; }
+  if (catChip) { if (catChip.closest(".note")?.classList.contains("is-editing")) makeCategoryEditable(catChip); return; }
   // 标签 chip 内联编辑
   const tagChip = event.target.closest("[data-action='edit-tag']");
-  if (tagChip) { makeTagEditable(tagChip); return; }
+  if (tagChip) { if (tagChip.closest(".note")?.classList.contains("is-editing")) makeTagEditable(tagChip); return; }
   // wiki-link 跳转已由 document 级监听统一处理，这里跳过
   if (event.target.closest(".wiki-link")) return;
   const button = event.target.closest("button[data-action]");
   if (!button) return;
+  const menu = button.closest(".note-more-menu");
+  if (menu) menu.open = false;
+  if (button.dataset.action === "toggle-note-edit") {
+    await toggleNoteEditing();
+    return;
+  }
+  if (button.dataset.action === "retry-note-save") {
+    await saveCurrentEditor();
+    return;
+  }
   if (button.dataset.action === "scroll-editor-top") {
     const editor = $("#editor-dock-content");
     editor?.scrollTo({ top: 0, behavior: "smooth" });
@@ -3259,8 +3664,12 @@ async function handleNoteInteraction(event) {
   if (!note) return;
   if (button.dataset.action === "delete") {
     if (!await showConfirm(`删除"${note.title}"？`, "删除笔记", { confirmText: "删除", isDanger: true })) return;
+    if (!await flushPendingContentSaves()) return;
     try {
       await request(`/api/notes/${note.id}`, { method: "DELETE" });
+      const removedIds = new Set([Number(note.id), state.editorActiveTabs.get(Number(note.id))]);
+      for (const id of removedIds) state.noteEditorSessions.delete(id);
+      state.editorActiveTabs.delete(Number(note.id));
       showToast("已删除", note.title);
       await refresh();
     } catch (err) {
@@ -3275,6 +3684,7 @@ async function handleNoteInteraction(event) {
       showToast("操作失败", err.message);
     }
   } else if (button.dataset.action === "intelligence") {
+    if (!await flushPendingContentSaves()) return;
     try {
       await request(`/api/notes/${note.id}/intelligence`, { method: "POST", body: "{}" });
       showToast("已提交", "正在重新整理笔记");
@@ -3310,12 +3720,28 @@ async function handleNoteInteraction(event) {
       button.textContent = "展开OCR内容";
     }
   } else if (button.dataset.action === "versions") {
+    if (!await flushPendingContentSaves()) return;
     showVersionsDialog(Number(button.dataset.id));
   }
 }
 
 $("#timeline").addEventListener("click", handleNoteInteraction);
 $("#editor-dock-content").addEventListener("click", handleNoteInteraction);
+
+document.addEventListener("click", (event) => {
+  document.querySelectorAll(".note-more-menu[open]").forEach((menu) => {
+    if (!menu.contains(event.target)) menu.open = false;
+  });
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const menu = document.querySelector(".note-more-menu[open]");
+  if (!menu) return;
+  menu.open = false;
+  menu.querySelector("summary")?.focus();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+});
 
 // 点击笔记正文时折叠 OCR 内容（避免正文与 OCR 同时占据视觉焦点）
 document.addEventListener("click", (event) => {
@@ -3378,19 +3804,35 @@ function renderTabsBar(tabsBar, tabs, activeId) {
 }
 
 async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = [], citationEvidence = "", tabsBar: scopedTabsBar = null } = {}) {
-  await flushPendingContentSaves();
   const tabsBar = scopedTabsBar || document.querySelector(`.note-tabs-bar[data-note-id="${noteId}"]`);
   const noteEl = tabsBar?.closest(".note");
   if (!noteEl) return;
   const isReference = noteEl.classList.contains("reference-note");
-  tabsBar.dataset.activeTab = tabId;
+  if (!isReference && !await flushPendingContentSaves()) return false;
+  const loadToken = String(Number(tabsBar.dataset.loadToken || 0) + 1);
+  tabsBar.dataset.loadToken = loadToken;
   try {
     const tabNote = await request(`/api/notes/${tabId}`);
+    if (!tabsBar.isConnected || tabsBar.dataset.loadToken !== loadToken) return false;
     const contentEl = noteEl.querySelector(".note-tab-content");
+    tabsBar.dataset.activeTab = tabId;
     contentEl.dataset.activeTab = tabId;
     contentEl.innerHTML = isReference
       ? `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, highlightTerms, { citationEvidence }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`
-      : `<div class="note-content editable" contenteditable="true" data-note-id="${tabId}" data-field="content" data-placeholder="点击此处开始编辑..." title="点击直接编辑">${tabNote.content ? renderNoteContent(tabNote.content, highlightTerms) : ""}</div>`;
+      : renderNoteBody(tabNote, highlightTerms);
+    if (!isReference) {
+      state.editorActiveTabs.set(Number(noteId), Number(tabId));
+      const content = contentEl.querySelector(".note-content[data-note-id]");
+      const existing = state.noteEditorSessions.get(Number(tabId));
+      if (existing && !existing.editing && existing.status === "saved") state.noteEditorSessions.delete(Number(tabId));
+      if (focusEditor) {
+        const session = noteEditorSession(content);
+        session.editing = true;
+        content.querySelector(".note-empty-body")?.remove();
+      }
+      paintEditorState(content);
+      state.editorSelection = null;
+    }
     // 折叠状态下，更新 excerpt 预览为当前页签内容
     const detail = noteEl.querySelector("details.note-detail");
     if (detail && !detail.hasAttribute("open")) {
@@ -3404,17 +3846,20 @@ async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = 
     }
     // 更新页签高亮
     const tabs = await request(`/api/notes/${noteId}/tabs`);
+    if (!tabsBar.isConnected || tabsBar.dataset.loadToken !== loadToken) return false;
     renderTabsBar(tabsBar, tabs, tabId);
     if (focusEditor && !isReference) {
       requestAnimationFrame(() => contentEl.querySelector(".note-content.editable")?.focus());
     }
     if (highlightTerms.length) scrollToCitation(contentEl);
+    return true;
   } catch (e) {
     showToast("切换失败", e.message);
   }
 }
 
 async function addTab(parentNoteId, scopedTabsBar = null) {
+  if (!await flushPendingContentSaves()) return;
     // 统一以页签编号命名，主笔记是页签1。
   try {
     // 查询现有页签数决定编号
@@ -3441,8 +3886,13 @@ async function addTab(parentNoteId, scopedTabsBar = null) {
 
 async function deleteTab(tabId) {
   if (!await showConfirm("删除该页签？", "删除页签", { isDanger: true })) return;
+  if (!await flushPendingContentSaves()) return;
   try {
     await request(`/api/notes/${tabId}`, { method: "DELETE" });
+    state.noteEditorSessions.delete(Number(tabId));
+    for (const [parentId, activeId] of state.editorActiveTabs) {
+      if (activeId === Number(tabId)) state.editorActiveTabs.delete(parentId);
+    }
     showToast("已删除页签", "");
     await refresh();
   } catch (e) {
@@ -3531,68 +3981,29 @@ function makeTabLabelEditable(label, tabId, oldName) {
   });
 }
 
-// contenteditable 正文 blur 自动保存
-document.addEventListener("blur", async (event) => {
+// Focus changes never end explicit editing or reset the saved baseline.
+document.addEventListener("input", (event) => {
   const content = event.target.closest(".note-content.editable");
-  if (!content) return;
+  if (!content || content.getAttribute("contenteditable") !== "true") return;
   if (content.dataset.draft === "1") {
     syncNewNoteDraftFromDom();
     return;
   }
-  const noteId = Number(content.dataset.noteId);
-  const text = editableContentToMarkdown(content);
-  // 避免重复保存：对比上次内容
-  if (content.dataset.saved === text) return;
-  content.dataset.saved = text;
-  const save = request(`/api/notes/${noteId}`, {
-    method: "PUT",
-    body: JSON.stringify({ content: text }),
-  });
-  state.pendingContentSaves.set(noteId, save);
-  try {
-    // 回写列表和全量缓存，避免切换笔记时重新渲染出旧正文。
-    const updated = await save;
-    syncCachedNote(noteId, { content: updated.content ?? text, updated_at: updated.updated_at });
-    const savedTime = updated.updated_at?.slice(11, 16);
-    if (savedTime) content.closest(".note")?.querySelector(".note-header time")?.replaceChildren(savedTime);
-  } catch (e) {
-    showToast("保存失败", e.message);
-  } finally {
-    if (state.pendingContentSaves.get(noteId) === save) state.pendingContentSaves.delete(noteId);
-  }
+  captureEditorDraft(content);
+  paintEditorState(content);
+});
+document.addEventListener("blur", (event) => {
+  const content = event.target.closest(".note-content.editable");
+  if (!content) return;
+  if (content.dataset.draft === "1") syncNewNoteDraftFromDom();
+  else saveEditorContent(content);
 }, true);
 
-// contenteditable 聚焦时清除占位符样式（CSS :empty + data-placeholder 处理）
 document.addEventListener("focus", (event) => {
   const content = event.target.closest(".note-content.editable");
   if (!content) return;
-  // 聚焦时如果有占位符提示（通过 CSS :empty::before 显示），自动不显示
-  // 实际清理由 CSS 处理，JS 仅标记 editing 状态
   content.dataset.editing = "1";
-  // 仅仅进入再退出编辑区不应触发保存，更不能把展示中的表格降级为纯文本。
-  content.dataset.saved = editableContentToMarkdown(content);
-  // 激活编辑时调整笔记位置：让笔记标题停在搜索栏下方，保证标题始终可见。
-  // 不用 scrollIntoView（它会冲出滚动容器、被搜索栏遮挡），改用相对 timeline 的精确滚动。
-  const noteEl = content.closest(".note");
-  const timeline = document.getElementById("timeline");
-  if (noteEl && timeline) {
-    const searchPanel = document.querySelector(".search-panel");
-    // 顶部留白：搜索栏高度 + 少量间距，避免标题被搜索栏遮挡
-    const topOffset = (searchPanel ? searchPanel.offsetHeight : 0) + 12;
-    // offsetTop 是相对最近的 positioned 祖先；timeline 是滚动容器，需用相对它的距离
-    let relativeTop = 0;
-    let node = noteEl;
-    while (node && node !== timeline) {
-      relativeTop += node.offsetTop;
-      node = node.offsetParent;
-    }
-    if (node === timeline) {
-      timeline.scrollTo({ top: Math.max(0, relativeTop - topOffset), behavior: "smooth" });
-    } else {
-      // 兜底：无法精确定位时退回 scrollIntoView
-      noteEl.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }
+  if (content.dataset.draft !== "1") noteEditorSession(content);
 }, true);
 document.addEventListener("focusout", (event) => {
   const content = event.target.closest(".note-content.editable");
@@ -3609,7 +4020,7 @@ document.addEventListener("toggle", (event) => {
 
 document.addEventListener("contextmenu", (event) => {
   const tabChip = event.target.closest(".tab-chip");
-  if (!tabChip) return;
+  if (!tabChip || tabChip.closest(".reference-note")) return;
   event.preventDefault();
   const tabId = Number(tabChip.dataset.tabId);
   const label = tabChip.querySelector(".tab-label")?.textContent || "";
@@ -3623,7 +4034,7 @@ function showTabContextMenu(x, y, tabId, currentName) {
   menu.style.left = x + "px";
   menu.style.top = y + "px";
   menu.innerHTML = `
-    <button class="context-item danger" data-tab-action="delete" type="button">🗑️ 删除页签</button>`;
+    <button class="context-item danger" data-tab-action="delete" type="button">${tablerIcon("trash", "editor-control-icon")} 删除页签</button>`;
   document.body.appendChild(menu);
   menu.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-tab-action]");
@@ -3983,18 +4394,30 @@ $("#data-dir").addEventListener("input", (event) => {
 $("#switch-directory").addEventListener("click", async () => {
   if (!state.selectedDirectory) return;
   if (!await showConfirm("仅切换到所选数据目录，不复制当前笔记、文档或附件。", "切换数据目录", { confirmText: "切换" })) return;
-  const result = await request("/api/settings/switch-data-dir", { method: "POST", body: JSON.stringify({ data_dir: state.selectedDirectory }) });
-  $("#settings-dialog").close();
-  await refresh();
-  showToast("已切换数据目录", result.data_dir);
+  if (!await prepareLibraryChange()) return;
+  try {
+    const result = await request("/api/settings/switch-data-dir", { method: "POST", body: JSON.stringify({ data_dir: state.selectedDirectory }) });
+    resetEditorForLibraryChange();
+    $("#settings-dialog").close();
+    await refresh();
+    showToast("已切换数据目录", result.data_dir);
+  } catch (error) {
+    showToast("切换失败", error.message);
+  }
 });
 
 $("#migrate-directory").addEventListener("click", async () => {
   if (!state.selectedDirectory) return;
   if (!await showConfirm("复制全部数据并切换到新目录？原目录会保留。", "迁移数据", { confirmText: "迁移" })) return;
-  await request("/api/settings/migrate", { method: "POST", body: JSON.stringify({ data_dir: state.selectedDirectory }) });
-  $("#settings-dialog").close();
-  await refresh();
+  if (!await prepareLibraryChange()) return;
+  try {
+    await request("/api/settings/migrate", { method: "POST", body: JSON.stringify({ data_dir: state.selectedDirectory }) });
+    resetEditorForLibraryChange();
+    $("#settings-dialog").close();
+    await refresh();
+  } catch (error) {
+    showToast("迁移失败", error.message);
+  }
 });
 
 $("#export-data").addEventListener("click", async () => {
@@ -4388,7 +4811,7 @@ function getCommandList() {
   // 命令清单：所有可执行的快捷动作
   return [
     { label: "新建笔记", hint: "Ctrl+N", action: () => beginNewNote() },
-    { label: "保存笔记", hint: "Ctrl+S", action: () => { if (state.newNoteDraft) saveNewNote(); else { const b = $("#inline-save"); if (b && !b.disabled) b.click(); } } },
+    { label: "保存笔记", hint: "Ctrl+S", action: () => saveCurrentEditor() },
     { label: "聚焦搜索", hint: "Ctrl+K", action: () => { $("#search").focus(); $("#search").select(); } },
     { label: "智能问答", hint: "", action: () => $("#ask-button").click() },
     { label: "工具面板", hint: "Ctrl+/", action: () => { switchPane("tool-pane"); $("#tool-input").focus(); } },
@@ -4489,13 +4912,9 @@ document.addEventListener("keydown", (e) => {
   const inEditor = ["INPUT", "TEXTAREA"].includes(e.target.tagName) || e.target.isContentEditable;
 
   // Ctrl+S: 保存笔记
-  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
     e.preventDefault();
-    if (state.newNoteDraft) saveNewNote();
-    else {
-      const saveBtn = $("#inline-save");
-      if (saveBtn && !saveBtn.disabled) saveBtn.click();
-    }
+    saveCurrentEditor();
     return;
   }
 

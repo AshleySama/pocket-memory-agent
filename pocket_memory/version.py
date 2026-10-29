@@ -14,7 +14,7 @@ version.json 格式：
 """
 from __future__ import annotations
 
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.2.0-beta.1"
 
 # 发布站点就绪后再配置该地址。空值表示关闭网络更新检查，保持本地优先。
 UPDATE_CHECK_URL = ""

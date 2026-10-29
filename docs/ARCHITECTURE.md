@@ -29,14 +29,22 @@ Loopback HTTP server (127.0.0.1 / localhost / ::1)
 
 ## Retrieval and answer path
 
-1. Normalize the current user question.
-2. Retrieve candidates from full-text, keyword, and semantic indexes.
-3. Prefer structurally relevant chunks and penalize superficial lexical matches.
-4. Select a compact evidence sentence from a candidate chunk.
-5. Ask the local model to answer only from the selected evidence when the request needs synthesis.
-6. Render the answer with source references and an open-source action.
+The normal entry point remains `app.py`. `rag_backend=retained` is the default for 1.2.0-beta.1; `rag_backend=legacy` is an explicit compatibility fallback requiring a restart. The retained runtime lives in `pocket_memory/rag/retained/` and does not load development reports or private evaluation corpora.
 
-For direct numeric, date, authorization, policy, quality, safety, or other high-impact facts, users should open the source and verify it. The system may refuse when it cannot find direct evidence; a refusal is safer than an unsupported answer.
+1. The server and `rag/development.py` resolve the question and source scope against the current library. The wrapper owns candidate lifetime, serializes requests, and invalidates snapshots when the source revision changes or the library switches.
+2. LlamaIndex combines the saved local BGE vectors with BM25 candidates using reciprocal-rank fusion. Query fusion uses a single query; it does not ask a cloud model to expand the question.
+3. Local FlashRank scores candidate evidence. Table/field boundaries, source scope, original sentence windows and a context budget determine the material supplied to the answer path.
+4. Direct record/table cases can produce deterministic output. Other supported routes use the existing local Qwen3-4B-Instruct-2507 Q4_K_M model and retained evidence/answer contracts. This release does not add a generative question planner, a source-selection agent, or automatic answer resynthesis.
+5. A request-local evidence registry associates supplied blocks with original source spans where exact matching is available. Unresolved spans remain marked as fragments. Citation identity checks and shadow diagnostics do not establish semantic support for each claim.
+6. The API returns the answer and source information. The UI groups sources and displays note tabs/evidence entries, and can offer source-bound choices when the question needs clarification. Opening a reference navigates to the corresponding source and highlights supported locations.
+
+The local model session is shared under a lock. The previous default ten-minute idle unload is disabled; manual unloading remains available. Retrieval preparation, especially for long notes, can still dominate elapsed time. The current UI is not a guarantee of true model-token streaming.
+
+For numeric, date, authorization, policy, quality, safety, or other high-impact facts, users should open the original source. Retrieval can omit material, generation can omit or add claims, and a valid citation number can still point to evidence that does not support the claim.
+
+## Reading and editing
+
+Notes open in reading mode. Edit/Done controls expose formatting only while editing. Saves are serialized by the body tab's identity; the UI reports actual save status and retains a failed draft in the current page for retry. Switching libraries clears the previous editing state. Draft retention is in page memory: refreshing or closing the page is not a durable draft-recovery mechanism. Existing themes, animated hover effects and keyboard question submission are preserved.
 
 ## Extensibility boundaries
 

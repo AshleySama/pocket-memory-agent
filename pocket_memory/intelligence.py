@@ -9,6 +9,7 @@ import re
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -109,8 +110,8 @@ class LlamaCppTextEngine:
     通过 `llama-cpp-python` 加载 GGUF 模型一次，整个应用生命周期复用，
     避免每次调用都新起 subprocess 重新加载模型权重。
 
-    支持空闲卸载：超过 idle_threshold 秒未使用时自动释放模型权重，
-    下次调用时重新加载（约 10-15s），平衡内存占用与响应速度。
+    默认保持模型驻留，避免用户间歇提问时反复冷启动。
+    显式卸载和切换模型仍可释放内存；非正空闲阈值表示禁用自动卸载。
     """
 
     def __init__(
@@ -126,7 +127,7 @@ class LlamaCppTextEngine:
         self.n_gpu_layers = n_gpu_layers
         self._llm = None
         self._error: str | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._last_used_at: float = 0.0  # 模型最后使用时间（单调时钟）
 
     @property
@@ -160,14 +161,30 @@ class LlamaCppTextEngine:
 
     def unload_if_idle(self, idle_threshold_seconds: float) -> bool:
         """若模型空闲超过阈值则卸载。返回是否执行了卸载。"""
-        if self._llm is None or self._last_used_at == 0.0:
+        if idle_threshold_seconds <= 0:
             return False
-        idle = time.monotonic() - self._last_used_at
-        if idle >= idle_threshold_seconds:
-            logger.info("LLM 空闲 %.0f 分钟，自动卸载", idle / 60)
-            self.unload()
-            return True
-        return False
+        with self._lock:
+            if self._llm is None or self._last_used_at == 0.0:
+                return False
+            idle = time.monotonic() - self._last_used_at
+            if idle >= idle_threshold_seconds:
+                logger.info("LLM 空闲 %.0f 分钟，自动卸载", idle / 60)
+                self.unload()
+                return True
+            return False
+
+    @contextmanager
+    def session(self):
+        """Keep the native handle alive during externally composed local QA."""
+        with self._lock:
+            self._ensure_loaded()
+            if self._llm is None:
+                raise RuntimeError(self._error or "本地模型不可用")
+            self._last_used_at = time.monotonic()
+            try:
+                yield self
+            finally:
+                self._last_used_at = time.monotonic()
 
     @property
     def unavailable_reason(self) -> str:
@@ -1020,7 +1037,7 @@ class LlamaCppTextEngine:
 
 class IntelligenceService:
     # 空闲卸载配置
-    IDLE_UNLOAD_SECONDS = 10 * 60  # 4B 模型空闲 10 分钟后释放办公内存
+    IDLE_UNLOAD_SECONDS = 0  # 默认常驻；手动释放/切换模型仍有效
     IDLE_CHECK_INTERVAL = 60
 
     def __init__(self, store: NoteStore, engine: LlamaCppTextEngine | None = None, on_complete=None, auto_apply: bool = True) -> None:

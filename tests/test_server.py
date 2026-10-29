@@ -259,7 +259,8 @@ class PocketMemoryServerTests(unittest.TestCase):
             html = response.read().decode("utf-8")
         self.assertIn("Pocket Memory", html)
         self.assertIn("/app.js", html)
-        self.assertIn("笔记编辑", html)
+        self.assertIn('data-pane="editor-pane"', html)
+        self.assertIn('>笔记</button>', html)
         self.assertNotIn('data-result-scope="web"', html)
 
     def test_status_reports_the_running_app_version(self) -> None:

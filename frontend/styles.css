@@ -1682,7 +1682,29 @@ button:disabled { cursor: not-allowed; opacity: .4; box-shadow: none; transform:
   -webkit-user-select: text;
   cursor: text;
 }
+.answer-grouped { white-space: normal; }
+.answer-source-group {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  white-space: normal;
+}
+.answer-group-text, .answer-prose { white-space: pre-wrap; overflow-wrap: anywhere; }
+.answer-group-sources { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-bottom: 6px; font-size: 11px; }
+.answer-group-sources > span { color: var(--muted); }
+.answer-source-label { color: var(--accent); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.answer-citation { color: var(--accent); font-weight: 700; text-decoration: none; white-space: nowrap; }
+a.answer-source-label:hover, a.answer-citation:hover { text-decoration: underline; }
+a.answer-source-label:focus-visible, a.answer-citation:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .answer-sources { display: grid; gap: 8px; margin-top: 16px; }
+.clarification-sources { display: grid; gap: 8px; margin-top: 18px; }
+.clarification-sources-heading { color: var(--text); font-size: 13px; }
+.clarification-sources-heading p { margin: 4px 0 2px; color: var(--muted); font-size: 12px; }
+.clarification-objects { display: flex; flex-wrap: wrap; gap: 6px; }
+.clarification-objects > span { padding: 2px 7px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--text-soft); }
+.clarification-excerpt > strong { display: block; margin-bottom: 5px; color: var(--text); font-size: 12px; }
 .answer-source {
   background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--border);
@@ -1707,6 +1729,10 @@ button:disabled { cursor: not-allowed; opacity: .4; box-shadow: none; transform:
 }
 .source-excerpt { border-top:1px solid color-mix(in srgb, var(--border) 74%, transparent); padding-top:8px; }
 .source-excerpt > span { display:block; margin-bottom:4px; color:var(--muted); font-size:11px; font-weight:600; }
+.source-context { margin-top: 10px; }
+.source-context > summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+.source-context > summary:hover { color: var(--accent); }
+.source-context > .source-excerpt { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .evidence-box {
   background: rgba(34, 197, 94, 0.08);
   border-left: 3px solid var(--success);

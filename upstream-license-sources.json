@@ -1,0 +1,193 @@
+[
+  {
+    "file": "licenses/Qwen3-4B-Instruct-2507-LICENSE.txt",
+    "url": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/raw/main/LICENSE",
+    "bytes": 11343,
+    "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/FlagEmbedding-MIT-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/FlagOpen/FlagEmbedding/master/LICENSE",
+    "bytes": 1065,
+    "sha256": "587a673933425dbc36ec61268d3b954051b2d3ef3c9b322ede357976055ffdd5",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/RapidOCR-Apache-2.0-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/RapidAI/RapidOCR/main/LICENSE",
+    "bytes": 11422,
+    "sha256": "3e0af25fdd06aa9586ae97adb00ea927ebe5a3805ac77d2d3a81ce5f55693333",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/PaddleOCR-Apache-2.0-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/LICENSE",
+    "bytes": 11376,
+    "sha256": "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/WeKnora-MIT-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/Tencent/WeKnora/256a3f2966866337f7dc3c5fcc10037f2ae18d52/LICENSE",
+    "bytes": 15291,
+    "sha256": "5935f49975d7daf97857d7053b6fe45500a3b2ec31cc92a42a89a5fd98a86cea",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/CC-BY-SA-4.0.txt",
+    "url": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt",
+    "bytes": 20138,
+    "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/flashrank-model-card.md",
+    "url": "https://huggingface.co/prithivida/flashrank/raw/858a1ac046a05663a35367eac852d7f76feeefdd/README.md",
+    "bytes": 260,
+    "sha256": "f81f26852edfb4f277d1fb05895e104a4316f55f141b1d42eb9b2ec1b526fd06",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/nltk-stopwords.xml",
+    "url": "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/corpora/stopwords.xml",
+    "bytes": 191,
+    "sha256": "25e36f0dbd1307814bda2af5b56c24d06a4d6592d769a6476b70ebb778edab0d",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/nltk-punkt_tab.xml",
+    "url": "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/packages/tokenizers/punkt_tab.xml",
+    "bytes": 313,
+    "sha256": "d8ad712174bbd31a3c1dc424d92d232919e5453c7e520616affbcce4b66e3401",
+    "status": "saved",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/AGPL-3.0.txt",
+    "url": "https://www.gnu.org/licenses/agpl-3.0.txt",
+    "status": "saved",
+    "bytes": 34523,
+    "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/supplements/antlr4-4.9.3-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/antlr/antlr4/4.9.3/LICENSE.txt",
+    "status": "saved",
+    "bytes": 2699,
+    "sha256": "b1b379fcaf3219593a4c433feb1b35c780bed23fafaae440b1ae2771a9521e3a",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/supplements/flatbuffers-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/google/flatbuffers/master/LICENSE",
+    "status": "saved",
+    "bytes": 11358,
+    "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/supplements/llama-index-instrumentation-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/run-llama/llama_index/main/LICENSE",
+    "status": "saved",
+    "bytes": 1065,
+    "sha256": "24f40b5190fdacabc24ddbb5f76364d15e4f030925220ea300d8a2dd4993c8cb",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/supplements/llama-index-workflows-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/run-llama/workflows-py/main/LICENSE",
+    "status": "saved",
+    "bytes": 1076,
+    "sha256": "eee49dd9048ea8fa9b42ec70e9fb252e6369b1c931d24af42c892e59dbce983b",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/supplements/tokenizers-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/huggingface/tokenizers/main/LICENSE",
+    "status": "saved",
+    "bytes": 11357,
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/llama-cpp-MIT-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/ggml-org/llama.cpp/master/LICENSE",
+    "status": "saved",
+    "bytes": 1078,
+    "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/nltk-LICENSE-OVERVIEW.md",
+    "url": "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/LICENSE-OVERVIEW.md",
+    "status": "saved",
+    "bytes": 3365,
+    "sha256": "8115f9aadc98ec981082621265a88a05c8b132c82c458b32d52e541129d61ecf",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/nltk-DATASET-LICENSES.md",
+    "url": "https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/DATASET-LICENSES.md",
+    "status": "saved",
+    "bytes": 9910,
+    "sha256": "4285f61badbbdc755811f1f5a61e3dd341a516ff2343490819b019fd8f674ff9",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/RapidOCR-MODEL_LICENSES.md",
+    "url": "https://raw.githubusercontent.com/RapidAI/RapidOCR/main/MODEL_LICENSES.md",
+    "status": "failed",
+    "error": "HTTP Error 404: Not Found",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/RapidOCR-README.md",
+    "url": "https://raw.githubusercontent.com/RapidAI/RapidOCR/main/README.md",
+    "status": "saved",
+    "bytes": 11938,
+    "sha256": "7bc89a454369b04f055731f1a66266de1ba1c6627af372884f37e4bccb84e90b",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/BGE-ONNX-model-metadata.json",
+    "url": "https://huggingface.co/api/models/onnx-community/bge-small-zh-v1.5-ONNX?blobs=true",
+    "status": "saved",
+    "bytes": 3770,
+    "sha256": "434284eb4b2cc03ee545f448a952062a905f3780217fe92b53f20eb2166a48b4",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/PyMuPDF-1.28.2-pypi.json",
+    "url": "https://pypi.org/pypi/pymupdf/1.28.2/json",
+    "status": "saved",
+    "bytes": 37234,
+    "sha256": "476d0823f8dc4d6117a69929af62feddb2d87d3e58c67a849cd0721ae8d8f9ca",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "evidence/PyMuPDF-build-commit.json",
+    "url": "https://api.github.com/repos/pymupdf/PyMuPDF/commits/12786d12b2962a1d77fd13b103162eddf749644c",
+    "status": "saved",
+    "bytes": 4646,
+    "sha256": "0a1cc3148f794c77a2ac15a77c18bce39f8724920bc6588b6ee3ed6f7cb2ec6c",
+    "retrieved_date": "2026-10-29"
+  },
+  {
+    "file": "licenses/supplements/proxy_tools-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/jtushman/proxy_tools/master/LICENSE.txt",
+    "status": "saved",
+    "bytes": 1436,
+    "sha256": "a428fb8a2e762af3eb0a6edbbb88e9b42ccfee80fd9b423958bcacf9b9abbfe4",
+    "retrieved_date": "2026-10-29"
+  }
+]

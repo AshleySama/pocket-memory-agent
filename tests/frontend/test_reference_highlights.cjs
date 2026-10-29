@@ -94,7 +94,7 @@ async function checkChildTab() {
     classList: { contains: (name) => name === 'reference-note' },
     querySelector: (selector) => selector === '.note-tab-content' ? contentEl : null,
   };
-  const tabsBar = { dataset: {}, closest: () => noteEl };
+  const tabsBar = { dataset: {}, isConnected: true, closest: () => noteEl };
   Object.assign(context, {
     flushPendingContentSaves: async () => {},
     request: async (url) => url.endsWith('/tabs') ? [{ id: 1 }, { id: 2 }] : { id: 2, content: table },

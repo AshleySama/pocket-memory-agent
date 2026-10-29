@@ -69,6 +69,8 @@ class PocketMemoryServer(ThreadingHTTPServer):
         if not is_loopback_host(server_address[0]):
             raise ValueError("Pocket Memory 仅允许监听本机回环地址")
         self.store = store
+        self.operation_lock = threading.RLock()
+        self._closing = False
         self.config = config
         self.choose_directory = choose_directory
         self.embedding_service = embedding_service or EmbeddingService(store)
@@ -87,6 +89,14 @@ class PocketMemoryServer(ThreadingHTTPServer):
         self.document_service = DocumentImportService(store, self.embedding_service, self.ocr_service.engine)
         self.rag_pipeline = RagPipeline(store, self.embedding_service)
         self.report_service = ReportService(store, self.intelligence_service.engine)
+        # Custom text-engine integrations retain their existing protocol.
+        from pocket_memory.intelligence import LlamaCppTextEngine
+        if config.rag_backend == "retained" and isinstance(self.intelligence_service.engine, LlamaCppTextEngine):
+            from pocket_memory.rag.development import LiveRagPipeline, LiveCandidateEngine
+            native = self.intelligence_service.engine
+            self.rag_pipeline = LiveRagPipeline(self.rag_pipeline, native,
+                                                before_refresh=self._wait_for_extraction)
+            self.intelligence_service.engine = LiveCandidateEngine(native, self.rag_pipeline)
         self.tool_registry = ToolRegistry(store.data_dir)
         self._shutdown_requested = False  # 标记是否收到 shutdown 请求
         super().__init__(server_address, PocketMemoryHandler)
@@ -110,6 +120,7 @@ class PocketMemoryServer(ThreadingHTTPServer):
 
     def migrate_data_dir(self, new_data_dir: Path) -> Path:
         """Move all server-owned state to a new data directory as one operation."""
+        self._prepare_library_change()
         old_data_dir = self.store.data_dir
         migrated = self.store.migrate_data_dir(new_data_dir)
         if migrated == old_data_dir:
@@ -121,10 +132,12 @@ class PocketMemoryServer(ThreadingHTTPServer):
         clear_lock(old_data_dir)
         write_lock(migrated, os.getpid(), self.server_address[0], self.server_port)
         logger.info("数据目录已迁移: %s -> %s", old_data_dir, migrated)
+        self.embedding_service.rebuild()
         return migrated
 
     def switch_data_dir(self, new_data_dir: Path) -> Path:
         """Switch active storage without copying the current user's data."""
+        self._prepare_library_change()
         old_data_dir = self.store.data_dir
         selected = self.store.switch_data_dir(new_data_dir)
         if selected == old_data_dir:
@@ -139,9 +152,40 @@ class PocketMemoryServer(ThreadingHTTPServer):
         clear_lock(old_data_dir)
         write_lock(selected, os.getpid(), self.server_address[0], self.server_port)
         logger.info("数据目录已切换: %s -> %s", old_data_dir, selected)
+        self.embedding_service.rebuild()
+        self.intelligence_service.recover()
         return selected
 
+    def _prepare_library_change(self):
+        # HTTP mutations are serialized. Drain producers before their downstream
+        # consumers, so a task cannot commit an old library's IDs into the new one.
+        for service in (self.document_service, self.ocr_service, self.intelligence_service,
+                        self.embedding_service):
+            executor = getattr(service, 'executor', None)
+            if executor is not None:
+                try:
+                    executor.submit(lambda: None).result(timeout=30)
+                except TimeoutError as exc:
+                    raise ValueError('后台任务仍在处理当前资料库，请稍后再切换。') from exc
+        invalidate = getattr(self.rag_pipeline, 'invalidate', None)
+        if callable(invalidate):
+            invalidate()
+
+    def _wait_for_extraction(self):
+        for service in (self.document_service, self.ocr_service):
+            executor = getattr(service, 'executor', None)
+            if executor is not None:
+                try:
+                    executor.submit(lambda: None).result(timeout=30)
+                except TimeoutError as exc:
+                    raise ValueError('资料仍在提取文字，请稍后再提问。') from exc
+
     def server_close(self) -> None:
+        with self.operation_lock:
+            self._closing = True
+            close = getattr(self.rag_pipeline, 'close', None)
+            if callable(close):
+                close()
         self.ocr_service.shutdown()
         self.document_service.shutdown()
         self.embedding_service.shutdown()
@@ -173,7 +217,11 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
-            self._handle_post()
+            with self.server.operation_lock:
+                if self.server._closing:
+                    self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
+                    return
+                self._handle_post()
         except _SilentAbort:
             pass
         except KeyError:
@@ -186,7 +234,11 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         try:
-            self._handle_put()
+            with self.server.operation_lock:
+                if self.server._closing:
+                    self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
+                    return
+                self._handle_put()
         except _SilentAbort:
             pass
         except KeyError:
@@ -199,7 +251,11 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         try:
-            self._handle_delete()
+            with self.server.operation_lock:
+                if self.server._closing:
+                    self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
+                    return
+                self._handle_delete()
         except _SilentAbort:
             pass
         except KeyError:
@@ -607,6 +663,9 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                            "expanded_terms": expanded_terms, "data": result.data,
                            "timing": self._ask_timing(request_started, retrieval_seconds=retrieval_seconds),
                            "conversation": conversation}
+                clarification_sources = self._clarification_source_payloads()
+                if clarification_sources:
+                    payload["clarification_sources"] = clarification_sources
                 if diagnostics is not None:
                     payload["diagnostics"] = diagnostics
                 self._json(payload)
@@ -1340,9 +1399,16 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         done_event = {"type": "done", "answer": cleaned, "sources": answer_sources,
                       "kind": kind, "data": data or {}, "timing": timing,
                       "conversation": conversation or {}}
+        clarification_sources = self._clarification_source_payloads()
+        if clarification_sources:
+            done_event["clarification_sources"] = clarification_sources
         if diagnostics is not None:
             done_event["diagnostics"] = diagnostics
         write_event(done_event)
+
+    def _clarification_source_payloads(self) -> list[dict]:
+        method = getattr(self.server.rag_pipeline, "clarification_source_payloads", None)
+        return method() if callable(method) else []
 
     @staticmethod
     def _accepts_history(method: Callable) -> bool:

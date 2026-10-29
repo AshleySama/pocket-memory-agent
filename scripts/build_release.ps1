@@ -5,6 +5,7 @@ param(
     [switch]$SkipTests,
     [switch]$WithoutModels,
     [switch]$OnlineModelBootstrap,
+    [string]$SupplementDir = "",
     [string]$OutputDir = ""
 )
 
@@ -76,6 +77,19 @@ $readmeName = if ($WithoutModels) {
     "PACKAGE_README.txt"
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot $readmeName) -Destination (Join-Path $packageRoot "README.txt")
+if ($version -match 'beta') {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Start-Beta.bat') -Destination $packageRoot
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Stop-Beta.bat') -Destination $packageRoot
+}
+if ($SupplementDir) {
+    $supplementRoot = (Resolve-Path -LiteralPath $SupplementDir).Path
+    foreach ($item in Get-ChildItem -LiteralPath $supplementRoot) {
+        if (Test-Path -LiteralPath (Join-Path $packageRoot $item.Name)) {
+            throw "Release supplement would overwrite a build output: $($item.Name)"
+        }
+        Copy-Item -LiteralPath $item.FullName -Destination $packageRoot -Recurse
+    }
+}
 if ($WithoutModels) {
     $modelsRoot = Join-Path $packageRoot "models"
     New-Item -ItemType Directory -Path $modelsRoot | Out-Null

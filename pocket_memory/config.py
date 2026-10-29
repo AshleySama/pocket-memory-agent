@@ -38,6 +38,7 @@ class AppConfig:
     ai_auto_apply: bool = True  # True=自动应用 AI 建议, False=仅整理不自动应用
     ai_warmup_on_start: bool = True  # 启动后后台预热模型，降低首个问答的等待
     llm_model_path: str | None = None  # 选中的 LLM 模型相对路径（相对 models/），None=默认
+    rag_backend: str = "retained"  # Development baseline; "legacy" is an explicit rollback.
 
     @classmethod
     def load(cls, path: Path | None = None) -> "AppConfig":
@@ -59,6 +60,7 @@ class AppConfig:
             ai_auto_apply=bool(payload.get("ai_auto_apply", True)),
             ai_warmup_on_start=bool(payload.get("ai_warmup_on_start", True)),
             llm_model_path=payload.get("llm_model_path"),
+            rag_backend="legacy" if payload.get("rag_backend") == "legacy" else "retained",
         )
 
     def _save(self) -> None:
@@ -71,6 +73,7 @@ class AppConfig:
                 "ai_auto_apply": self.ai_auto_apply,
                 "ai_warmup_on_start": self.ai_warmup_on_start,
                 "llm_model_path": self.llm_model_path,
+                "rag_backend": self.rag_backend,
             },
             ensure_ascii=False,
             indent=2,

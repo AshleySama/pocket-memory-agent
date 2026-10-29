@@ -1,0 +1,120 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
+"""Local candidate only: constrained source keys, exact evidence, safe rendering.
+
+Numeric display labels belong to the application. Never infer a source from a
+table row number, choose the nearest citation, or silently patch a model answer.
+Quote matching establishes traceability, not semantic entailment of a claim.
+"""
+import hashlib
+import re
+
+INLINE_CITE = re.compile(r'[\[【]\s*\d+(?:\s*[,，、\-]\s*\d+)*\s*[\]】]')
+
+def source_map(packed):
+    result = {}
+    for item in packed:
+        key = 'SRC_' + hashlib.sha256(item['node_id'].encode()).hexdigest()[:10]
+        if key in result:
+            raise ValueError('duplicate source key')
+        result[key] = item
+    return result
+
+def output_schema(keys):
+    evidence = {
+        'type':'object', 'properties':{
+            'source_key':{'type':'string','enum':list(keys) or ['NO_SOURCE']},
+            'quote':{'type':'string','minLength':1}},
+        'required':['source_key','quote'],'additionalProperties':False}
+    claim = {'type':'object','properties':{
+        'text':{'type':'string','minLength':1},
+        'evidence':{'type':'array','items':evidence,'minItems':1,'maxItems':3}},
+        'required':['text','evidence'],'additionalProperties':False}
+    return {'oneOf':[
+        {'type':'object','properties':{
+            'status':{'const':'answer'},
+            'claims':{'type':'array','items':claim,'minItems':1,'maxItems':8}},
+            'required':['status','claims'],'additionalProperties':False},
+        {'type':'object','properties':{
+            'status':{'type':'string','enum':['clarify','insufficient']},
+            'message':{'type':'string','minLength':1}},
+            'required':['status','message'],'additionalProperties':False}]}
+
+def compact(text):
+    # Only whitespace normalization: no fuzzy quote correction or case folding.
+    return re.sub(r'\s+','',text)
+
+def validate(payload, sources):
+    errors=[]
+    if not isinstance(payload,dict):
+        return ['response_not_object']
+    status=payload.get('status')
+    if status in ('clarify','insufficient'):
+        if set(payload) != {'status','message'} or not isinstance(payload.get('message'),str) or not payload['message'].strip():
+            errors.append('invalid_nonanswer_schema')
+        elif INLINE_CITE.search(payload['message']):
+            errors.append('model_numeric_citation_in_message')
+        return errors
+    if status != 'answer' or set(payload) != {'status','claims'}:
+        return ['invalid_answer_schema']
+    claims=payload.get('claims')
+    if not isinstance(claims,list) or not 1<=len(claims)<=8:
+        return ['invalid_claims']
+    for i,claim in enumerate(claims):
+        if not isinstance(claim,dict) or set(claim)!= {'text','evidence'}:
+            errors.append(f'claim_{i}_schema'); continue
+        text=claim.get('text')
+        if not isinstance(text,str) or not text.strip():
+            errors.append(f'claim_{i}_empty')
+        elif INLINE_CITE.search(text):
+            errors.append(f'claim_{i}_model_numeric_citation')
+        evidence=claim.get('evidence')
+        if not isinstance(evidence,list) or not 1<=len(evidence)<=3:
+            errors.append(f'claim_{i}_missing_evidence'); continue
+        for j,ref in enumerate(evidence):
+            if not isinstance(ref,dict) or set(ref)!= {'source_key','quote'}:
+                errors.append(f'claim_{i}_ref_{j}_schema'); continue
+            key=ref['source_key']
+            if not isinstance(key,str) or key not in sources:
+                errors.append(f'claim_{i}_ref_{j}_unknown_source'); continue
+            quote=ref['quote']
+            if not isinstance(quote,str) or len(compact(quote))<4:
+                errors.append(f'claim_{i}_ref_{j}_quote_too_short'); continue
+            if compact(quote) not in compact(sources[key]['evidence']):
+                errors.append(f'claim_{i}_ref_{j}_quote_not_in_supplied_evidence')
+    return errors
+
+def render(payload, sources, *, finish_reason='stop'):
+    errors=validate(payload,sources)
+    if finish_reason!='stop':
+        errors.append('generation_not_completed')
+    if errors:
+        return {'answer':'这次回答的引用未通过校验，暂不展示未经核对的结论。可先查看下方检索原文。',
+                'sources':[], 'answer_status':'citation_check_failed',
+                'citation_validation':{'passed':False,'errors':errors},
+                'retrieved_evidence':list(sources.values())}
+    if payload['status']!='answer':
+        return {'answer':payload['message'],'sources':[],'answer_status':payload['status'],
+                'citation_validation':{'passed':True,'errors':[]}}
+    chosen={}
+    rendered=[]
+    for claim in payload['claims']:
+        labels=[]
+        for ref in claim['evidence']:
+            key=ref['source_key']
+            if key not in chosen:
+                item=sources[key]
+                display_index=len(chosen)+1
+                chosen[key]={k:v for k,v in item.items() if k not in ('prompt_block','index','evidence','excerpt')}
+                chosen[key].update(index=display_index, source_key=key, evidence=ref['quote'],
+                                   excerpt=item['evidence'], verified_quotes=[ref['quote']])
+            elif ref['quote'] not in chosen[key]['verified_quotes']:
+                chosen[key]['verified_quotes'].append(ref['quote'])
+                chosen[key]['evidence']='\n…\n'.join(chosen[key]['verified_quotes'])
+            label=f'[{chosen[key]["index"]}]'
+            if label not in labels: labels.append(label)
+        rendered.append(claim['text']+' '+''.join(labels))
+    return {'answer':'\n\n'.join(rendered),'sources':list(chosen.values()),'answer_status':'answer',
+            'citation_validation':{'passed':True,'errors':[],
+               'scope':'valid source keys + exact supplied quote + application-owned display numbering; semantic support reviewed separately'}}

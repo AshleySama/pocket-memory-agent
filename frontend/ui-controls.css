@@ -4,6 +4,16 @@
  */
 
 /* Local control improvements only. Theme palettes and workspace styling stay in styles.css. */
+@media (min-width: 1251px) {
+  /* Reserve each header action's intrinsic width before sizing search. This
+     preserves the wide layout and prevents overflow into New Note at 1280px. */
+  body.knowledge-workbench .app-header {
+    grid-template-columns: var(--sidebar-width) minmax(0, 730px) minmax(max-content, 1fr);
+  }
+
+  body.knowledge-workbench .global-search #search { min-width: 0; }
+}
+
 @media (min-width: 781px) {
   /* Align visible artwork at 32px, allowing for the logo's ~5px transparent inset. */
   body.knowledge-workbench .app-header > .app-brand {
@@ -259,4 +269,75 @@ body.knowledge-workbench .favorites-section #favorite-count {
 #category-nav button.folder-name:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* Reading and editing controls: deliberately scoped to the right-hand editor. */
+html[data-theme] body.knowledge-workbench #editor-dock-content .editor-toolbar[hidden],
+html[data-theme] body.knowledge-workbench #editor-dock-content button[hidden] {
+  display: none !important;
+}
+
+html[data-theme] body.knowledge-workbench #editor-dock-content .note-content {
+  min-height: 214px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.8;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+html[data-theme] body.knowledge-workbench #editor-dock-content .note:not(.is-editing) .editable-note-title,
+html[data-theme] body.knowledge-workbench #editor-dock-content .note:not(.is-editing) .note-meta .editable {
+  cursor: default;
+}
+html[data-theme] body.knowledge-workbench #editor-dock-content .note:not(.is-editing) .tag-remove { display: none; }
+
+#editor-dock-content .note-mark-actions { display: flex; gap: 4px; padding-right: 6px; border-right: 1px solid var(--border); }
+#editor-dock-content .note-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-height: 43px; padding: 5px 0; }
+#editor-dock-content .note-edit-actions .note-save-status { margin-right: auto; }
+#editor-dock-content .note-save-status { color: var(--muted); font-size: 11px; line-height: 1.5; }
+#editor-dock-content .note-save-status[data-state="error"] { color: var(--danger); }
+#editor-dock-content .note-save-status[data-state="dirty"] { color: var(--text-soft); }
+
+html[data-theme] body.knowledge-workbench #editor-dock-content :is(.note-action-btn, .editor-more-trigger, .editor-text-action, .editor-tool, .editor-color-swatch, .editor-format-select) {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 32px;
+  height: 32px;
+  min-width: 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  opacity: 1;
+  color: var(--text-soft) !important;
+  background: var(--surface-soft) !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  line-height: 1;
+}
+html[data-theme] body.knowledge-workbench #editor-dock-content :is(.note-action-btn, .editor-more-trigger, .editor-tool, .editor-color-swatch) { width: 32px; padding: 0; }
+html[data-theme] body.knowledge-workbench #editor-dock-content .editor-text-action { width: auto; gap: 5px; padding: 0 10px; }
+html[data-theme] body.knowledge-workbench #editor-dock-content .editor-format-select { width: 82px; padding: 0 7px; }
+html[data-theme] body.knowledge-workbench #editor-dock-content :is(.note-action-btn, .editor-more-trigger, .editor-text-action, .editor-tool):hover { color: var(--accent) !important; border-color: var(--accent); background: var(--accent-soft) !important; }
+html[data-theme] body.knowledge-workbench #editor-dock-content :is(.note-action-btn, .editor-more-trigger, .editor-text-action, .editor-tool, .editor-format-select):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+html[data-theme] body.knowledge-workbench #editor-dock-content .note-action-btn.active { color: var(--accent) !important; border-color: var(--accent); background: var(--accent-soft) !important; }
+html[data-theme] body.knowledge-workbench #editor-dock-content .favorite-btn.active { color: var(--danger) !important; }
+#editor-dock-content .editor-control-icon, .context-item .editor-control-icon { width: 17px; height: 17px; flex: 0 0 17px; stroke-width: 1.75; }
+#editor-dock-content .editor-toolbar { flex-wrap: wrap; padding: 7px 0; gap: 5px; }
+#editor-dock-content .note-more-menu { position: relative; }
+#editor-dock-content .editor-more-trigger { list-style: none; cursor: pointer; }
+#editor-dock-content .editor-more-trigger::-webkit-details-marker { display: none; }
+#editor-dock-content .note-more-items { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; display: grid; min-width: 168px; padding: 5px; border: 1px solid var(--border); border-radius: 8px; color: var(--text); background: var(--surface-elev); box-shadow: var(--shadow-elev); }
+html[data-theme] body.knowledge-workbench #editor-dock-content .note-more-items button { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-height: 32px; width: 100%; padding: 6px 9px; border: 0; border-radius: 6px; color: var(--text-soft); background: transparent; font-size: 12px; box-shadow: none; }
+html[data-theme] body.knowledge-workbench #editor-dock-content .note-more-items button:hover { color: var(--accent); background: var(--accent-soft); }
+html[data-theme] body.knowledge-workbench #editor-dock-content .note-more-items button.danger { color: var(--danger); }
+#editor-dock-content .note-menu-divider { margin: 4px 3px; border-top: 1px solid var(--border); }
+#editor-dock-content .new-note-actions { flex-wrap: wrap; }
+
+@media (max-width: 620px) {
+  #editor-dock-content .new-note-actions .note-save-status { flex-basis: 100%; text-align: right; }
 }

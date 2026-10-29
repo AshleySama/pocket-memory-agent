@@ -142,6 +142,7 @@ class NoteChunk:
 class NoteStore:
     def __init__(self, data_dir: Path):
         self._lock = threading.RLock()
+        self._source_epoch = 0
         self._connection: sqlite3.Connection | None = None
         self.data_dir = Path()
         self.notes_dir = Path()
@@ -160,6 +161,7 @@ class NoteStore:
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.documents_dir.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
+        self._source_epoch += 1
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._create_schema()
@@ -170,6 +172,18 @@ class NoteStore:
         if self._connection is None:
             raise RuntimeError("Store is closed")
         return self._connection
+
+    def source_revision(self) -> tuple[int, int, int]:
+        """Return a conservative cache token for the active library and its writes.
+
+        The epoch distinguishes reconnects, including switching away and back.
+        SQLite's counters cover same-second writes, derived indexes, and commits
+        from other connections without relying on source timestamps.
+        """
+        with self._lock:
+            connection = self.connection
+            data_version = int(connection.execute("PRAGMA data_version").fetchone()[0])
+            return self._source_epoch, connection.total_changes, data_version
 
     def _create_schema(self) -> None:
         with self.connection:

@@ -18,13 +18,13 @@ Pocket Memory is a Windows-first, local knowledge workspace for notes and files.
 
 <p align="center"><i>Answers are paired with evidence, source information, and a path back to the original material.</i></p>
 
-> **Beta software.** This repository is for evaluation and community collaboration. It is not a guarantee of factual correctness, a substitute for source review, or a security-certified enterprise product.
+> **1.2.0-beta.1 — Beta software.** This repository is for evaluation and community collaboration. It is not a guarantee of factual correctness, a substitute for source review, or a security-certified enterprise product.
 
 ## What it does
 
-- Multi-tab rich-text notes with tables, images, history, pinning, favorites, folders, tags, backlinks, and a local relation graph.
+- Multi-tab rich-text notes with tables, images, history, pinning, favorites, folders, tags, backlinks, and a local relation graph. Notes open in reading mode; choose Edit/Done to edit, with visible saving, saved, and failed-save states.
 - Import TXT, DOCX, XLSX, PDF, and images. Content is parsed into locatable chunks such as paragraphs, pages, worksheets, and row ranges.
-- Hybrid retrieval combining full-text, keyword, and local semantic search, followed by lightweight reranking.
+- Search across local material; the default retained Q&A backend combines BGE vectors and BM25 through LlamaIndex, then uses local FlashRank reranking and source-aware evidence assembly.
 - Local evidence-grounded Q&A that shows a concise answer, source, evidence sentence, and an entry point back to the original note or document.
 - OCR for local images, original-file replacement and re-indexing, full backup, data-directory switching, and editable HTML topic-report drafts.
 
@@ -46,11 +46,13 @@ This is not an absolute security guarantee. Do not use an unreviewed Beta build 
 - Optional local model files for semantic search, OCR, automatic organization, and Q&A
 
 ```powershell
-git clone https://github.com/<your-account>/PocketMemory.git
-cd PocketMemory
+git clone https://github.com/AshleySama/pocket-memory-agent.git
+cd pocket-memory-agent
 .\setup_venv.bat
 .\run_dev.bat
 ```
+
+`setup_venv.bat` installs the complete `requirements.txt` dependency set, including `requirements-rag.txt`, and checks imports. Install the assets in [Model setup](docs/MODELS.md) before using retained Q&A; Python dependencies alone do not include model weights. This Beta keeps the existing Qwen3-4B-Instruct-2507 Q4_K_M model configuration.
 
 For an isolated local data directory during development:
 
@@ -59,6 +61,12 @@ For an isolated local data directory during development:
 ```
 
 The repository deliberately does **not** contain model weights, user notes, databases, release archives, or test outputs. See [Model setup and licenses](docs/MODELS.md) before adding models.
+
+## Trying the Windows Beta package
+
+Extract the Beta into a new folder and use `Start-Beta.bat`. It sets `LOCALAPPDATA` to the package's `beta-profile` folder and passes `--data-dir` for `data-beta`, keeping Beta configuration and data separate from the previous stable installation. Use `Stop-Beta.bat` to stop the Beta background process; closing the window may leave it running. Directly opening `PocketMemory.exe` can reuse the Windows user's existing configuration.
+
+Keep the old stable folder and original library. To test existing content, use a complete backup restored into a separate copy; do not point the Beta at the original library. See [Windows operation](docs/INSTALL_WINDOWS.md). Packaged local-model Q&A, OCR, document parsing, child-tab writes and backup/restore were exercised. The strict historical quality smoke remains failed: a correct table answer includes an adjacent row in displayed evidence; a correct missing-field refusal cites the inspected table rather than returning zero sources. No RAG code was changed to make these checks pass. Target-machine and business acceptance remain pending.
 
 ## Typical workflow
 
@@ -76,14 +84,18 @@ Read [RAG limitations and evaluation](docs/RAG_LIMITATIONS_AND_EVALUATION.md) be
 
 ## Development
 
-Run the unit and integration suite:
+Install development dependencies with `python -m pip install -r requirements-dev.txt`. Run the Python suite and frontend checks (the latter require Node.js):
 
 ```powershell
 $env:PYTHONDONTWRITEBYTECODE='1'
 python -m unittest discover -s tests -q
+node tests/frontend/test_reference_highlights.cjs
+node tests/frontend/test_answer_display.cjs
+node tests/frontend/test_clarification_display.cjs
+node tests/frontend/test_editor_workflow.cjs
 ```
 
-The public preparation baseline passes 187 automated tests locally. Model-backed smoke tests and final packaged-EXE checks remain separate release gates.
+The 2026-10-29 source candidate has passing results for 567 distinct Python tests and 36 frontend checks. One stale test expectation for the displayed note-tab label was corrected and rechecked. These engineering checks do not measure answer factual accuracy. Packaged local-model Q&A, OCR, document parsing, child-tab writes and backup/restore were exercised. The strict historical quality smoke remains failed: a correct table answer includes an adjacent row in displayed evidence; a correct missing-field refusal cites the inspected table rather than returning zero sources. No RAG code was changed to make these checks pass. Target-machine and business acceptance remain pending.
 
 ## Documentation
 

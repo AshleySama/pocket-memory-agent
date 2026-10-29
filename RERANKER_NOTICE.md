@@ -1,0 +1,13 @@
+# FlashRank MultiBERT — release attribution and changes
+
+FlashRank library code: [PrithivirajDamodaran/FlashRank](https://github.com/PrithivirajDamodaran/FlashRank), version 0.2.10, Apache License 2.0. Complete installed license: `licenses/python-packages/FlashRank-0.2.10/FlashRank-0.2.10.dist-info/LICENSE`.
+
+Quantized model and original vocabulary: **Prithivi Damodaran**, [prithivida/flashrank](https://huggingface.co/prithivida/flashrank), model `ms-marco-MultiBERT-L-12`. Model repository license: **Creative Commons Attribution-ShareAlike 4.0 International**, full text [CC-BY-SA-4.0.txt](licenses/CC-BY-SA-4.0.txt). The upstream README's attribution and backlink are retained in this folder's README. The model is supplied without warranties under that license; no upstream endorsement is implied.
+
+Pinned archive: <https://huggingface.co/prithivida/flashrank/resolve/858a1ac046a05663a35367eac852d7f76feeefdd/ms-marco-MultiBERT-L-12.zip>. Archive SHA-256 recorded at acquisition: `2c8ae5542f1538e355e9f295d349fc030b5cf7d398c8728c362f0e5129776971`. The existing `models/reranker-manifest.json` records per-file hashes. These existing hashes are provenance evidence; this notice does not assert a fresh full model hash check.
+
+Pocket Memory adaptation, 2026-10-29 Beta: the archive's `tokenizer.json` contains 30,522 token IDs whereas its original `vocab.txt` and model configuration use 105,879. At runtime, `pocket_memory/rag/retained/rerank_adapter.py` constructs a WordPiece tokenizer from the archive's original vocabulary and tokenizer configuration. It reads physical LF-delimited vocabulary entries, preserving Unicode line-separator tokens, validates the vocabulary IDs, and replaces the in-memory tokenizer. Cache keys include `original-vocab-bert-wordpiece-v1`. ONNX inference is limited to four intra-op threads. The shipped original model weights, vocabulary, and tokenizer files are not rewritten by this adaptation.
+
+The model/vocabulary remain under CC-BY-SA-4.0. If a tokenizer artifact derived from that material is exported and distributed later, retain this change notice and distribute any protected adapted model/tokenizer material under CC-BY-SA-4.0 or an allowed compatible license; the independent wrapper code retains its own source license. Recipients retain the model license's rights, with no additional model-specific restriction or DRM imposed here.
+
+The historical `models/reranker-models/NOTICE.md` and manifest describe their earlier isolated evaluation acquisition. This release notice supersedes their historical “isolated evaluation only / no distribution” description for this Beta; those phrases are not upstream license restrictions. The recorded source revision and hashes remain historical evidence.

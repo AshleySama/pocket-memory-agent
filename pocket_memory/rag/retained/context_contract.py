@@ -7,6 +7,8 @@ Existing vectors and upstream BM25/RRF rank the same original anchors. Verified
 source headings enrich lexical retrieval, then original sentence spans replace
 anchors. PromptHelper and the actual GGUF chat formatter bound the final input.
 """
+from pocket_memory.rag.performance import completion
+from pocket_memory.rag.performance import timed, span, metric
 import bisect
 import copy
 import hashlib
@@ -33,6 +35,7 @@ def compact(text):
 
 
 class Original:
+    @timed('units.parse_original')
     def __init__(self, body):
         self.body = body
         self.positions = [i for i, c in enumerate(body) if not c.isspace()]
@@ -150,6 +153,7 @@ class Contract:
             self.originals[key] = Original(self.owner.notes[key]['content'])
         return self.originals[key]
 
+    @timed('retrieve.contract')
     def retrieve(self, question, prior_hits):
         allowed, scope = self.owner.scope(question)
         if not allowed:
@@ -310,6 +314,7 @@ class Contract:
                 raise ValueError('Unsupported chat format for verified budget: '+str(llm.chat_format))
         return self.formatter(messages=messages)
 
+    @timed('pack.token_count')
     def count(self, messages):
         rendered = self.render_chat(messages)
         return len(self.owner.engine._llm.tokenize(rendered.prompt.encode(), add_bos=not rendered.added_special, special=True))
@@ -332,6 +337,7 @@ class Contract:
         context = '\n\n'.join(p['prompt_block'] for p in packed)
         return [dict(role='system',content=system),dict(role='user',content=f'参考资料：\n{context or "（未匹配到指定资料）"}\n\n问题：{question}')]
 
+    @timed('pack.contract')
     def prepare(self, question, prior_hits):
         hits, scope = self.retrieve(question,prior_hits)
         helper = PromptHelper(context_window=CONTEXT, num_output=OUTPUT,
@@ -361,7 +367,7 @@ class Contract:
     def ask(self, question, prior_hits):
         start = time.perf_counter()
         packed,messages,trace = self.prepare(question,prior_hits)
-        result = self.owner.engine._llm.create_chat_completion(messages=messages,max_tokens=OUTPUT,temperature=0)
+        result = completion(self.owner.engine._llm,messages=messages,max_tokens=OUTPUT,temperature=0)
         choice = result['choices'][0]
         usage = result.get('usage',{})
         if usage.get('prompt_tokens') is not None:

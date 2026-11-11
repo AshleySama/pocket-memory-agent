@@ -7,6 +7,7 @@ Evidence snapshots are disposable; user data and model ownership stay with the
 normal application. No evaluation corpus, history directory or answer cache is
 used here.
 """
+from pocket_memory.rag.performance import timed, span, metric, snapshot as performance_snapshot
 import copy
 import logging
 import threading
@@ -17,6 +18,10 @@ from .clarification import clarification_sources
 from .intent import IntentResult
 
 logger = logging.getLogger(__name__)
+
+
+class DeferredModelUnavailable(RuntimeError):
+    """A retained request needs generation but its host model is unavailable."""
 
 
 def public_source(source, store):
@@ -54,7 +59,8 @@ class LiveRagPipeline:
     def __getattr__(self, key):
         return getattr(self.formal, key)
 
-    def invalidate(self):
+    def invalidate(self, reason='explicit'):
+        metric('snapshot.invalidate.' + reason)
         if self._candidate is not None:
             self._candidate.close()
         self._candidate = None
@@ -63,21 +69,33 @@ class LiveRagPipeline:
 
     close = invalidate
 
+    @timed('snapshot.refresh')
     def _refresh(self):
         if self.before_refresh is not None:
-            self.before_refresh()
+            with span("snapshot.extraction_wait"):
+                self.before_refresh()
         drain = getattr(self.embedding_service, 'drain', None)
-        if callable(drain) and not drain(timeout=30):
+        with span("snapshot.embedding_wait"):
+            drained = drain(timeout=30) if callable(drain) else True
+        if not drained:
             raise ValueError('资料索引仍在更新，请稍后再提问。')
         errors = getattr(self.embedding_service, 'index_errors', None)
         if callable(errors) and errors():
             raise ValueError('部分资料索引未完成，请重试整理或重新启动后再提问，避免引用旧内容。')
-        revision = self.store.source_revision()
+        with span("snapshot.revision_sql"):
+            revision = self.store.source_revision()
         model_identity = (str(getattr(self.native, 'model_path', '')),
                           getattr(self.native, 'n_ctx', None))
         if (self._candidate is None or revision != self._revision
                 or model_identity != self._model_identity):
-            self.invalidate()
+            reason = ('empty' if self._candidate is None else
+                      'revision' if revision != self._revision else 'model')
+            metric('snapshot.rebuild.' + reason)
+            if self._revision is not None:
+                for position, label in enumerate(('library_epoch', 'connection_writes', 'external_commit')):
+                    if revision[position] != self._revision[position]:
+                        metric('snapshot.revision_changed.' + label)
+            self.invalidate(reason)
             if self._factory is None:
                 from .retained.context import RuntimeContext
                 from .retained.candidate import Candidate
@@ -89,12 +107,15 @@ class LiveRagPipeline:
             # Reject that request instead of combining different revisions.
             self._candidate = factory(context)
             if revision != self.store.source_revision():
-                self.invalidate()
+                self.invalidate('changed_during_build')
                 raise ValueError('资料刚刚更新，请重新提问以使用最新内容。')
             self._revision = revision
             self._model_identity = model_identity
+        else:
+            metric('snapshot.reused')
         return self._candidate
 
+    @timed('evidence.route')
     def route(self, question, engine=None, **kwargs):
         self.local.response = None
         intent = kwargs.get('intent')
@@ -109,9 +130,16 @@ class LiveRagPipeline:
                                 diagnostics={'schema_version': 1, 'integration': 'retained-development',
                                              'candidate': {'prepared_mode': 'empty_library'}})
         started = time.perf_counter()
-        session = getattr(self.native, 'session', None)
-        with session() if callable(session) else nullcontext():
-            prepared = candidate.stage(question)
+        prepare_direct = getattr(candidate, 'prepare_direct', None)
+        prepared = prepare_direct(question) if callable(prepare_direct) else None
+        if prepared is None:
+            # Deterministic records do not need GGUF weights. Keep the existing
+            # availability error and session ownership for model-backed work.
+            if not self.native.available:
+                raise DeferredModelUnavailable(self.native.unavailable_reason)
+            session = getattr(self.native, 'session', None)
+            with session() if callable(session) else nullcontext():
+                prepared = candidate.stage(question)
         sources = candidate.evidence_registry.stage(prepared)
         self.local.question, self.local.prepared = question, prepared
         self.local.sources, self.local.revision = sources, self._revision
@@ -135,19 +163,24 @@ class LiveRagPipeline:
             return [{'title': 'retained prepared context', 'text': '', 'candidate_prepared': True}]
         return self.formal.contexts(chunks, sources)
 
+    @timed('answer.total')
     def answer(self, question):
         if question != self.local.question:
             raise RuntimeError('Prepared evidence belongs to another request')
         started = time.perf_counter()
-        session = getattr(self.native, 'session', None)
-        with session() if callable(session) else nullcontext():
+        if self.local.prepared.get('direct_record_response') is not None:
             response = self._candidate.ask(question)
+        else:
+            session = getattr(self.native, 'session', None)
+            with session() if callable(session) else nullcontext():
+                response = self._candidate.ask(question)
         if self.local.revision != self.store.source_revision():
             response = {'answer': '资料在回答期间发生了更新，请重新提问以使用最新内容。', 'sources': []}
-            self.invalidate()
+            self.invalidate('changed_during_answer')
         response['clarification_sources'] = clarification_sources(question, response)
         performance = dict(getattr(self.local, 'performance', {}),
                            answer_seconds=time.perf_counter() - started)
+        performance['detail'] = performance_snapshot()
         response.setdefault('trace', {})['performance'] = performance
         logger.info('retained answer timing: %s', performance)
         self.local.response = response
@@ -169,7 +202,14 @@ class LiveRagPipeline:
             return self.formal.enforce_answer_contract(question, answer, sources)
         if answer != response['answer']:
             raise RuntimeError('The retained answer was modified outside its contract')
-        return answer, [public_source(s, self.store) for s in response.get('sources', [])]
+        from .citation_display import presentation
+        direct = self.local.prepared.get('direct_record_response') is not None
+        output = []
+        for source in response.get('sources', []):
+            public = public_source(source, self.store)
+            public.update(presentation(source, answer, direct=direct))
+            output.append(public)
+        return answer, output
 
 
 class LiveCandidateEngine:

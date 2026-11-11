@@ -7,6 +7,7 @@ No numeric guess/clamping/nearest citation. A repair explicitly asks the local
 model to bind the unchanged answer to existing evidence, with exact quotes.
 Semantic support remains a separately reviewed property.
 """
+from pocket_memory.rag.performance import completion
 import json
 import re
 from .citation_protocol import source_map
@@ -105,7 +106,7 @@ def local_repair(engine,text,sources):
         'quote必须是该标识下连续的原文，覆盖答案中相关事实；不能将另一个证据的原文配到此标识。'
         '表格请摘包含对象、核心功能、输入资料等所问字段的完整一行。多段答案需要选全支持它们的证据。'},
         {'role':'user','content':f'待核对的答案：\n{text}\n\n可用证据：\n{context}'}]
-    generated=engine._llm.create_chat_completion(messages=messages,max_tokens=384,temperature=0,
+    generated=completion(engine._llm,messages=messages,max_tokens=384,temperature=0,
                  response_format={'type':'json_object','schema':repair_schema(sources)})
     choice=generated['choices'][0]; raw=choice['message']['content'] or ''
     try: payload=json.loads(raw)

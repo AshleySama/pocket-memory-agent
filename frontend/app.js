@@ -1,5 +1,4 @@
-/*
- * Copyright 2026 AshleySama
+/* Copyright 2026 AshleySama
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -31,13 +30,19 @@ const state = {
   documentStatus: null,
   documentPollTimer: null,
   documentReplacementId: null,
+  documentReplacing: false,
   reportSelectionMode: false,
   reportSelection: new Map(),
   reportDraft: null,
   newNoteDraft: null,
   newNoteSaving: false,
-  resultSortDirection: "desc",
+  resultSortDirection: "manual",
   askHistory: [],
+  refreshRevision: 0,
+  draftNoteSources: new Map(),
+  renameSaving: 0,
+  updatePendingWrites: 0,
+  pendingAttachmentReads: 0,
 };
 
 /* ---- 风格定义 ----
@@ -102,6 +107,14 @@ function savedTheme() {
 }
 
 const $ = (selector) => document.querySelector(selector);
+const draftVault = new PocketDraftVault({api:request, storage:(() => { try { return window.localStorage; } catch (_) { return null; } })(), changed:paintDraftProtection});
+const importQueue = new PocketImportQueue({api:request, read:readFileAsDataUrl, library:() => draftVault.library,
+  cache:new PocketImportCache(),
+  changed:renderImportQueue, hash:async data => {
+    const bytes = Uint8Array.from(atob(data.slice(data.indexOf(',') + 1)), ch => ch.charCodeAt(0));
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,'0')).join('');
+  }, storage:(() => { try { return window.localStorage; } catch (_) { return null; } })()});
 
 function switchPane(paneId) {
   document.querySelectorAll(".detail-tab").forEach((tab) => {
@@ -117,15 +130,29 @@ document.querySelectorAll(".detail-tab").forEach((tab) => {
 });
 
 async function request(url, options = {}) {
-  const response = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
-  const payload = await response.json();
-  if (!response.ok) {
-    const error = new Error(payload.error || "操作失败");
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
+  if (state.activeAsk && /^(POST|PUT|DELETE|PATCH)$/i.test(options.method || "GET")
+      && /^\/api\/(notes|documents|settings|data|backup|restore)(?:\/|$)/.test(url)) {
+    stopAskWaiting("资料正在修改，已停止本次等待。修改完成后可重新提问。");
   }
-  return payload;
+  const headers = { "Content-Type": "application/json", ...options.headers };
+  if ((/^\/api\/documents(?:\/|\?|$)/.test(url) || (/^(POST|PUT|DELETE|PATCH)$/i.test(options.method || 'GET') && /^\/api\/notes(?:\/|$)/.test(url))) && draftVault.library && !headers['X-PocketMemory-Library']) {
+    headers['X-PocketMemory-Library'] = draftVault.library;
+  }
+  const trackedWrite = /^(POST|PUT|DELETE|PATCH)$/i.test(options.method || 'GET') && !/^\/api\/drafts(?:\/|$)/.test(url);
+  if (trackedWrite) state.updatePendingWrites += 1;
+  try {
+    const response = await fetch(url, { ...options, headers });
+    const payload = await response.json();
+    if (!response.ok) {
+      const error = new Error(payload.error || "操作失败");
+      error.status = response.status;
+      error.payload = payload;
+      throw error;
+    }
+    return payload;
+  } finally {
+    if (trackedWrite) state.updatePendingWrites = Math.max(0, state.updatePendingWrites - 1);
+  }
 }
 
 function syncCachedNote(noteId, patch) {
@@ -159,7 +186,8 @@ function noteEditorSession(content) {
   if (!noteId) return null;
   if (!state.noteEditorSessions.has(noteId)) {
     const text = content.querySelector(".note-empty-body") ? "" : editableContentToMarkdown(content);
-    state.noteEditorSessions.set(noteId, { saved: text, draft: text, editing: false, status: "saved", error: "" });
+    const note = state.draftNoteSources.get(noteId) || state.allNotes.find(n => Number(n.id) === noteId);
+    state.noteEditorSessions.set(noteId, { saved: text, draft: text, baseContent: note?.content ?? text, editing: false, status: "saved", error: "" });
   }
   const session = state.noteEditorSessions.get(noteId);
   content.dataset.saved = session.saved;
@@ -174,6 +202,7 @@ function captureEditorDraft(content = currentNoteEditor()) {
   if (session.status !== "saving" && session.status !== "error") {
     session.status = session.draft === session.saved ? "saved" : "dirty";
   }
+  capturePersistentEditor(content, session);
   return session;
 }
 
@@ -216,7 +245,7 @@ function saveEditorContent(content = currentNoteEditor()) {
   if (!session) return Promise.resolve(true);
   const noteId = Number(content.dataset.noteId);
   if (state.pendingContentSaves.has(noteId)) return state.pendingContentSaves.get(noteId);
-  if (session.draft === session.saved) {
+  if (session.draft === session.saved && !session.writeUncertain) {
     session.status = "saved";
     session.error = "";
     refreshEditorSaveState(noteId);
@@ -225,7 +254,7 @@ function saveEditorContent(content = currentNoteEditor()) {
   // A single queue per real note/tab ID prevents an earlier response from
   // overwriting newer typing. The saved baseline advances only after success.
   const save = (async () => {
-    while (session.draft !== session.saved) {
+    while (session.draft !== session.saved || session.writeUncertain) {
       const submitted = session.draft;
       session.status = "saving";
       session.error = "";
@@ -233,9 +262,14 @@ function saveEditorContent(content = currentNoteEditor()) {
       try {
         const updated = await request(`/api/notes/${noteId}`, { method: "PUT", body: JSON.stringify({ content: submitted }) });
         session.saved = submitted;
+        session.writeUncertain = false;
+        session.baseContent = updated.content ?? submitted;
+        state.draftNoteSources.set(noteId, {...state.draftNoteSources.get(noteId), ...updated});
         session.updatedAt = updated.updated_at || "";
         syncCachedNote(noteId, { content: updated.content ?? submitted, updated_at: updated.updated_at });
+        if (session.draft !== session.saved) capturePersistentEditor(content, session);
       } catch (error) {
+        session.writeUncertain = true;
         session.status = "error";
         session.error = error.message;
         refreshEditorSaveState(noteId);
@@ -244,6 +278,7 @@ function saveEditorContent(content = currentNoteEditor()) {
       }
     }
     session.status = "saved";
+    void draftVault.close(draftKey(noteId));
     refreshEditorSaveState(noteId);
     return true;
   })();
@@ -287,18 +322,30 @@ async function prepareEditorNavigation() {
   if (!await flushPendingContentSaves()) return false;
   if (!state.newNoteDraft) return true;
   if (state.newNoteSaving) return false;
+  if (state.pendingAttachmentReads) {
+    showToast('图片正在读取', '读取完成后即可切换，草稿会保留在本机。');
+    return false;
+  }
   syncNewNoteDraftFromDom();
   const draft = state.newNoteDraft;
-  if ((draft.title.trim() || draft.content.trim() || state.imageDataUrl)
-      && !await showConfirm("离开会放弃这条尚未保存的笔记。", "离开新建笔记", { confirmText: "放弃并离开", isDanger: true })) return false;
+  if (!await draftVault.park('new', () => state.newNoteDraft === draft && !state.newNoteSaving && !state.pendingAttachmentReads)) {
+    showToast('草稿尚未保存到本机', '请点击草稿状态旁的重试，保存成功后即可切换笔记。');
+    return false;
+  }
+  if (state.newNoteDraft !== draft) return false;
+  $('#new-note-content')?.setAttribute('contenteditable', 'false');
   state.newNoteDraft = null;
   state.imageDataUrl = null;
   state.imageName = null;
+  paintDraftProtection();
   return true;
 }
 
 async function prepareLibraryChange() {
+  if (importQueue.busy || state.documentReplacing || importQueue.rows.some(x => x.retrying)) { showToast('文件正在提交', '请等待提交结束后再切换资料库。'); return false; }
+  if (state.renameSaving || document.querySelector('[data-draft-rename]')) { showToast('标题尚未保存完成', '请先完成标题或页签名称修改，再切换资料库。'); return false; }
   if (state.newNoteSaving || !await flushPendingContentSaves()) return false;
+  if (!await draftVault.flushAll()) { showToast('草稿尚未写入本机', '请重试草稿保存后再切换资料库。'); return false; }
   if (!state.newNoteDraft) return true;
   syncNewNoteDraftFromDom();
   const draft = state.newNoteDraft;
@@ -309,6 +356,16 @@ async function prepareLibraryChange() {
 }
 
 function resetEditorForLibraryChange() {
+  clearTimeout(state.documentPollTimer);
+  state.documents = []; state.documentStatus = null;
+  state.documentReplacementId = null;
+  $('#doc-preview-body')?.replaceChildren();
+  $('#doc-preview')?.classList.add('hidden');
+  $('#doc-fab')?.classList.add('hidden');
+  $('#timeline')?.classList.remove('hidden');
+  $('#import-status-list')?.replaceChildren();
+  draftVault.detach();
+  state.draftNoteSources.clear();
   // IDs belong to a library. Remove the old DOM before another library can
   // reuse them, so refreshing cannot recapture an old body as a new draft.
   currentNoteEditor()?.setAttribute("contenteditable", "false");
@@ -329,89 +386,105 @@ function resetEditorForLibraryChange() {
 
 const WORKBENCH_LAYOUT_KEY = "pocket-memory-workbench-layout-v2";
 const DEFAULT_WORKBENCH_LAYOUT = { sidebar: null, content: null };
+// Preferences survive viewport clamping; displayed widths are only a projection.
+let workbenchLayoutPreference = { ...DEFAULT_WORKBENCH_LAYOUT };
 let workbenchLayout = { ...DEFAULT_WORKBENCH_LAYOUT };
 
+function workbenchWidth() {
+  return Math.max(800, $(".workspace")?.clientWidth || window.innerWidth || 1600);
+}
+
 function defaultWorkbenchLayout() {
-  const workspace = $(".workspace");
-  const width = workspace?.clientWidth || window.innerWidth || 1600;
+  const width = workbenchWidth();
   return { sidebar: Math.round(width * 0.15), content: Math.round(width * 0.40) };
 }
 
-function clampWorkbenchLayout(layout = workbenchLayout) {
-  const workspace = $(".workspace");
+function clampWorkbenchLayout(layout = workbenchLayoutPreference) {
   const defaults = defaultWorkbenchLayout();
-  const next = { ...defaults, ...layout };
-  if (!workspace || window.innerWidth <= 1050) return next;
-  const width = workspace.clientWidth;
-  const sidebarMax = Math.max(190, width - 480 - 420);
-  next.sidebar = Math.min(Math.max(Number(layout.sidebar) || defaults.sidebar, 190), sidebarMax);
-  const contentMax = Math.max(480, width - next.sidebar - 420);
-  next.content = Math.min(Math.max(Number(layout.content) || defaults.content, 480), contentMax);
-  return Object.fromEntries(Object.entries(next).map(([key, value]) => [key, value == null ? value : Math.round(value)]));
+  const width = workbenchWidth();
+  const validWidth = (value, fallback) => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : fallback;
+  const sidebar = Math.round(Math.min(Math.max(validWidth(layout.sidebar, defaults.sidebar), 160), width - 280 - 360));
+  const content = Math.round(Math.min(Math.max(validWidth(layout.content, defaults.content), 280), width - sidebar - 360));
+  return { sidebar, content };
 }
 
-function applyWorkbenchLayout(layout, { persist = false } = {}) {
+function applyWorkbenchLayout(layout, { persist = false, changedKey = null } = {}) {
   workbenchLayout = clampWorkbenchLayout(layout);
   const root = document.body;
   root.style.setProperty("--sidebar-width", `${workbenchLayout.sidebar}px`);
   root.style.setProperty("--content-width", `${workbenchLayout.content}px`);
-  document.querySelector(".sidebar-resizer")?.setAttribute("aria-valuenow", String(workbenchLayout.sidebar));
-  document.querySelector(".content-resizer")?.setAttribute("aria-valuenow", String(workbenchLayout.content));
-  if (persist) {
-    try { localStorage.setItem(WORKBENCH_LAYOUT_KEY, JSON.stringify(workbenchLayout)); } catch (e) { /* ignore */ }
+  for (const key of ['sidebar', 'content']) {
+    const resizer = document.querySelector(`.${key}-resizer`);
+    resizer?.setAttribute("aria-valuenow", String(workbenchLayout[key]));
+    resizer?.setAttribute("aria-valuemin", String(key === 'sidebar' ? 160 : 280));
+    resizer?.setAttribute("aria-valuemax", String(workbenchWidth() - 360 - (key === 'sidebar' ? 280 : workbenchLayout.sidebar)));
+  }
+  if (persist && changedKey) {
+    // Resizing one divider must not overwrite the other column's wide-screen preference.
+    workbenchLayoutPreference[changedKey] = layout[changedKey] == null ? null : workbenchLayout[changedKey];
+    try { localStorage.setItem(WORKBENCH_LAYOUT_KEY, JSON.stringify(workbenchLayoutPreference)); } catch (e) { /* ignore */ }
   }
 }
 
 function initializeWorkbenchResizers() {
   try {
     const saved = JSON.parse(localStorage.getItem(WORKBENCH_LAYOUT_KEY) || "null");
-    if (saved && typeof saved === "object") workbenchLayout = { ...workbenchLayout, ...saved };
+    if (saved && typeof saved === "object") {
+      for (const key of ['sidebar', 'content']) {
+        workbenchLayoutPreference[key] = Number.isFinite(Number(saved[key])) && Number(saved[key]) > 0 ? Number(saved[key]) : null;
+      }
+    }
   } catch (e) { /* ignore */ }
-  applyWorkbenchLayout(workbenchLayout);
+  applyWorkbenchLayout(workbenchLayoutPreference);
 
   let drag = null;
   document.querySelectorAll(".column-resizer").forEach((resizer) => {
     resizer.addEventListener("pointerdown", (event) => {
-      if (window.innerWidth <= 1050) return;
+      if (event.button !== 0) return;
       event.preventDefault();
-      drag = { key: resizer.dataset.resizeColumn, pointerId: event.pointerId };
+      drag = { key: resizer.dataset.resizeColumn, pointerId: event.pointerId, initialWidth: workbenchLayout[resizer.dataset.resizeColumn] };
       resizer.setPointerCapture(event.pointerId);
       document.body.classList.add("resizing-columns");
     });
     resizer.addEventListener("dblclick", () => {
-      const next = { ...workbenchLayout, [resizer.dataset.resizeColumn]: defaultWorkbenchLayout()[resizer.dataset.resizeColumn] };
-      applyWorkbenchLayout(next, { persist: true });
+      const key = resizer.dataset.resizeColumn;
+      applyWorkbenchLayout({ ...workbenchLayoutPreference, [key]: null }, { persist: true, changedKey: key });
     });
     resizer.addEventListener("keydown", (event) => {
-      const validKeys = ['ArrowLeft', 'ArrowRight', 'Home'];
-      if (!validKeys.includes(event.key)) return;
+      if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
       event.preventDefault();
       const key = resizer.dataset.resizeColumn;
       const step = event.shiftKey ? 48 : 16;
       const next = { ...workbenchLayout };
-      if (event.key === "Home") next[key] = defaultWorkbenchLayout()[key];
-      else next[key] += event.key === "ArrowLeft" ? -step : step;
-      applyWorkbenchLayout(next, { persist: true });
+      next[key] = event.key === 'Home' ? null : next[key] + (event.key === 'ArrowLeft' ? -step : step);
+      applyWorkbenchLayout(next, { persist: event.key === 'Home' || clampWorkbenchLayout(next)[key] !== workbenchLayout[key], changedKey: key });
     });
   });
   document.addEventListener("pointermove", (event) => {
     if (!drag || event.pointerId !== drag.pointerId) return;
-    const next = { ...workbenchLayout };
     const workspace = $(".workspace");
     if (!workspace) return;
     const x = event.clientX - workspace.getBoundingClientRect().left;
-    next[drag.key] = drag.key === "sidebar" ? x : x - workbenchLayout.sidebar;
+    const next = { ...workbenchLayout };
+    next[drag.key] = drag.key === 'sidebar' ? x : x - workbenchLayout.sidebar;
     applyWorkbenchLayout(next);
   });
   document.addEventListener("pointerup", (event) => {
     if (!drag || event.pointerId !== drag.pointerId) return;
+    const key = drag.key;
+    const changed = workbenchLayout[key] !== drag.initialWidth;
     drag = null;
     document.body.classList.remove("resizing-columns");
-    applyWorkbenchLayout(workbenchLayout, { persist: true });
+    applyWorkbenchLayout(workbenchLayout, { persist: changed, changedKey: key });
   });
-  window.addEventListener("resize", () => applyWorkbenchLayout(workbenchLayout));
+  document.addEventListener("pointercancel", (event) => {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag = null;
+    document.body.classList.remove("resizing-columns");
+    applyWorkbenchLayout(workbenchLayoutPreference);
+  });
+  window.addEventListener("resize", () => applyWorkbenchLayout(workbenchLayoutPreference));
 }
-
 initializeWorkbenchResizers();
 
 async function downloadFile(url, fallbackFilename) {
@@ -591,24 +664,29 @@ function highlightText(value = "", terms = []) {
 let _noteTitleSet = null;
 function getNoteTitleSet() {
   if (!_noteTitleSet) {
-    // escapeHtml 与 renderWikiLinks 收到的转义后 title 保持一致，确保匹配正确
-    _noteTitleSet = new Set((state.allNotes || []).map((n) => escapeHtml(n.title || "")));
+    _noteTitleSet = new Set((state.allNotes || []).map((n) => String(n.title || "")));
   }
   return _noteTitleSet;
 }
 function invalidateNoteTitleSet() { _noteTitleSet = null; }
 
-function renderWikiLinks(html) {
-  // 将 [[标题]] 转为可点击的只读参考笔记链接。目标笔记不存在时标记为失效链接（红色虚线）。
+function renderWikiLinks(value, terms = []) {
+  // Parse identities from raw text, then highlight the visible label only.
+  // Highlight markup must never become part of a saved or navigated title.
+  const text = String(value || "");
   const titles = getNoteTitleSet();
-  return html.replace(/\[\[([^\]]+)\]\]/g, (match, title) => {
-    const trimmed = title.trim();
+  let cursor = 0, html = "";
+  for (const match of text.matchAll(/\[\[([^\]]+)\]\]/g)) {
+    html += highlightText(text.slice(cursor, match.index), terms);
+    const trimmed = match[1].trim();
     const broken = titles.size > 0 && !titles.has(trimmed);
     const cls = broken ? "wiki-link wiki-link-broken" : "wiki-link";
     const dataAttrs = broken ? ' data-broken="1"' : "";
     const hint = broken ? "参考笔记不存在" : "点击阅读参考笔记";
-    return `<a class="${cls}" href="javascript:void(0)" data-wiki="${escapeHtml(trimmed)}" title="${hint}"${dataAttrs}>${escapeHtml(trimmed)}</a>`;
-  });
+    html += `<a class="${cls}" href="#" data-wiki="${escapeHtml(trimmed)}" title="${hint}"${dataAttrs}>${highlightText(trimmed, terms)}</a>`;
+    cursor = match.index + match[0].length;
+  }
+  return html + highlightText(text.slice(cursor), terms);
 }
 
 function renderInlineNoteContent(text, terms = []) {
@@ -619,7 +697,7 @@ function renderInlineNoteContent(text, terms = []) {
   let html = "";
   let cursor = 0;
   let match;
-  const renderText = (value) => renderWikiLinks(highlightText(value, terms));
+  const renderText = (value) => renderWikiLinks(value, terms);
 
   while ((match = tagPattern.exec(source))) {
     html += renderText(source.slice(cursor, match.index));
@@ -844,11 +922,16 @@ function renderSidebar() {
   // 最近编辑列表：取最近 5 条按 updated_at 倒序，主笔记优先（排除子页签）
   renderRecentNav();
 
+  // Reuse the button node so its listener and command-palette entry survive rerenders.
+  const newFolderButton = $("#new-folder-btn");
   $("#category-nav").innerHTML = `
-    <button class="nav-item ${active({})}" data-filter="all">
-      <span>全部笔记</span><b>${state.taxonomy.total}</b>
-    </button>
-    ${state.folders.length ? renderFolderTree(state.folders) : `<p class="muted" style="padding:8px">还没有分区，点击右上 + 创建</p>`}`;
+    <div class="all-notes-row">
+      <button class="nav-item ${active({})}" data-filter="all">
+        <span>全部笔记</span><b>${state.taxonomy.total}</b>
+      </button>
+    </div>
+    ${state.folders.length ? renderFolderTree(state.folders) : `<p class="muted" style="padding:8px">还没有分区，点击全部笔记右侧 + 创建</p>`}`;
+  $("#category-nav .all-notes-row").append(newFolderButton);
 
   $("#tag-nav").innerHTML = state.taxonomy.tags.slice(0, 24).map((tag) => `
     <button class="tag-filter ${active({ tag: tag.name })}" data-tag="${escapeHtml(tag.name)}">
@@ -943,10 +1026,6 @@ function renderStatsPanel() {
   const todayActive = state.filter.since === todaySince ? " active" : "";
   const weekActive = state.filter.since === weekSince ? " active" : "";
   statsEl.innerHTML = `
-    <div class="stat-item">
-      <span class="stat-value">${state.taxonomy.total}</span>
-      <span class="stat-label">总笔记</span>
-    </div>
     <div class="stat-item clickable${todayActive}" data-since="${todaySince}" title="点击筛选今日笔记">
       <span class="stat-value">${todayCount}</span>
       <span class="stat-label">今日</span>
@@ -1005,7 +1084,7 @@ function answerSourceLink(source, label, className) {
   // Keep the backend's citation identity and opening target together. Titles
   // and evidence are user content, so every inserted value stays escaped.
   return source.url
-    ? `<a class="${className}" href="#" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title || "")}" data-doc-evidence="${escapeHtml(source.evidence || "")}">${escapeHtml(label)}</a>`
+    ? `<a class="${className}" href="#" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title || "")}" data-doc-exact="${Object.hasOwn(source, 'display_evidence')}" data-doc-evidence="${escapeHtml(source.display_evidence ?? source.evidence ?? "")}">${escapeHtml(label)}</a>`
     : `<span class="${className}">${escapeHtml(label)}</span>`;
 }
 
@@ -1053,6 +1132,7 @@ function renderAnswerText(answer, sources = []) {
 }
 
 function answerSourceEvidenceCount(source) {
+  if (Number.isSafeInteger(source.display_evidence_count)) return source.display_evidence_count;
   const members = Array.isArray(source.citation_members) ? source.citation_members : [];
   const memberCount = new Set(members.map((member) => member.id || JSON.stringify([
     member.source_type, member.source_id, member.kind, member.spans,
@@ -1095,8 +1175,8 @@ function answerSourceMeta(source, options = {}) {
 }
 
 function renderAnswerSource(source) {
-  const evidence = String(source.evidence || "");
-  const excerpt = String(source.excerpt || "");
+  const evidence = String(source.display_evidence ?? source.evidence ?? "");
+  const excerpt = String(source.display_context ?? source.excerpt ?? "");
   const normalize = (value) => value.replace(/\s+/g, " ").trim();
   const normalizedExcerpt = normalize(excerpt);
   const hasExtraContext = normalizedExcerpt && (!evidence || !normalize(evidence).includes(normalizedExcerpt));
@@ -1108,7 +1188,7 @@ function renderAnswerSource(source) {
     ${meta ? `<div class="source-reference-meta">${meta}</div>` : ""}
     ${source.url ? answerSourceLink(source, "打开参考文档", "source-link") : ""}
     ${evidence ? `<div class="evidence-box"><strong>证据句</strong>${highlightText(evidence, matchedTerms)}</div>` : ""}
-    ${hasExtraContext ? `<details class="source-context"><summary>查看上下文</summary><div class="source-excerpt">${highlightText(excerpt, [...evidenceTerms, ...matchedTerms])}</div></details>` : ""}
+    ${hasExtraContext ? `<details class="source-context"><summary>${source.display_evidence_kind === 'context_only' ? '查看引用上下文（未定位到具体句）' : '查看完整上下文'}</summary><div class="source-excerpt">${highlightText(excerpt, evidenceTerms)}</div></details>` : ""}
   </div>`;
 }
 
@@ -1168,7 +1248,7 @@ function renderAnswer(payload, question) {
   const timing = payload.timing || {};
   const elapsed = timing.total_seconds != null ? ` · ${Number(timing.total_seconds).toFixed(2)}s` : "";
   const timingTitle = timing.first_token_seconds != null
-    ? `首字 ${Number(timing.first_token_seconds).toFixed(2)}s；检索 ${Number(timing.retrieval_seconds || 0).toFixed(2)}s；生成 ${Number(timing.generation_seconds || 0).toFixed(2)}s`
+    ? `首段返回 ${Number(timing.first_answer_event_seconds ?? timing.first_token_seconds).toFixed(2)}s；证据准备 ${Number(timing.retrieval_seconds || 0).toFixed(2)}s；生成与核验 ${Number(timing.generation_seconds || 0).toFixed(2)}s`
     : (timing.retrieval_seconds != null ? `检索 ${Number(timing.retrieval_seconds).toFixed(2)}s` : "");
   const expandedTerms = (payload.expanded_terms || []).filter((t) => t && t !== question);
   const expandedHtml = expandedTerms.length
@@ -1313,6 +1393,7 @@ function renderNoteBody(note, terms = []) {
 }
 
 function renderNoteHtml(note, terms) {
+  state.draftNoteSources.set(Number(note.id), note);
   const preview = note.matched_excerpt || excerpt(note.content || note.ocr_text || (note.attachment_path ? "图片笔记，展开后查看 OCR 文字。" : ""));
   const subcategoryChip = note.subcategory
     ? `<span class="category-chip editable" data-action="edit-category" data-id="${note.id}" data-field="subcategory" title="点击编辑小分类">${highlightText(note.subcategory, terms)}</span>`
@@ -1340,7 +1421,7 @@ function renderNoteHtml(note, terms) {
         </div>
       </div>
       <div class="note-meta">
-        <span class="category-chip editable" data-action="edit-category" data-id="${note.id}" data-field="category" title="点击编辑大分类">${highlightText(note.category, terms)}</span>
+        <span class="category-chip editable" data-action="edit-category" data-id="${note.id}" data-field="category" title="点击编辑大分类">${highlightText(note.source_type === "welcome" ? "欢迎笔记" : note.category, terms)}</span>
         ${subcategoryChip}
         ${renderTags(note.tags || [], terms, note.id)}
         ${note.backlink_count ? `<span class="backlink-chip" title="${note.backlink_count} 篇笔记引用了此笔记">↩ ${note.backlink_count}</span>` : ""}
@@ -1350,7 +1431,7 @@ function renderNoteHtml(note, terms) {
       </div>
       ${note.attachment_path ? `<img class="note-image" src="/data/${escapeHtml(note.attachment_path)}" alt="笔记图片">` : ""}
       <div class="note-tabs-bar" data-note-id="${note.id}" data-active-tab="${note.id}"></div>
-      ${preview ? `<div class="note-excerpt">${renderWikiLinks(highlightText(preview, terms))}</div>` : ""}
+      ${preview ? `<div class="note-excerpt">${renderWikiLinks(preview, terms)}</div>` : ""}
       <details class="note-detail">
         <summary>展开全文与操作</summary>
         <div class="editor-detail-body"><div class="editor-detail-inner">
@@ -1376,7 +1457,7 @@ function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "" } = {
   return `
     <article class="note reference-note" aria-label="参考笔记只读预览">
       <div class="note-meta reference-note-meta">
-        <span class="category-chip">${highlightText(note.category || "未分类", terms)}</span>
+        <span class="category-chip">${highlightText(note.source_type === "welcome" ? "欢迎笔记" : (note.category || "未分类"), terms)}</span>
         ${note.subcategory ? `<span class="category-chip">${highlightText(note.subcategory, terms)}</span>` : ""}
         ${tags}
       </div>
@@ -1401,18 +1482,15 @@ function renderResultNote(note, terms, index) {
   const isActive = Number(note.id) === Number(state.selectedNoteId);
   const matches = note.search_matches || [];
   const primaryMatch = matches[0] || note;
-  const categoryLocation = [note.category, note.subcategory].filter(Boolean).join(" / ") || "未归类";
+  const categoryLocation = note.source_type === "welcome" ? "欢迎笔记" : ([note.category, note.subcategory].filter(Boolean).join(" / ") || "未归类");
   const matchLocation = matches.length > 1
     ? `${matches.length} 个命中片段${primaryMatch.source_location ? ` · ${primaryMatch.source_location}` : ""}`
     : categoryLocation;
   const tabMatch = String(primaryMatch.source_url || "").match(/[?&]tab_id=(\d+)/);
   const resultTabId = tabMatch ? Number(tabMatch[1]) : null;
   const isWelcome = note.source_type === "welcome";
-  const metaParts = [
-    escapeHtml(matchLocation),
-    renderAiSummary(note),
-    note.updated_at ? `<i>${escapeHtml(note.updated_at.slice(0, 10))}</i>` : "",
-  ].filter(Boolean);
+  const metaDetails = `<span class="result-note-location" title="${escapeHtml(matchLocation)}">${escapeHtml(matchLocation)}</span>${renderAiSummary(note)}`;
+  const metaDate = note.updated_at ? `<time class="result-note-date" datetime="${escapeHtml(note.updated_at.slice(0, 10))}">${escapeHtml(note.updated_at.slice(0, 10))}</time>` : "";
   const selectable = state.reportSelectionMode && !isWelcome;
   const selectedForReport = selectable && isReportSourceSelected("note", note.id);
   // 搜索命中、欢迎笔记和报告选择模式不支持拖拽；在分区视图中仍可拖到左侧其他分区。
@@ -1421,14 +1499,14 @@ function renderResultNote(note, terms, index) {
   return `
     <article class="result-note${isWelcome ? " welcome-result-card" : ""}${isActive ? " active" : ""}${selectedForReport ? " report-source-selected" : ""}" data-note-id="${note.id}"${dragAttributes}>
       ${selectable ? `<button class="report-source-toggle ${selectedForReport ? "selected" : ""}" data-report-source-kind="note" data-report-source-id="${note.id}" type="button" aria-label="${selectedForReport ? "取消选择" : "选择资料"}" title="${selectedForReport ? "取消选择" : "选择为报告资料"}">${selectedForReport ? "✓" : ""}</button>` : ""}
-      <button class="result-note-open" data-action="select-note" data-id="${note.id}" data-result-tab-id="${resultTabId || ""}" type="button">
+      <button class="result-note-open" draggable="${draggable}" data-action="select-note" data-id="${note.id}" data-result-tab-id="${resultTabId || ""}" type="button">
         ${isWelcome ? "" : `<span class="result-index">${index + 1}</span>`}
         <span class="result-note-main">
           <span class="result-note-title">${highlightText(note.title || "未命名笔记", terms)}</span>
-          <span class="result-note-excerpt">${renderWikiLinks(highlightText(preview, terms))}</span>
-          ${metaParts.length ? `<span class="result-note-meta">${metaParts.join("")}</span>` : ""}
+          <span class="result-note-excerpt">${renderWikiLinks(preview, terms)}</span>
         </span>
         ${note.attachment_path ? '<span class="result-type">图文</span>' : ""}
+        <span class="result-note-meta"><span class="result-note-meta-details">${metaDetails}</span>${metaDate}</span>
       </button>
       <div class="result-note-actions" aria-label="笔记操作">
         <button class="result-card-action danger delete-note-btn" data-action="delete" data-id="${note.id}" type="button" title="删除笔记" aria-label="删除笔记">${tablerIcon("trash", "trash-icon")}</button>
@@ -1458,9 +1536,9 @@ function renderResultDocument(document, index) {
         <span class="result-note-main">
           <span class="result-note-title">${escapeHtml(document.original_name)}</span>
           <span class="result-note-excerpt">${highlightText(preview, searchHighlightTerms())}</span>
-          <span class="result-note-meta">${escapeHtml(location)}${document.updated_at ? ` <i>${escapeHtml(document.updated_at.slice(0, 10))}</i>` : ""}</span>
         </span>
         <span class="result-type">文档</span>
+        <span class="result-note-meta"><span class="result-note-meta-details"><span class="result-note-location" title="${escapeHtml(location)}">${escapeHtml(location)}</span></span>${document.updated_at ? `<time class="result-note-date" datetime="${escapeHtml(document.updated_at.slice(0, 10))}">${escapeHtml(document.updated_at.slice(0, 10))}</time>` : ""}</span>
       </button>
       <div class="result-note-actions" aria-label="文档操作">
         <button class="result-card-action danger delete-note-btn" data-document-card-action="delete" data-document-id="${document.id}" type="button" title="删除文档" aria-label="删除文档">${tablerIcon("trash", "trash-icon")}</button>
@@ -1475,6 +1553,8 @@ function noteResultType(note) {
 
 function visibleResultNotes() {
   if (state.resultScope !== "note") return [];
+  // The API already returns the saved pinned/manual order (or search relevance).
+  if (state.resultSortDirection === "manual") return [...state.notes];
   const direction = state.resultSortDirection === "asc" ? 1 : -1;
   return [...state.notes].sort((left, right) => {
     const pinned = Number(right.pinned || 0) - Number(left.pinned || 0);
@@ -1639,6 +1719,7 @@ function syncNewNoteDraftFromDom() {
   if (title) state.newNoteDraft.title = title.value;
   if (content) state.newNoteDraft.content = editableContentToMarkdown(content);
   if (folder) state.newNoteDraft.folder_id = folder.value ? Number(folder.value) : null;
+  capturePersistentNew();
 }
 
 function renderNewNoteDraft(dock) {
@@ -1667,6 +1748,7 @@ function renderNewNoteDraft(dock) {
       <div id="new-note-content" class="note-content editable new-note-content" contenteditable="true" data-draft="1" data-placeholder="从这里开始记录..." title="点击开始编辑">${draft.content ? renderNoteContent(draft.content, []) : ""}</div>
       ${state.imageDataUrl ? `<div class="new-note-attachment"><img src="${escapeHtml(state.imageDataUrl)}" alt="待保存的图片附件"><button class="ghost" data-action="remove-new-note-attachment" type="button">移除图片</button></div>` : ""}
     </section>`;
+  paintDraftProtection();
   requestAnimationFrame(() => $("#new-note-content")?.focus());
 }
 
@@ -1734,55 +1816,68 @@ function highlightSearchMatch() {
 }
 
 async function refresh() {
+  const revision = ++state.refreshRevision;
   const query = $("#search").value.trim();
   const mode = $("#search-mode").value;
   const parameters = queryString({ q: query, mode, ...state.filter });
+  // Check both the request generation and current controls: typing can change
+  // the query before the debounce starts its next request.
+  const isCurrent = () => revision === state.refreshRevision
+    && parameters === queryString({ q: $("#search").value.trim(), mode: $("#search-mode").value, ...state.filter });
+  const filteredView = Boolean(query || Object.keys(state.filter).length);
   const notesUrl = withCacheBuster(query ? `/api/search?${parameters}` : `/api/notes${parameters ? `?${parameters}` : ""}`);
   let searchResults = [];
-  if (query || Object.keys(state.filter).length > 0) {
-    // 有搜索/筛选时，并行请求全量列表用于最近编辑侧栏
-    const [filtered, all] = await Promise.all([
-      request(notesUrl),
-      request(withCacheBuster("/api/notes")),
-    ]);
-    searchResults = filtered;
-    state.notes = groupNoteSearchResults(filtered.filter((item) => item.source_type !== "document"));
-    state.allNotes = all;
-  } else {
-    state.notes = await request(notesUrl);
-    state.allNotes = state.notes;
-    state.searchDocuments = [];
-  }
+  let notes, allNotes;
   try {
-    const [documents, status] = await Promise.all([request("/api/documents"), request("/api/documents/status")]);
-    state.documents = documents;
-    state.documentStatus = status;
-    if (query || Object.keys(state.filter).length > 0) {
-      state.searchDocuments = groupDocumentSearchResults(
-        searchResults.filter((item) => item.source_type === "document"),
-        documents,
-      );
+    if (filteredView) {
+      const [filtered, all] = await Promise.all([
+        request(notesUrl), request(withCacheBuster("/api/notes")),
+      ]);
+      searchResults = filtered;
+      notes = groupNoteSearchResults(filtered.filter((item) => item.source_type !== "document"));
+      allNotes = all;
+    } else {
+      notes = await request(notesUrl);
+      allNotes = notes;
     }
   } catch (error) {
-    console.warn("文档库状态刷新失败", error);
+    if (!isCurrent()) return false;
+    throw error;
   }
+  if (!isCurrent()) return false;
+  let documents = state.documents, documentStatus = state.documentStatus;
+  try {
+    [documents, documentStatus] = await Promise.all([request("/api/documents"), request("/api/documents/status")]);
+  } catch (error) {
+    if (isCurrent()) console.warn("文档库状态刷新失败", error);
+  }
+  if (!isCurrent()) return false;
+  Object.assign(state, {
+    notes, allNotes, documents, documentStatus,
+    searchDocuments: filteredView ? groupDocumentSearchResults(
+      searchResults.filter((item) => item.source_type === "document"), documents,
+    ) : [],
+  });
   invalidateNoteTitleSet();
   renderTimeline();
-  try {
-    state.taxonomy = await request("/api/taxonomy");
-    state.folders = await request("/api/folders");
-    state.embeddingStatus = await request("/api/embedding/status");
-    state.intelligenceStatus = await request("/api/intelligence/status");
-  } catch (err) {
-    console.warn("侧栏状态刷新失败", err);
-  }
+  const sidebarKeys = ["taxonomy", "folders", "embeddingStatus", "intelligenceStatus"];
+  const sidebarResults = await Promise.allSettled([
+    request("/api/taxonomy"), request("/api/folders"),
+    request("/api/embedding/status"), request("/api/intelligence/status"),
+  ]);
+  if (!isCurrent()) return false;
+  sidebarResults.forEach((result, index) => {
+    if (result.status === "fulfilled") state[sidebarKeys[index]] = result.value;
+    else console.warn("侧栏状态刷新失败", sidebarKeys[index], result.reason);
+  });
   renderSidebar();
   if (state.pendingScrollId != null) {
     const targetId = state.pendingScrollId;
     state.pendingScrollId = null;
-    setTimeout(() => scrollToNote(targetId), 80);
+    setTimeout(() => { if (isCurrent()) scrollToNote(targetId); }, 80);
   }
   scheduleOcrPoll();
+  return true;
 }
 
 async function resolveFolderId(category, subcategory = "") {
@@ -1855,17 +1950,25 @@ function makeCategoryEditable(chip) {
   });
 }
 
-function makeTitleEditable(titleEl) {
+function makeTitleEditable(titleEl, restoredTitle = null) {
   const noteId = Number(titleEl.dataset.id);
   const note = state.notes.find((item) => item.id === noteId)
     || (state.allNotes || []).find((item) => item.id === noteId);
   if (!note) return;
   const input = document.createElement("input");
   input.type = "text";
-  input.value = note.title || "";
+  input.value = restoredTitle ?? note.title ?? "";
   input.className = "note-title-edit-input";
   input.maxLength = 120;
   input.setAttribute("aria-label", "笔记标题");
+  const renameKey = draftKey(noteId, 'title');
+  input.dataset.draftRename = renameKey;
+  const captureTitle = () => {
+    if (input.value === note.title) void draftVault.close(renameKey);
+    else draftVault.capture(renameKey, draftPayload(note, input.value, 'title'));
+  };
+  input.addEventListener('input', captureTitle);
+  if (restoredTitle !== null) captureTitle();
   titleEl.replaceWith(input);
   input.focus();
   input.select();
@@ -1875,21 +1978,28 @@ function makeTitleEditable(titleEl) {
     done = true;
     const title = input.value.trim();
     if (!commit || !title || title === note.title) {
+      void draftVault.close(renameKey);
       await refresh();
       return;
     }
     try {
+      captureTitle();
+      input.disabled = true;
+      state.renameSaving += 1;
       const updated = await request(`/api/notes/${noteId}`, {
         method: "PUT",
         body: JSON.stringify({ title }),
       });
       syncCachedNote(noteId, { title: updated.title, updated_at: updated.updated_at });
+      void draftVault.close(renameKey);
       invalidateNoteTitleSet();
       showToast("已保存", "笔记标题已更新");
       await refresh();
     } catch (err) {
       showToast("保存失败", err.message);
       await refresh();
+    } finally {
+      state.renameSaving = Math.max(0, state.renameSaving - 1);
     }
   };
   input.addEventListener("blur", () => finish(true));
@@ -2174,6 +2284,7 @@ async function cancelNewNote() {
   const hasContent = Boolean(String(draft.title || "").trim() || String(draft.content || "").trim() || state.imageDataUrl);
   if (hasContent && !await showConfirm("放弃这条尚未保存的笔记？", "取消新建", { confirmText: "放弃", isDanger: true })) return;
   state.newNoteDraft = null;
+  void draftVault.close('new');
   state.imageDataUrl = null;
   state.imageName = null;
   state.selectedNoteId = state.notes[0]?.id || state.allNotes[0]?.id || null;
@@ -2204,8 +2315,9 @@ async function saveNewNote() {
     button.disabled = true;
     button.textContent = "保存中...";
   }
+  let created;
   try {
-    const created = await request("/api/notes", {
+    created = await request("/api/notes", {
       method: "POST",
       body: JSON.stringify({
         title: String(draft.title || "").trim() || "新笔记",
@@ -2215,17 +2327,6 @@ async function saveNewNote() {
         image_name: state.imageName,
       }),
     });
-    state.newNoteDraft = null;
-    state.imageDataUrl = null;
-    state.imageName = null;
-    state.pendingScrollId = created.id;
-    state.selectedNoteId = created.id;
-    state.filter = {};
-    $("#search").value = "";
-    $("#search-clear").classList.add("hidden");
-    showToast("保存成功", "新笔记已创建");
-    await refresh();
-    return true;
   } catch (error) {
     draft.saveError = error.message;
     if (status) { status.dataset.state = "error"; status.textContent = "保存失败，草稿已保留"; }
@@ -2233,7 +2334,7 @@ async function saveNewNote() {
     return false;
   } finally {
     state.newNoteSaving = false;
-    if (contentEl?.isConnected) contentEl.setAttribute("contenteditable", "true");
+    if (!created && contentEl?.isConnected) contentEl.setAttribute("contenteditable", "true");
     if (titleEl?.isConnected) titleEl.disabled = false;
     if (folderEl?.isConnected) folderEl.disabled = false;
     if (button?.isConnected) {
@@ -2241,6 +2342,32 @@ async function saveNewNote() {
       button.innerHTML = originalHtml;
     }
   }
+  // A successful POST is the save boundary. Install the returned note before
+  // refreshing, so a failed GET cannot strand the user in a detached draft.
+  ++state.refreshRevision;
+  state.newNoteDraft = null;
+  void draftVault.close('new');
+  state.imageDataUrl = null;
+  state.imageName = null;
+  const cached = new Map([...state.notes, ...state.allNotes].map(note => [Number(note.id), note]));
+  cached.set(Number(created.id), created);
+  state.notes = [created, ...[...cached.values()].filter(note => Number(note.id) !== Number(created.id))];
+  state.allNotes = [...state.notes];
+  state.pendingScrollId = created.id;
+  state.selectedNoteId = created.id;
+  state.filter = {};
+  $("#search").value = "";
+  $("#search-clear").classList.add("hidden");
+  invalidateNoteTitleSet();
+  renderTimeline();
+  showToast("保存成功", "新笔记已创建");
+  try {
+    await refresh();
+  } catch (error) {
+    showToast("笔记已保存", "列表暂未刷新，已保存的笔记可以继续编辑。请稍后刷新列表。");
+    console.warn("笔记已写入，列表刷新失败", error);
+  }
+  return true;
 }
 
 function clearInlineComposer() {
@@ -2325,6 +2452,18 @@ function normalizeEditorColor(value) {
   return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
 }
 
+function serializeEditableChildren(parent) {
+  let result = '';
+  for (const child of parent.childNodes) {
+    const part = serializeEditableNode(child);
+    const block = child.nodeType === Node.ELEMENT_NODE && /^(DIV|P|UL|OL|BLOCKQUOTE|H[1-6]|TABLE)$/.test(child.tagName);
+    // Browsers may represent Enter as text + <div>next line</div>.
+    if (block && result && !result.endsWith('\n') && !part.startsWith('\n')) result += '\n';
+    result += part;
+  }
+  return result;
+}
+
 function serializeEditableNode(node) {
   if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
@@ -2333,7 +2472,7 @@ function serializeEditableNode(node) {
   if (tag === "br") return "\n";
   if (tag === "table") return `\n${editableTableToMarkdown(node)}\n`;
 
-  const children = () => [...node.childNodes].map(serializeEditableNode).join("");
+  const children = () => serializeEditableChildren(node);
   if (tag === "a" && node.classList.contains("wiki-link")) return `[[${node.dataset.wiki || node.textContent || ""}]]`;
   if (tag === "strong" || tag === "b") return `<strong>${children()}</strong>`;
   if (tag === "em" || tag === "i") return `<em>${children()}</em>`;
@@ -2358,7 +2497,7 @@ function serializeEditableNode(node) {
 
 function editableContentToMarkdown(content) {
   // 不再使用 innerText：它会抹掉 <strong>/<span> 等编辑格式。
-  return [...content.childNodes].map(serializeEditableNode).join("").replace(/\n{3,}/g, "\n\n").trim();
+  return serializeEditableChildren(content).replace(/\n{3,}/g, "\n\n").trim();
 }
 
 $("#inline-save").addEventListener("click", async () => {
@@ -2432,32 +2571,141 @@ $("#search-clear").addEventListener("click", async () => {
   $("#search").focus();
 });
 $("#search-mode").addEventListener("change", refresh);
+// Read-only preview lifecycle. Final citations belong exclusively to `done`.
+function askIsCurrent(session) {
+  return state.activeAsk === session && !session.controller.signal.aborted;
+}
+
+function stopAskWaiting(message = "已请求停止。本地生成会在当前计算步骤结束后退出；正在准备输入时可能仍需片刻。") {
+  const session = state.activeAsk;
+  if (!session) return;
+  state.activeAsk = null;
+  state.stoppedAsk = session;
+  clearTimeout(session.previewTimer);
+  if (session.requestId && !session.completed) {
+    // Independent request: never attach the controller being aborted below.
+    fetch('/api/ask/cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request_id: session.requestId }), keepalive: true,
+    }).then(response => {
+      if (!response.ok) throw new Error('cancel request failed');
+    }).catch(() => {
+      if (state.stoppedAsk === session && !state.activeAsk) $("#answer-panel").innerHTML = '<div class="empty-guide"><p>已停止等待，但停止计算请求未送达；本地计算可能继续至完成。</p></div>';
+    });
+  }
+  session.controller.abort();
+  state.askHistory = [];
+  $("#answer-panel").innerHTML = `<div class="empty-guide"><p>${escapeHtml(message)}</p></div>`;
+}
+
+function renderAskWaiting(question, text) {
+  $("#answer-panel").innerHTML = `
+    <div class="answer-header"><div><p class="eyebrow">智能问答 · 正在整理</p><h2>${escapeHtml(question)}</h2></div>
+    <button id="stop-ask-waiting" class="ghost" type="button">停止生成</button></div>
+    <div class="rag-loading" role="status"><span class="rag-loading-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span class="rag-loading-text">${escapeHtml(text)}</span></div>
+    <div id="source-preview-slot"></div>`;
+  $("#stop-ask-waiting").addEventListener("click", () => stopAskWaiting());
+}
+
+function renderSourcePreview(preview) {
+  const items = (preview?.items || []).filter((item) => item.id && Array.isArray(item.quotes)
+    && item.quotes.length && item.quotes.every((quote) => typeof quote === "string")
+    && /^\/api\/notes\/\d+(?:\?tab_id=\d+)?$/.test(item.url || ""));
+  if (!items.length) return "";
+  const groups = new Map();
+  for (const item of items) {
+    // Keep page identity: identical titles can belong to different notes or tabs.
+    const key = JSON.stringify([item.url, item.tab_name || ""]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return `<details class="source-preview" aria-label="相关原文预览" open>
+    <summary class="source-preview-heading"><strong>查看相关原文</strong><span>${groups.size} 个来源 · ${items.length} 处片段</span></summary>
+    <p class="source-preview-notice">相关原文，尚未整理为回答。可能包含不符合提问条件的内容，以最终回答及引用为准。</p>
+    <div class="source-preview-list">${[...groups.values()].map((group) => `<details class="source-preview-item">
+      <summary><span>${escapeHtml(group[0].title)}</span><small>${escapeHtml([group[0].tab_name ? `页签：${group[0].tab_name}` : "", `${group.length} 处片段`].filter(Boolean).join(" · "))}</small></summary>
+      ${group.map((item) => `<div class="source-preview-fragment">
+        <p class="source-preview-location">${escapeHtml(item.location || "原文")}</p>
+        <div class="source-preview-quotes">${item.quotes.map((quote) => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</div>
+        <span data-source-preview-id="${escapeHtml(item.id)}">${answerSourceLink({ url: item.url, title: item.title, evidence: item.quotes.join("\n") }, "打开这处原文", "source-link")}</span>
+      </div>`).join("")}
+    </details>`).join("")}</div></details>`;
+}
+
+async function checkAskRevision(session) {
+  if (!askIsCurrent(session) || !session.previewRevision) return askIsCurrent(session);
+  const response = await fetch("/api/ask/source-revision", { cache: "no-store", signal: session.controller.signal });
+  if (!response.ok) throw new Error("无法确认资料版本，请重新提问。");
+  const payload = await response.json();
+  if (!askIsCurrent(session)) return false;
+  if (payload.revision !== session.previewRevision) {
+    stopAskWaiting("资料在回答期间发生了更新，已收起旧原文。请重新提问以使用最新资料。");
+    return false;
+  }
+  return true;
+}
+
+async function openSourcePreviewLink(link) {
+  const session = state.activeAsk;
+  if (!session || !askIsCurrent(session) || session.completed || !link.isConnected) return;
+  try {
+    // Do not open a preview from the interval before the next revision poll,
+    // or one replaced by the final answer while this check was in flight.
+    if (!await checkAskRevision(session) || session.completed || !link.isConnected) return;
+    await openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", { exactEvidence: link.dataset.docExact === 'true' });
+  } catch (error) {
+    if (askIsCurrent(session)) stopAskWaiting("暂时无法确认原文版本，请重新提问后打开资料。");
+  }
+}
+
+function watchAskRevision(session) {
+  // One small revision read at a time; no model calls or full-library hashing.
+  session.previewTimer = setTimeout(async () => {
+    try {
+      if (!await checkAskRevision(session)) return;
+    } catch (error) {
+      if (!askIsCurrent(session)) return;
+      const slot = $("#source-preview-slot");
+      if (slot) slot.innerHTML = "";
+    }
+    if (askIsCurrent(session)) watchAskRevision(session);
+  }, 1500);
+}
+
 async function askWith(endpoint, loadingText) {
   const question = $("#search").value.trim();
   if (!question) { await showAlert("先输入一个问题。"); return; }
+  stopAskWaiting();
+  state.stoppedAsk = null;
+  const session = { controller: new AbortController(), previewTimer: null, previewRevision: null,
+    requestId: endpoint === '/api/ask' ? crypto.randomUUID() : null };
+  state.activeAsk = session;
   switchPane("answer-pane");
-  $("#answer-panel").innerHTML = `
-    <div class="rag-loading">
-      <span class="rag-loading-dots"><span></span><span></span><span></span></span>
-      <span class="rag-loading-text">${escapeHtml(loadingText)}</span>
-    </div>`;
+  renderAskWaiting(question, loadingText);
 
   // LlamaIndex 实验链路不支持流式，走原逻辑
   if (endpoint.includes("llama-index")) {
     try {
-      const payload = await request(endpoint, { method: "POST", body: JSON.stringify({ question }) });
-      renderAnswer(payload, question);
+      const payload = await request(endpoint, { method: "POST", body: JSON.stringify({ question }), signal: session.controller.signal });
+      if (askIsCurrent(session)) renderAnswer(payload, question);
     } catch (error) {
+      if (!askIsCurrent(session)) return;
       $("#answer-panel").innerHTML = `<p class="ocr-error">${escapeHtml(error.message)}</p>`;
+    } finally {
+      if (state.activeAsk === session) state.activeAsk = null;
     }
     return;
   }
 
   // 主链路走 SSE 流式
+  const clientStarted = performance.now();
+  const clientTiming = {};
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      signal: session.controller.signal,
+      headers: { "Content-Type": "application/json", 'X-PocketMemory-Request-ID': session.requestId },
       body: JSON.stringify({ question, stream: true, history: state.askHistory }),
     });
     if (!response.ok) {
@@ -2481,6 +2729,7 @@ async function askWith(endpoint, loadingText) {
 
     while (true) {
       const { done, value } = await reader.read();
+      if (!askIsCurrent(session)) { await reader.cancel(); return; }
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -2491,12 +2740,29 @@ async function askWith(endpoint, loadingText) {
         if (data === "[DONE]") continue;
         let event;
         try { event = JSON.parse(data); } catch (e) { continue; }
+        if (!askIsCurrent(session)) return;
         if (event.type === "sources") {
+          clientTiming.sources_seconds ??= (performance.now() - clientStarted) / 1000;
           sources = event.sources || [];
           expandedTerms = event.expanded_terms || [];
           resultKind = event.kind || "qa";
           resultData = event.data || {};
+          if (event.source_preview?.revision) {
+            session.previewRevision = event.source_preview.revision;
+            const html = renderSourcePreview(event.source_preview);
+            if (html && await checkAskRevision(session)) {
+              $("#source-preview-slot").innerHTML = html;
+              clientTiming.first_useful_content_seconds = (performance.now() - clientStarted) / 1000;
+              watchAskRevision(session);
+            }
+            if (!askIsCurrent(session)) return;
+          }
+          if (resultKind === 'qa' && sources.length) {
+            const loading = $("#answer-panel .rag-loading-text");
+            if (loading) loading.textContent = '证据已准备，正在生成并核验回答…';
+          }
         } else if (event.type === "token") {
+          if (event.text) clientTiming.first_answer_event_seconds ??= (performance.now() - clientStarted) / 1000;
           answerText += event.text;
           // The local model's draft is not source-verified until the stream
           // completes. Keep it off-screen so a later evidence correction does
@@ -2507,7 +2773,14 @@ async function askWith(endpoint, loadingText) {
             if (loading) loading.textContent = "正在生成并核验来源…";
           }
         } else if (event.type === "done") {
-          if (event.answer) answerText = event.answer;
+          if (!await checkAskRevision(session)) return;
+          clearTimeout(session.previewTimer);
+          clientTiming.done_seconds = (performance.now() - clientStarted) / 1000;
+          // Browser elapsed includes transport/scheduling; it is not queue wait.
+          // Retain timings only, never source text or the question.
+          state.lastAskPerformance = { client: { ...clientTiming }, server: event.timing || {} };
+          if (typeof event.answer !== "string") throw new Error("回答未完成，请重试。");
+          answerText = event.answer;
           sources = event.sources || sources;
           resultKind = event.kind || resultKind;
           resultData = event.data || resultData;
@@ -2517,14 +2790,20 @@ async function askWith(endpoint, loadingText) {
                 { role: "user", content: question },
                 { role: "assistant", content: answerText.slice(0, 1200) },
               ];
+          session.completed = true;
           renderAnswer({ answer: answerText, sources, clarification_sources: event.clarification_sources || [], expanded_terms: expandedTerms, kind: resultKind, data: resultData, timing: event.timing || {} }, question);
+          return;
         } else if (event.type === "error") {
-          $("#answer-panel").innerHTML = `<p class="ocr-error">${escapeHtml(event.message)}</p>`;
+          throw new Error(event.message || "智能问答暂时不可用");
         }
       }
     }
+    if (!session.completed && askIsCurrent(session)) throw new Error("连接已中断，回答未完成，请重试。");
   } catch (error) {
-    renderAskError(error);
+    if (askIsCurrent(session)) renderAskError(error);
+  } finally {
+    clearTimeout(session.previewTimer);
+    if (state.activeAsk === session) state.activeAsk = null;
   }
 }
 
@@ -2604,14 +2883,22 @@ function formatDocumentSize(bytes) {
 }
 
 async function refreshDocuments() {
+  const library = draftVault.library;
   try {
-    const [documents, status] = await Promise.all([request("/api/documents"), request("/api/documents/status")]);
+    if (!library) return;
+    const headers = {'X-PocketMemory-Library':library};
+    const [documents, status] = await Promise.all([request("/api/documents", {headers}), request("/api/documents/status", {headers})]);
+    if (library !== draftVault.library) return;
     state.documents = documents;
     state.documentStatus = status;
+    if (library) await importQueue.reconcile(documents,library);
+    if (library !== draftVault.library) return;
+    $('#document-import-hint').textContent = '支持 TXT、DOCX、XLSX、PDF，单个文件最大 10MB。相同内容再次导入会复用原记录；同名但内容不同会保留为另一份文件。';
     if (!document.activeElement?.closest(".note-content.editable")) renderTimeline();
     clearTimeout(state.documentPollTimer);
     if (status.processing) state.documentPollTimer = setTimeout(refreshDocuments, 1200);
   } catch (error) {
+    if (library !== draftVault.library) return;
     const hint = $("#document-import-hint");
     if (hint) hint.textContent = `无法读取文档库状态：${error.message}`;
   }
@@ -2628,46 +2915,60 @@ function readFileAsDataUrl(file) {
 
 $("#import-document-btn").addEventListener("click", async () => {
   $("#document-dialog").showModal();
+  try { await importQueue.activate(true); renderImportQueue(); } catch (error) { $('#document-import-hint').textContent = error.message; }
   await refreshDocuments();
 });
 
 async function uploadDocumentFiles(files) {
-  const selectedFiles = [...files];
-  if (!selectedFiles.length) return;
-  const allowed = ["txt", "docx", "xlsx", "pdf"];
-  const hint = $("#document-import-hint");
-  const accepted = [];
-  const rejected = [];
-  selectedFiles.forEach((file) => {
-    const extension = file.name.split(".").pop()?.toLowerCase() || "";
-    if (!allowed.includes(extension) || file.size > 10 * 1024 * 1024) rejected.push(file);
-    else accepted.push(file);
-  });
-  if (rejected.length) showToast("已跳过部分文件", `${rejected.length} 个文件格式不支持或超过 10MB`);
-  if (!accepted.length) return;
-  let succeeded = 0;
-  for (const [index, file] of accepted.entries()) {
-    hint.textContent = `正在提交 ${index + 1}/${accepted.length}：${file.webkitRelativePath || file.name}`;
-    try {
-      await request("/api/documents", {
-        method: "POST",
-        body: JSON.stringify({
-          name: file.webkitRelativePath || file.name,
-          data_url: await readFileAsDataUrl(file),
-          chunk_profile: "standard",
-        }),
-      });
-      succeeded += 1;
-    } catch (error) {
-      console.warn("导入失败", file.name, error);
-    }
-  }
-  hint.textContent = succeeded === accepted.length
-    ? `已提交 ${succeeded} 个文件，正在本机提取、切片和建立索引。`
-    : `已提交 ${succeeded}/${accepted.length} 个文件，请检查失败项。`;
-  showToast("导入已提交", `成功提交 ${succeeded} 个文件`);
+  try { await importQueue.add([...files]); }
+  catch (error) { $('#document-import-hint').textContent = error.message; }
   await refreshDocuments();
 }
+
+function renderImportQueue() {
+  const list = $('#import-status-list');
+  if (!list || importQueue.scope !== draftVault.library) return;
+  const labels = {staging:'正在暂存，请勿关闭页面', staged:'已暂存本机 · 待导入', stage_failed:'暂存未完成', queued:'等待提交', uploading:'正在保存原件', upload_failed:'提交未确认', needs_file:'需重新选择原文件', rejected:'未导入', pending:'原件已保存 · 等待处理', extracting:'原件已保存 · 正在提取', indexing:'原件已保存 · 正在建索引', failed:'原件已保存 · 处理失败', ready:'已就绪'};
+  const rows = importQueue.rows;
+  const done = rows.filter(x => x.status === 'ready').length;
+  const failed = rows.filter(x => ['stage_failed','failed','upload_failed','needs_file','rejected'].includes(x.status)).length;
+  $('#import-summary').textContent = `${rows.length} 个文件 · ${done} 个就绪${failed ? ` · ${failed} 个需处理` : ''}${importQueue.hasUnsaved() ? ' · 部分原件尚未暂存，请勿关闭页面。' : rows.some(x => x.staged) ? ' · 未提交原件已暂存，重开后可继续。' : ''}${importQueue.cacheError ? ' · '+importQueue.cacheError : ''}`;
+  $('#import-resume').disabled = importQueue.busy || !rows.some(x => !x.documentId && x.staged && ['staged','upload_failed'].includes(x.status));
+  list.innerHTML = rows.map(row => {
+    const saved = Boolean(row.documentId);
+    const retryable = row.status === 'failed' || (['staged','stage_failed','upload_failed'].includes(row.status) && row.file);
+    const missingOriginal = /FileNotFoundError|原文件暂不可用/.test(row.error || '');
+    const details = (row.status === 'failed' ? importFailureMessage(row.error) : row.error) || (row.status === 'ready' ? (row.reused ? '相同内容已存在，已复用原记录，没有重复导入。' : '原件和索引已保存。') : saved ? '原件已在当前资料库中，刷新页面后仍可继续查看状态。' : row.staged ? '原件已暂存本机，刷新或重开后可继续导入，无需重新选择。' : '尚未确认原件保存。');
+    return `<li class="import-status-item" data-failed="${['stage_failed','failed','upload_failed','needs_file','rejected'].includes(row.status)}"><div class="import-item-heading"><strong>${escapeHtml(row.name)}</strong><span>${missingOriginal ? '原件待恢复' : labels[row.status] || escapeHtml(row.status)}</span></div><p>${escapeHtml(details)}</p>${row.cleanupError ? `<p class="muted">${escapeHtml(row.cleanupError)}</p>` : ''}${row.status === 'failed' && !missingOriginal ? '<p class="muted">原件仍保存在本机，可下载检查。修正后的文件可重新导入；重复提交相同内容不会新增副本。</p>' : ''}${row.error && row.error !== details ? `<details><summary>详细原因</summary><p>${escapeHtml(row.error)}</p></details>` : ''}<div class="import-item-actions">${retryable && !missingOriginal ? `<button type="button" class="ghost" data-import-retry="${escapeHtml(row.key)}" ${importQueue.busy || row.retrying ? 'disabled' : ''}>${row.retrying ? '正在重试' : saved ? '重试处理' : row.status === 'stage_failed' ? '重试暂存' : row.staged ? '继续导入' : '重试提交'}</button>` : ''}${row.status === 'needs_file' || missingOriginal ? '<button type="button" class="ghost" data-import-select>重新选择原文件</button>' : ''}${!saved && ['staged','stage_failed','upload_failed','needs_file','rejected'].includes(row.status) ? `<button type="button" class="ghost" data-import-dismiss="${escapeHtml(row.key)}">移出列表</button>` : ''}${saved ? `${!missingOriginal ? `<a href="/api/documents/${Number(row.documentId)}/file?download=1&library=${encodeURIComponent(importQueue.scope)}" download>下载已保存原件</a>` : ''}<button type="button" class="ghost" data-import-open="${Number(row.documentId)}">查看文件</button>` : ''}</div></li>`;
+  }).join('');
+}
+function importFailureMessage(error = '') {
+  if (/BadZipFile|PackageNotFoundError|not a zip file|FileDataError/i.test(error)) return '文件内容与格式不符，或文件已损坏。请用原软件打开检查，重新保存后再导入。';
+  if (/password|encrypted|加密|密码/i.test(error)) return '文件受密码保护，无法读取内容。请先在原软件中解锁并另存副本，再导入。';
+  if (/没有可索引的文本/.test(error)) return '未提取到可用文字。请检查文件内容；扫描件还需要清晰的图像和可用的本机文字识别。';
+  if (/FileNotFoundError|原文件暂不可用/.test(error)) return '已保存的原件暂不可用。请重新选择同一原文件，程序会恢复原记录。';
+  if (/PermissionError/.test(error)) return '文件暂时被占用，或没有读取权限。关闭占用文件的程序、确认读取权限后重试。';
+  if (/MemoryError/.test(error)) return '本机可用内存不足。释放部分内存后重试，或将大文件拆分后导入。';
+  return error;
+}
+$('#import-status-list').addEventListener('click', async event => {
+  const dismiss = event.target.closest('[data-import-dismiss]');
+  if (dismiss) {
+    const row = importQueue.rows.find(x => x.key === dismiss.dataset.importDismiss);
+    if (!row?.staged || await showConfirm('移除这份待导入暂存？不会删除磁盘原文件或已经入库的资料。', '移除本机暂存', {confirmText:'移除暂存'})) {
+      try { await importQueue.dismiss(dismiss.dataset.importDismiss); } catch (error) { $('#document-import-hint').textContent = `未能移除暂存：${error.message}`; }
+    }
+  }
+  const retry = event.target.closest('[data-import-retry]');
+  if (retry) { try { await importQueue.retry(retry.dataset.importRetry); await refreshDocuments(); } catch (error) { $('#document-import-hint').textContent = error.message; } }
+  if (event.target.closest('[data-import-select]')) $('#document-file-input').click();
+  const open = event.target.closest('[data-import-open]');
+  if (open) { try { await openImportedDocument(Number(open.dataset.importOpen)); $('#document-dialog').close(); } catch (error) { $('#document-import-hint').textContent = error.message; } }
+});
+$('#import-refresh').addEventListener('click', async () => { try { await importQueue.activate(true); await refreshDocuments(); } catch (error) { $('#document-import-hint').textContent=error.message; } });
+$('#import-resume').addEventListener('click', async () => { try { await importQueue.resume(); await refreshDocuments(); } catch (error) { $('#document-import-hint').textContent=error.message; } });
+$('#import-clear').addEventListener('click', async () => { try { await importQueue.clearCompleted(); } catch (error) { $('#document-import-hint').textContent=`未能清理暂存记录：${error.message}`; } });
+window.addEventListener('beforeunload', event => { if (importQueue.hasUnsaved()) { event.preventDefault(); event.returnValue = ''; } });
 
 function bindDocumentFileInput(selector) {
   $(selector).addEventListener("change", async (event) => {
@@ -2691,17 +2992,26 @@ async function replaceImportedDocument(documentId, file) {
     showToast("无法替换", "请选择不超过 10MB 的 TXT、DOCX、XLSX 或 PDF 文件");
     return;
   }
+  if (state.documentReplacing) return;
+  const library = draftVault.library;
+  if (!library) { showToast('资料库尚未就绪', '请稍后重试。'); return; }
+  state.documentReplacing = true;
+  let saved = false;
   try {
-    await request(`/api/documents/${documentId}/file`, {
+    const data = await readFileAsDataUrl(file);
+    if (library !== draftVault.library) throw new Error('资料库已改变，请切回原资料库后重试。');
+    const result = await request(`/api/documents/${documentId}/file`, {
       method: "PUT",
-      body: JSON.stringify({ name: file.name, data_url: await readFileAsDataUrl(file) }),
+      headers:{'X-PocketMemory-Library':library},
+      body: JSON.stringify({ name: file.name, data_url: data }),
     });
-    showToast("原件已替换", "旧切片和向量已清理，正在重新提取并建立索引");
+    saved = true;
+    showToast(result.reused ? '已保留原记录' : '原件已保存', result.status === 'failed' ? '处理失败，可在导入文件面板中查看原因并重试。' : '可在导入文件面板中查看处理进度。');
     await refreshDocuments();
     await openImportedDocument(documentId, file.name);
   } catch (error) {
-    showToast("替换失败", error.message);
-  }
+    showToast(saved ? '原件已保存，暂未刷新界面' : '替换结果未确认', saved ? '请刷新状态，勿重复创建文件。' : `${error.message} 可重新选择同一文件重试。`);
+  } finally { state.documentReplacing = false; }
 }
 
 $("#document-replace-input").addEventListener("change", async (event) => {
@@ -2713,17 +3023,18 @@ $("#document-replace-input").addEventListener("change", async (event) => {
 });
 
 async function handleDocumentAction(document, action) {
+  const headers = {'X-PocketMemory-Library':draftVault.library};
   if (action === "preview") {
     await openImportedDocument(document.id, document.original_name);
     return;
   }
   if (action === "download") {
-    window.open(`/api/documents/${document.id}/file?download=1`, "_blank", "noopener");
+    window.open(`/api/documents/${document.id}/file?download=1&library=${encodeURIComponent(draftVault.library)}`, "_blank", "noopener");
     return;
   }
   if (action === "reindex") {
     try {
-      await request(`/api/documents/${document.id}/reindex`, { method: "POST", body: "{}" });
+      await request(`/api/documents/${document.id}/reindex`, { method: "POST", body: "{}", headers });
       showToast("已提交", "正在重新提取并建立索引");
       await refreshDocuments();
     } catch (error) { showToast("操作失败", error.message); }
@@ -2731,7 +3042,8 @@ async function handleDocumentAction(document, action) {
   }
   if (action === "delete" && await showConfirm(`删除“${document.original_name}”及其索引？`, "删除导入文件", { confirmText: "删除", isDanger: true })) {
     try {
-      await request(`/api/documents/${document.id}`, { method: "DELETE" });
+      await request(`/api/documents/${document.id}`, { method: "DELETE", headers });
+      await importQueue.forget(document.id, headers['X-PocketMemory-Library']);
       showToast("已删除", document.original_name);
       await refreshDocuments();
     } catch (error) { showToast("删除失败", error.message); }
@@ -3307,41 +3619,67 @@ $("#timeline").addEventListener("dragend", (event) => {
   event.target.closest("[data-drag-note-id]")?.classList.remove("dragging");
   clearNoteDragState();
 });
+// Resolve both card interiors and the gaps between cards from the current pointer.
+function noteDropTarget(event, sourceId) {
+  const timeline = $("#timeline");
+  if (!timeline.contains(event.target)) return null;
+  let card = event.target.closest("[data-drag-note-id]");
+  if (!card && event.target.closest(".result-note")) return null;
+  if (!card) {
+    const cards = [...timeline.querySelectorAll("[data-drag-note-id]")];
+    card = cards.reduce((nearest, candidate) => {
+      const rect = candidate.getBoundingClientRect();
+      const distance = Math.abs(event.clientY - (rect.top + rect.height / 2));
+      return !nearest || distance < nearest.distance ? { card: candidate, distance } : nearest;
+    }, null)?.card;
+  }
+  if (!card || Number(card.dataset.dragNoteId) === sourceId) return null;
+  const source = state.notes.find((note) => Number(note.id) === sourceId);
+  const target = state.notes.find((note) => Number(note.id) === Number(card.dataset.dragNoteId));
+  if (!source || !target || Boolean(source.pinned) !== Boolean(target.pinned)) return null;
+  const rect = card.getBoundingClientRect();
+  return { card, after: event.clientY > rect.top + rect.height / 2 };
+}
+
+function clearNoteDropIndicator() {
+  document.querySelectorAll(".result-note.drop-before, .result-note.drop-after").forEach((item) => item.classList.remove("drop-before", "drop-after"));
+}
+
 $("#timeline").addEventListener("dragover", (event) => {
-  const card = event.target.closest("[data-drag-note-id]");
+  clearNoteDropIndicator();
   const sourceId = draggedNoteId || transferNoteId(event);
-  if (!card || !sourceId || reorderInFlight || Number(card.dataset.dragNoteId) === sourceId) return;
+  if (!sourceId || reorderInFlight || !canManuallyReorderNotes()) return;
+  const target = noteDropTarget(event, sourceId);
+  if (!target) return;
   event.preventDefault();
   event.dataTransfer.dropEffect = "move";
-  const after = event.clientY > card.getBoundingClientRect().top + card.clientHeight / 2;
-  document.querySelectorAll(".result-note.drop-before, .result-note.drop-after").forEach((item) => item.classList.remove("drop-before", "drop-after"));
-  card.classList.add(after ? "drop-after" : "drop-before");
+  target.card.classList.add(target.after ? "drop-after" : "drop-before");
 });
 $("#timeline").addEventListener("drop", async (event) => {
-  const card = event.target.closest("[data-drag-note-id]");
   const sourceId = draggedNoteId || transferNoteId(event);
-  if (!card || !sourceId || reorderInFlight || Number(card.dataset.dragNoteId) === sourceId) return;
-  event.preventDefault();
-  event.stopPropagation();
-  if (!canManuallyReorderNotes() || !document.querySelector(`#timeline [data-drag-note-id="${sourceId}"]`)) {
-    clearNoteDragState();
+  const target = sourceId ? noteDropTarget(event, sourceId) : null;
+  if (!target || reorderInFlight || !canManuallyReorderNotes()) {
+    clearNoteDropIndicator();
     return;
   }
-  const after = card.classList.contains("drop-after");
-  card.classList.remove("drop-before", "drop-after");
+  event.preventDefault();
+  event.stopPropagation();
+  clearNoteDropIndicator();
   reorderInFlight = true;
   try {
     await request("/api/notes/reorder", {
       method: "POST",
-      body: JSON.stringify({ note_id: sourceId, target_note_id: Number(card.dataset.dragNoteId), after }),
+      body: JSON.stringify({ note_id: sourceId, target_note_id: Number(target.card.dataset.dragNoteId), after: target.after }),
     });
-    showToast("顺序已调整", "笔记位置已保存");
+    state.resultSortDirection = "manual";
+    renderResultSort();
+    showToast("顺序已调整", "已按手动顺序显示并保存");
+    await refresh();
   } catch (err) {
     showToast("调整失败", err.message);
   } finally {
     reorderInFlight = false;
     clearNoteDragState();
-    await refresh();
   }
 });
 $("#category-nav").addEventListener("dragover", (event) => {
@@ -3477,12 +3815,18 @@ document.querySelectorAll(".result-scope-button").forEach((button) => {
   });
 });
 
-$("#result-sort").addEventListener("click", () => {
-  state.resultSortDirection = state.resultSortDirection === "desc" ? "asc" : "desc";
+function renderResultSort() {
+  const mode = state.resultSortDirection;
   const button = $("#result-sort");
-  const isAscending = state.resultSortDirection === "asc";
-  button.textContent = `按更新时间 ${isAscending ? "↑" : "↓"}`;
-  button.title = `当前按更新时间${isAscending ? "升序" : "降序"}，点击切换`;
+  button.textContent = mode === "manual" ? "手动顺序" : `按更新时间 ${mode === "asc" ? "↑" : "↓"}`;
+  button.title = mode === "manual" ? "拖动笔记调整顺序；点击按更新时间降序排列"
+    : mode === "desc" ? "当前按更新时间降序；点击切换升序" : "当前按更新时间升序；点击恢复手动顺序";
+}
+
+$("#result-sort").addEventListener("click", () => {
+  const modes = ["manual", "desc", "asc"];
+  state.resultSortDirection = modes[(modes.indexOf(state.resultSortDirection) + 1) % modes.length];
+  renderResultSort();
   renderTimeline();
 });
 
@@ -3821,6 +4165,7 @@ async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = 
       ? `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, highlightTerms, { citationEvidence }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`
       : renderNoteBody(tabNote, highlightTerms);
     if (!isReference) {
+      state.draftNoteSources.set(Number(tabId), tabNote);
       state.editorActiveTabs.set(Number(noteId), Number(tabId));
       const content = contentEl.querySelector(".note-content[data-note-id]");
       const existing = state.noteEditorSessions.get(Number(tabId));
@@ -3937,10 +4282,20 @@ document.addEventListener("dblclick", (event) => {
   makeTabLabelEditable(label, tabId, oldName);
 });
 
-function makeTabLabelEditable(label, tabId, oldName) {
+function makeTabLabelEditable(label, tabId, oldName, restoredName = null) {
   const input = document.createElement("input");
   input.type = "text";
-  input.value = oldName;
+  input.value = restoredName ?? oldName;
+  const renameKey = draftKey(tabId, 'tab_name');
+  input.dataset.draftRename = renameKey;
+  const original = state.draftNoteSources.get(Number(tabId)) || state.allNotes.find(n => Number(n.id) === Number(tabId));
+  const captureName = () => {
+    if (!original) return;
+    if (input.value === oldName) void draftVault.close(renameKey);
+    else draftVault.capture(renameKey, draftPayload(original, input.value, 'tab_name'));
+  };
+  input.addEventListener('input', captureName);
+  if (restoredName !== null) captureName();
   input.className = "tab-rename-input";
   input.style.width = Math.max(60, oldName.length * 12) + "px";
   label.replaceWith(input);
@@ -3952,6 +4307,7 @@ function makeTabLabelEditable(label, tabId, oldName) {
     done = true;
     const newName = input.value.trim();
     if (!commit || !newName || newName === oldName) {
+      void draftVault.close(renameKey);
       // 取消：还原 label
       const newLabel = document.createElement("span");
       newLabel.className = "tab-label";
@@ -3962,16 +4318,22 @@ function makeTabLabelEditable(label, tabId, oldName) {
       return;
     }
     try {
+      captureName();
+      input.disabled = true;
+      state.renameSaving += 1;
       const current = await request(`/api/notes/${tabId}`);
       await request(`/api/notes/${tabId}`, {
         method: "PUT",
         body: JSON.stringify({ tab_name: newName, title: newName }),
       });
       showToast("已重命名", newName);
+      void draftVault.close(renameKey);
       await refresh();
     } catch (e) {
       showToast("重命名失败", e.message);
       await refresh();
+    } finally {
+      state.renameSaving = Math.max(0, state.renameSaving - 1);
     }
   };
   input.addEventListener("blur", () => finish(true));
@@ -4051,17 +4413,26 @@ function showTabContextMenu(x, y, tabId, currentName) {
   }, 0);
 }
 
-document.addEventListener("paste", (event) => {
+document.addEventListener("paste", async (event) => {
   const image = [...event.clipboardData.items].find((item) => item.type.startsWith("image/"));
   if (image) {
+    event.preventDefault();
+    if (state.newNoteSaving) return;
+    if (!state.newNoteDraft) await beginNewNote(null, { keepAttachment: true });
+    const targetDraft = state.newNoteDraft, epoch = draftVault.epoch;
+    if (!targetDraft) return;
     const file = image.getAsFile();
+    if (!file) return;
     const reader = new FileReader();
+    state.pendingAttachmentReads += 1;
+    reader.onloadend = () => { state.pendingAttachmentReads = Math.max(0, state.pendingAttachmentReads - 1); };
     reader.onload = () => {
+      if (epoch !== draftVault.epoch || state.newNoteDraft !== targetDraft || state.newNoteSaving) return;
       state.imageDataUrl = reader.result;
       state.imageName = file.name || "clipboard.png";
       // 粘贴截图同样进入右侧新建草稿，避免再回到中栏的小录入条。
-      if (!state.newNoteDraft) beginNewNote(null, { keepAttachment: true });
-      else renderEditorDock();
+      syncNewNoteDraftFromDom();
+      renderEditorDock();
       showToast("截图已附加", "保存时写入图片目录");
     };
     reader.readAsDataURL(file);
@@ -4189,7 +4560,7 @@ async function refreshModelStatus({ signal, isCurrent = () => true } = {}) {
       el.textContent = "模型正在后台预热...";
     } else {
       el.textContent = status.model_loaded
-        ? "模型已加载（占用约 3-4GB 内存）"
+        ? "模型已加载"
         : "模型未加载（内存已释放）";
     }
     const unloadButton = $("#unload-model-btn");
@@ -4347,6 +4718,8 @@ $("#background-input").addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
+  state.pendingAttachmentReads += 1;
+  reader.onloadend = () => { state.pendingAttachmentReads = Math.max(0, state.pendingAttachmentReads - 1); };
   reader.onload = async () => {
     try {
       const result = await request("/api/settings/background", {
@@ -4375,13 +4748,76 @@ $("#clear-background").addEventListener("click", async () => {
   }
 });
 
-$("#choose-directory").addEventListener("click", async () => {
-  const result = await request("/api/settings/choose-data-dir", { method: "POST", body: "{}" });
-  if (!result.data_dir) return;
-  state.selectedDirectory = result.data_dir;
-  $("#data-dir").value = result.data_dir;
+const directoryBrowserState = { path: "", parent: null, controller: null, revision: 0 };
+
+async function browseDataDirectory(path) {
+  const dialog = $("#directory-browser");
+  directoryBrowserState.controller?.abort();
+  const controller = new AbortController();
+  const revision = ++directoryBrowserState.revision;
+  directoryBrowserState.controller = controller;
+  const isCurrent = () => dialog.open && directoryBrowserState.revision === revision;
+  const status = $("#directory-browser-status");
+  status.textContent = "正在读取文件夹…";
+  status.removeAttribute("data-error");
+  $("#directory-browser-select").disabled = true;
+  $("#directory-browser-list").innerHTML = "";
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 10000);
+  try {
+    const result = await request("/api/settings/browse-data-dir", {
+      method: "POST", body: JSON.stringify({ path }), signal: controller.signal,
+    });
+    if (!isCurrent()) return;
+    directoryBrowserState.path = result.path || "";
+    directoryBrowserState.parent = result.parent;
+    $("#directory-browser-path").value = directoryBrowserState.path;
+    $("#directory-browser-parent").disabled = !directoryBrowserState.path;
+    $("#directory-browser-select").disabled = !directoryBrowserState.path;
+    const folders = result.directories || [];
+    $("#directory-browser-list").innerHTML = folders.map((folder) => `<button class="directory-browser-folder ghost" type="button" data-directory-path="${escapeHtml(folder.path)}" title="${escapeHtml(folder.path)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9H3z"/></svg><span>${escapeHtml(folder.name)}</span><span aria-hidden="true">›</span></button>`).join("");
+    status.textContent = result.truncated ? "子文件夹较多，可输入路径直接前往。" : folders.length ? `${folders.length} 个${result.path ? "子文件夹" : "磁盘"}` : "此目录没有子文件夹，可以直接选择。";
+  } catch (error) {
+    if (!isCurrent() || (controller.signal.aborted && !timedOut)) return;
+    status.textContent = timedOut ? "读取目录超时，请重试或返回“此电脑”。" : (error.message || "暂时无法读取此目录，请选择其他目录。");
+    status.dataset.error = "true";
+  } finally {
+    clearTimeout(timer);
+    if (directoryBrowserState.controller === controller) directoryBrowserState.controller = null;
+  }
+}
+
+$("#choose-directory").addEventListener("click", () => {
+  const dialog = $("#directory-browser");
+  if (!dialog.open) dialog.showModal();
+  void browseDataDirectory($("#data-dir").value.trim() || null);
+});
+$("#directory-browser-path").addEventListener("input", () => {
+  $("#directory-browser-select").disabled = true;
+});
+$("#directory-browser-path-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  void browseDataDirectory($("#directory-browser-path").value.trim());
+});
+$("#directory-browser-list").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-directory-path]");
+  if (button) void browseDataDirectory(button.dataset.directoryPath);
+});
+$("#directory-browser-roots").addEventListener("click", () => void browseDataDirectory(""));
+$("#directory-browser-parent").addEventListener("click", () => void browseDataDirectory(directoryBrowserState.parent || ""));
+for (const selector of ["#directory-browser-close", "#directory-browser-cancel"]) $(selector).addEventListener("click", () => $("#directory-browser").close());
+$("#directory-browser").addEventListener("close", () => {
+  ++directoryBrowserState.revision;
+  directoryBrowserState.controller?.abort();
+  directoryBrowserState.controller = null;
+});
+$("#directory-browser-select").addEventListener("click", () => {
+  if (!directoryBrowserState.path || $("#directory-browser-select").disabled) return;
+  state.selectedDirectory = directoryBrowserState.path;
+  $("#data-dir").value = state.selectedDirectory;
   $("#switch-directory").disabled = false;
   $("#migrate-directory").disabled = false;
+  $("#directory-browser").close();
 });
 
 $("#data-dir").addEventListener("input", (event) => {
@@ -4400,6 +4836,7 @@ $("#switch-directory").addEventListener("click", async () => {
     resetEditorForLibraryChange();
     $("#settings-dialog").close();
     await refresh();
+    await draftVault.init();
     showToast("已切换数据目录", result.data_dir);
   } catch (error) {
     showToast("切换失败", error.message);
@@ -4415,6 +4852,7 @@ $("#migrate-directory").addEventListener("click", async () => {
     resetEditorForLibraryChange();
     $("#settings-dialog").close();
     await refresh();
+    await draftVault.init();
   } catch (error) {
     showToast("迁移失败", error.message);
   }
@@ -4522,13 +4960,14 @@ function renderMarkdown(text) {
   return html || "<p class='muted'>文档为空</p>";
 }
 
-async function openDoc(url, title, evidence = "") {
+async function openDoc(url, title, evidence = "", options = {}) {
   const documentMatch = url.match(/^\/api\/documents\/(\d+)\/file(?:\?.*)?$/);
   if (documentMatch) {
     const documentParams = new URLSearchParams((url.split("?")[1] || ""));
     await openImportedDocument(Number(documentMatch[1]), title, {
       chunkId: Number(documentParams.get("chunk_id")) || null,
       evidence,
+      exactEvidence: options.exactEvidence,
     });
     return;
   }
@@ -4550,7 +4989,7 @@ async function openDoc(url, title, evidence = "") {
       const note = await request(`/api/notes/${noteId}`);
       // 引用视图只展示可核对原文，不能携带编辑、删除或整理操作。
       const citationTerms = citationHighlightTerms(evidence);
-      const terms = citationTerms.length ? citationTerms : searchHighlightTerms();
+      const terms = citationTerms.length || options.exactEvidence ? citationTerms : searchHighlightTerms();
       $("#doc-preview-body").innerHTML = `<div class="timeline reference-timeline">${renderReferenceNoteHtml(note, terms, { citationEvidence: evidence })}</div>`;
       const tabsBar = $("#doc-preview-body .note-tabs-bar");
       if (tabsBar) {
@@ -4586,6 +5025,8 @@ async function openDoc(url, title, evidence = "") {
 }
 
 async function openImportedDocument(documentId, fallbackTitle = "导入文档", options = {}) {
+  const library = draftVault.library;
+  $('#doc-preview-body').dataset.documentLibrary = library || '';
   $("#doc-preview-eyebrow").textContent = "参考文档 · 原文预览";
   $("#doc-preview-title").textContent = fallbackTitle;
   $("#doc-preview-body").innerHTML = `<p class="muted">正在加载文档内容与切片...</p>`;
@@ -4594,7 +5035,8 @@ async function openImportedDocument(documentId, fallbackTitle = "导入文档", 
   $("#doc-fab").classList.remove("hidden");
   window.scrollTo({ top: 0 });
   try {
-    const payload = await request(`/api/documents/${documentId}/chunks`);
+    const payload = await request(`/api/documents/${documentId}/chunks`, {headers:{'X-PocketMemory-Library':library || ''}});
+    if (library !== draftVault.library) return;
     const document = payload.document;
     const chunks = payload.chunks || [];
     $("#doc-preview-title").textContent = document.original_name || fallbackTitle;
@@ -4610,7 +5052,7 @@ async function openImportedDocument(documentId, fallbackTitle = "导入文档", 
     // almost entirely yellow and hides the actual supporting rule.
     const highlightTerms = options.openedFromSearch
       ? directDocumentSearchHighlightTerms(options.searchQuery)
-      : evidence
+      : evidence || options.exactEvidence
         ? citationHighlightTerms(evidence)
         : searchHighlightTerms();
     const chunkHtml = chunks.length
@@ -4636,7 +5078,7 @@ async function openImportedDocument(documentId, fallbackTitle = "导入文档", 
       });
     }
   } catch (error) {
-    $("#doc-preview-body").innerHTML = `<p class="ocr-error">${escapeHtml(error.message)}</p>`;
+    if (library === draftVault.library) $("#doc-preview-body").innerHTML = `<p class="ocr-error">${escapeHtml(error.message)}</p>`;
   }
 }
 
@@ -4652,8 +5094,11 @@ $("#doc-preview-close").addEventListener("click", closeDoc);
 $("#doc-fab").addEventListener("click", closeDoc);
 
 $("#doc-preview-body").addEventListener("click", async (event) => {
+  const library = $('#doc-preview-body').dataset.documentLibrary;
+  if (!library || library !== draftVault.library) return;
+  const headers = {'X-PocketMemory-Library':library};
   const download = event.target.closest("[data-document-preview-download]");
-  if (download) window.open(`/api/documents/${download.dataset.documentPreviewDownload}/file?download=1`, "_blank", "noopener");
+  if (download) window.open(`/api/documents/${download.dataset.documentPreviewDownload}/file?download=1&library=${encodeURIComponent(library)}`, "_blank", "noopener");
   const replace = event.target.closest("[data-document-preview-replace]");
   if (replace) {
     state.documentReplacementId = Number(replace.dataset.documentPreviewReplace);
@@ -4662,7 +5107,7 @@ $("#doc-preview-body").addEventListener("click", async (event) => {
   const reindex = event.target.closest("[data-document-preview-reindex]");
   if (reindex) {
     const documentId = Number(reindex.dataset.documentPreviewReindex);
-    request(`/api/documents/${documentId}/reindex`, { method: "POST", body: "{}" })
+    request(`/api/documents/${documentId}/reindex`, { method: "POST", body: "{}", headers })
       .then(async () => {
         showToast("已提交", "正在重新提取并建立索引");
         await refreshDocuments();
@@ -4677,7 +5122,8 @@ $("#doc-preview-body").addEventListener("click", async (event) => {
     showConfirm(`删除“${current?.original_name || "该文档"}”及其索引？`, "删除导入文件", { confirmText: "删除", isDanger: true })
       .then(async (confirmed) => {
         if (!confirmed) return;
-        await request(`/api/documents/${documentId}`, { method: "DELETE" });
+        await request(`/api/documents/${documentId}`, { method: "DELETE", headers });
+        await importQueue.forget(documentId, headers['X-PocketMemory-Library']);
         showToast("已删除", current?.original_name || "文档");
         await refreshDocuments();
         closeDoc();
@@ -4686,24 +5132,31 @@ $("#doc-preview-body").addEventListener("click", async (event) => {
   }
 });
 
+async function openWikiNote(title) {
+  let target = (state.allNotes || []).find((n) => n.title === title);
+  if (!target) {
+    try {
+      const results = await request(`/api/search?q=${encodeURIComponent(title)}&mode=keyword`);
+      target = (Array.isArray(results) ? results : results.notes || [])
+        .find(note => note.source_type !== "document" && note.title === title);
+    } catch (error) {
+      showToast("参考笔记暂时无法打开", error.message);
+      return;
+    }
+  }
+  if (target) {
+    await openDoc(`/api/notes/${target.id}?note_id=${target.id}`, target.title);
+  } else {
+    showToast("未找到参考笔记", `未找到标题为「${title}」的笔记`);
+  }
+}
+
 // 全局 wiki-link 跳转（覆盖 doc-preview 容器）
 document.addEventListener("click", async (event) => {
   const wikiLink = event.target.closest(".wiki-link");
   if (!wikiLink) return;
   event.preventDefault();
-  const title = wikiLink.dataset.wiki;
-  let target = (state.allNotes || []).find((n) => n.title === title);
-  if (!target) {
-    try {
-      const results = await request(`/api/search?q=${encodeURIComponent(title)}&mode=keyword&limit=1`);
-      target = (results.notes || [])[0];
-    } catch (e) { /* ignore */ }
-  }
-  if (target) {
-    openDoc(`/api/notes/${target.id}?note_id=${target.id}`, target.title);
-  } else {
-    toast(`未找到标题为「${title}」的笔记`);
-  }
+  await openWikiNote(wikiLink.dataset.wiki);
 });
 
 document.addEventListener("click", (event) => {
@@ -4712,7 +5165,11 @@ document.addEventListener("click", (event) => {
   const link = event.target.closest("[data-doc-url]");
   if (link) {
     event.preventDefault();
-    openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "");
+    if (link.closest("[data-source-preview-id]")) {
+      void openSourcePreviewLink(link);
+      return;
+    }
+    openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", { exactEvidence: link.dataset.docExact === 'true' });
   }
 });
 
@@ -4729,29 +5186,48 @@ request("/api/settings").then((settings) => {
 // 问答面板初始引导
 $("#answer-panel").innerHTML = `<div class="empty-guide"><p class="muted">在搜索框输入问题，点击「智能问答」<br>会基于你的本地笔记生成回答。</p></div>`;
 
+installDraftEvents();
+void draftVault.init();
 refresh().catch((err) => {
   $("#timeline").innerHTML = `<p class="muted empty-state">加载失败：${escapeHtml(err.message)}。请确认服务已启动。</p>`;
   console.error("初始加载失败", err);
 });
 
-// ---------- 版本更新检查（非阻塞，失败静默） ----------
-(async function checkUpdate() {
-  try {
-    const info = await request("/api/update/check");
-    if (info.has_update) {
-      const badge = $("#update-badge");
-      badge.textContent = `有新版本 v${info.latest_version}`;
-      badge.href = info.download_url || "#";
-      badge.title = info.release_notes
-        ? `新版本 v${info.latest_version}\n\n${info.release_notes}`
-        : `新版本 v${info.latest_version}，点击下载`;
-      badge.classList.remove("hidden");
-    }
-  } catch (err) {
-    // 版本检查失败不影响正常使用
-    console.debug("版本检查失败", err);
-  }
-})();
+// The update panel uses these local save guards; the backend makes the final
+// process-wide busy decision before any shutdown, including other windows.
+function appUpdateBusyReason() {
+  if (state.activeAsk) return '智能问答正在进行，请等回答完成后再更新。';
+  if (importQueue.busy || state.documentReplacing || importQueue.rows.some(row => row.retrying || ['staging','queued','uploading','pending','extracting','indexing'].includes(row.status))) return '文件正在导入或处理，请完成后再更新。';
+  if (importQueue.hasUnsaved()) return '导入文件尚未暂存成功，请先重试暂存或移出列表，再更新程序。';
+  if (state.documentStatus?.processing || state.documents.some(row => ['pending','extracting','indexing'].includes(row.status))) return '文件正在提取或建立索引，请完成后再更新。';
+  if (state.newNoteSaving || state.renameSaving || state.updatePendingWrites) return '当前操作正在保存，请完成后再更新。';
+  if (state.pendingAttachmentReads) return '图片正在读取，请稍后再更新。';
+  if (document.querySelector('[data-draft-rename]')) return '请先完成标题或页签名称修改，再更新程序。';
+  if (Number(state.intelligenceStatus?.pending || 0) > 0 || [...state.notes, ...state.allNotes].some(note => ['pending','processing'].includes(note.ocr_status) || ['pending','processing'].includes(note.ai_status))) return '资料正在识别或整理，请处理完成后再更新。';
+  if ($('#report-generate')?.classList.contains('is-loading')) return '报告正在生成，请完成后再更新。';
+  const composer = $('#inline-composer');
+  if (composer && !composer.classList.contains('hidden') && ($('#inline-content')?.value.trim() || state.imageDataUrl)) return '请先保存或取消当前录入内容，再更新程序。';
+  if (draftVault.loading || !draftVault.library) return '本机草稿尚未就绪，请稍后再更新。';
+  return '';
+}
+
+async function prepareAppUpdate() {
+  const reason = appUpdateBusyReason();
+  if (reason) throw new Error(reason);
+  syncNewNoteDraftFromDom();
+  capturePersistentNew();
+  captureEditorDraft();
+  if (!await draftVault.flushAll()) throw new Error('草稿尚未成功写入本机，请重试草稿保存后再更新。');
+  if (!await flushPendingContentSaves()) throw new Error('当前笔记尚未保存成功，请重试保存后再更新。');
+  syncNewNoteDraftFromDom();
+  capturePersistentNew();
+  if (!await draftVault.flushAll()) throw new Error('草稿尚未成功写入本机，本次更新尚未开始。');
+  const remaining = appUpdateBusyReason();
+  if (remaining) throw new Error(remaining);
+  return true;
+}
+
+window.PocketMemoryUpdateHooks = Object.freeze({busyReason: appUpdateBusyReason, prepare: prepareAppUpdate});
 
 // ---------- 键盘快捷键 ----------
 // 快速跳转面板（Ctrl+P）和命令面板（Ctrl+Shift+P）共享键盘选择逻辑
@@ -4951,6 +5427,7 @@ document.addEventListener("keydown", (e) => {
 
   // Esc: 多级回退（弹窗 > 文档预览 > 设置 > 录入条 > 清筛选）
   if (e.key === "Escape") {
+    if ($("#directory-browser").open) { e.preventDefault(); $("#directory-browser").close(); return; }
     // 优先关闭模态弹窗（quick-jump / command-palette / settings / graph）
     if ($("#quick-jump-dialog").open) { $("#quick-jump-dialog").close(); return; }
     if ($("#command-palette-dialog").open) { $("#command-palette-dialog").close(); return; }
@@ -5872,11 +6349,7 @@ function exportReportHtml() {
 }
 
 $("#report-button").addEventListener("click", () => {
-  state.reportSelectionMode = true;
-  state.reportSelection.clear();
-  state.reportDraft = null;
-  renderTimeline();
-  showToast("选择报告资料", "可在笔记、分区、搜索结果和文档间切换选择", false, "report-selection-toast");
+  window.location.href = "/reports.html";
 });
 
 $("#report-cancel-selection").addEventListener("click", () => leaveReportSelection({ clear: true }));
@@ -5933,3 +6406,28 @@ $("#report-preview").addEventListener("click", async (event) => {
     : `/api/notes/${id}${targetNoteId && targetNoteId !== id ? `?tab_id=${targetNoteId}` : ""}`;
   await openDoc(url, evidence.dataset.reportEvidenceTitle, evidence.dataset.reportEvidenceText);
 });
+
+// A narrow bridge keeps the office tools separate from the editor and RAG UI.
+window.PocketOfficeHost = {
+  library: () => draftVault.library,
+  getCurrent() {
+    const editor = currentNoteEditor();
+    if (editor) {
+      const id = Number(editor.dataset.noteId);
+      const note = state.draftNoteSources.get(id) || state.allNotes.find(item => Number(item.id) === id);
+      const text = editor.querySelector('.note-empty-body') ? '' : editableContentToMarkdown(editor);
+      return {text, source:{note_id:id, title:note?.title || '当前笔记'}};
+    }
+    if (state.newNoteDraft) {
+      syncNewNoteDraftFromDom();
+      return {text:state.newNoteDraft.content || '', source:null};
+    }
+    return null;
+  },
+  async openNote(source) {
+    if (!source?.note_id) return;
+    // Source preview resolves the exact note/tab ID even under active filters.
+    await openDoc(`/api/notes/${Number(source.note_id)}`, source.title || '原笔记', '');
+  },
+  refresh: () => refresh(),
+};

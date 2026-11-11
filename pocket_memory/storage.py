@@ -8,6 +8,8 @@ import binascii
 import hashlib
 from difflib import SequenceMatcher
 import json
+import logging
+import os
 import re
 import shutil
 import sqlite3
@@ -239,6 +241,11 @@ class NoteStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS note_embedding_state (
+                    note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+                    model_key TEXT NOT NULL, source_key TEXT NOT NULL, index_key TEXT NOT NULL
+                );
+
                 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
                     title,
                     content,
@@ -365,6 +372,11 @@ class NoteStore:
                     vector BLOB NOT NULL,
                     dimension INTEGER NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS document_embedding_state (
+                    document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+                    model_key TEXT NOT NULL, source_key TEXT NOT NULL, index_key TEXT NOT NULL
                 );
 
                 CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
@@ -612,7 +624,7 @@ class NoteStore:
             now,
             WELCOME_SOURCE_TYPE,
             relative_image_path.as_posix(),
-            "未分类",
+            "欢迎笔记",
             "",
             [],
             "not_applicable",
@@ -636,7 +648,7 @@ class NoteStore:
                     markdown_path,
                     WELCOME_SOURCE_TYPE,
                     relative_image_path.as_posix(),
-                    "未分类",
+                    "欢迎笔记",
                     "",
                     "not_applicable",
                     now,
@@ -657,13 +669,13 @@ class NoteStore:
         if note.source_type != WELCOME_SOURCE_TYPE:
             return note
         previous_folder_id = note.folder_id
-        if note.category == "未分类" and not note.subcategory and previous_folder_id is None:
+        if note.category == "欢迎笔记" and not note.subcategory and previous_folder_id is None:
             return note
         with self.connection:
             self.connection.execute(
                 """
                 UPDATE notes
-                SET category = '未分类', subcategory = '', folder_id = NULL,
+                SET category = '欢迎笔记', subcategory = '', folder_id = NULL,
                     category_source = 'manual', subcategory_source = 'manual'
                 WHERE id = ?
                 """,
@@ -1714,68 +1726,114 @@ class NoteStore:
         return safe_stem, relative, self.data_dir / relative
 
     def create_document_from_data_url(self, filename: str, data_url: str, chunk_profile: str = "standard") -> Document:
-        """Persist an original office document before background extraction.
+        """Compatibility entry point; repeated original bytes reuse their record."""
+        return self.import_document_from_data_url(filename, data_url, chunk_profile)[0]
 
-        The browser sends a data URL so the local-only HTTP server can retain its
-        JSON-only API. The size limit intentionally applies to decoded bytes,
-        not the larger base64 representation.
-        """
+    def _write_document_original(self, target: Path, payload: bytes) -> None:
+        """Finish the original before publishing its path in the database."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(target.name + ".upload")
+        try:
+            with temporary.open("xb") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(target)
+        finally:
+            self._discard_document_file(temporary)
+
+    @staticmethod
+    def _discard_document_file(path: Path) -> None:
+        # Cleanup must never invalidate a successfully committed original or
+        # turn a saved upload into an apparent failure on Windows file locks.
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logging.getLogger(__name__).warning("Document cleanup deferred: %s", path, exc_info=True)
+
+    def import_document_from_data_url(
+        self, filename: str, data_url: str, chunk_profile: str = "standard"
+    ) -> tuple[Document, bool]:
+        """Save once per original bytes/type, including retries after a lost reply."""
         name, file_name, suffix, payload = self._decode_document_upload(filename, data_url)
         chunk_profile = self._clean_document_chunk_profile(chunk_profile)
-        safe_stem, relative, target = self._document_file_target(file_name, suffix)
-
-        target.write_bytes(payload)
-        now = self._now()
-        title = safe_stem[:120]
-        try:
-            with self._lock, self.connection:
-                cursor = self.connection.execute(
-                    """
-                    INSERT INTO documents(
-                        title, original_name, stored_path, file_type, size_bytes,
-                        sha256, chunk_profile, status, error, extracted_chars, chunk_count, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', 0, 0, ?, ?)
-                    """,
-                    (title, name, relative.as_posix(), suffix.removeprefix("."), len(payload),
-                     hashlib.sha256(payload).hexdigest(), chunk_profile, now, now),
-                )
-            return self.get_document(cursor.lastrowid)
-        except Exception:
-            target.unlink(missing_ok=True)
-            raise
+        digest = hashlib.sha256(payload).hexdigest()
+        file_type = suffix.removeprefix(".")
+        # Lookup and insertion share the storage lock; two uploads cannot both
+        # miss. Do not limit this lookup to the most recent 200 library entries.
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT * FROM documents WHERE sha256 = ? AND file_type = ? ORDER BY id LIMIT 1",
+                (digest, file_type),
+            ).fetchone()
+            if row is not None:
+                document = Document(**dict(row))
+                original = self.data_dir / document.stored_path
+                if not original.is_file():
+                    self._write_document_original(original, payload)
+                    document = self.set_document_status(document.id, "pending")
+                return document, True
+            safe_stem, relative, target = self._document_file_target(file_name, suffix)
+            self._write_document_original(target, payload)
+            now = self._now()
+            try:
+                with self.connection:
+                    cursor = self.connection.execute(
+                        """
+                        INSERT INTO documents(
+                            title, original_name, stored_path, file_type, size_bytes,
+                            sha256, chunk_profile, status, error, extracted_chars, chunk_count, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', 0, 0, ?, ?)
+                        """,
+                        (safe_stem[:120], name, relative.as_posix(), file_type, len(payload),
+                         digest, chunk_profile, now, now),
+                    )
+            except Exception:
+                self._discard_document_file(target)
+                raise
+            # A post-commit read/HTTP failure must not delete the saved original.
+            return self.get_document(cursor.lastrowid), False
 
     def replace_document_from_data_url(self, document_id: int, filename: str, data_url: str) -> Document:
         """Replace an original while retaining its stable document ID and citations."""
-        previous = self.get_document(document_id)
         name, file_name, suffix, payload = self._decode_document_upload(filename, data_url)
-        safe_stem, relative, target = self._document_file_target(file_name, suffix)
-        target.write_bytes(payload)
-        now = self._now()
-        try:
-            with self._lock, self.connection:
-                # Derived chunks and vectors are no longer valid for the new original.
-                self.connection.execute("DELETE FROM document_chunks WHERE document_id = ?", (document_id,))
-                self.connection.execute("DELETE FROM document_chunk_adjustments WHERE document_id = ?", (document_id,))
-                self.connection.execute(
-                    """
-                    UPDATE documents
-                    SET title = ?, original_name = ?, stored_path = ?, file_type = ?, size_bytes = ?,
-                        sha256 = ?, status = 'pending', error = '', extracted_chars = 0, chunk_count = 0,
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        safe_stem[:120], name, relative.as_posix(), suffix.removeprefix("."), len(payload),
-                        hashlib.sha256(payload).hexdigest(), now, document_id,
-                    ),
-                )
+        digest = hashlib.sha256(payload).hexdigest()
+        with self._lock:
+            previous = self.get_document(document_id)
+            if previous.sha256 == digest and previous.file_type == suffix.removeprefix("."):
+                original = self.data_dir / previous.stored_path
+                if not original.is_file():
+                    self._write_document_original(original, payload)
+                    return self.set_document_status(document_id, "pending")
+                return previous
+            safe_stem, relative, target = self._document_file_target(file_name, suffix)
+            self._write_document_original(target, payload)
+            now = self._now()
+            try:
+                with self.connection:
+                    # Derived chunks/vectors no longer describe the new original.
+                    self.connection.execute("DELETE FROM document_chunks WHERE document_id = ?", (document_id,))
+                    self.connection.execute("DELETE FROM document_chunk_adjustments WHERE document_id = ?", (document_id,))
+                    self.connection.execute(
+                        """
+                        UPDATE documents
+                        SET title = ?, original_name = ?, stored_path = ?, file_type = ?, size_bytes = ?,
+                            sha256 = ?, status = 'pending', error = '', extracted_chars = 0, chunk_count = 0,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            safe_stem[:120], name, relative.as_posix(), suffix.removeprefix("."), len(payload),
+                            digest, now, document_id,
+                        ),
+                    )
+            except Exception:
+                self._discard_document_file(target)
+                raise
             previous_path = self.data_dir / previous.stored_path
             if previous_path != target:
-                previous_path.unlink(missing_ok=True)
+                self._discard_document_file(previous_path)
             return self.get_document(document_id)
-        except Exception:
-            target.unlink(missing_ok=True)
-            raise
 
     def document_matches_sha256(self, document_id: int, sha256: str) -> bool:
         try:
@@ -1797,8 +1855,13 @@ class NoteStore:
             ).fetchall()
             return [Document(**dict(row)) for row in rows]
 
-    def set_document_status(self, document_id: int, status: str, error: str = "") -> Document:
+    def set_document_status(
+        self, document_id: int, status: str, error: str = "", *, expected_sha256: str | None = None
+    ) -> Document:
         with self._lock, self.connection:
+            current = self.get_document(document_id)
+            if expected_sha256 is not None and current.sha256 != expected_sha256:
+                return current
             self.connection.execute(
                 "UPDATE documents SET status = ?, error = ?, updated_at = ? WHERE id = ?",
                 (status, str(error or "")[:800], self._now(), document_id),
@@ -1852,10 +1915,18 @@ class NoteStore:
                 """,
                 (document_id, document.sha256, document.chunk_profile, left.source_start_order, right.source_end_order, self._now()),
             )
+            self.connection.execute(
+                "UPDATE documents SET status='pending', error='', updated_at=? WHERE id=?",
+                (self._now(), document_id),
+            )
 
     def clear_document_chunk_adjustments(self, document_id: int) -> None:
         with self._lock, self.connection:
             self.connection.execute("DELETE FROM document_chunk_adjustments WHERE document_id = ?", (document_id,))
+            self.connection.execute(
+                "UPDATE documents SET status='pending', error='', updated_at=? WHERE id=?",
+                (self._now(), document_id),
+            )
 
     def apply_document_chunk_adjustments(self, document: Document, chunks: list[dict]) -> list[dict]:
         """Apply only persisted, source-contiguous merge rules to freshly extracted text."""

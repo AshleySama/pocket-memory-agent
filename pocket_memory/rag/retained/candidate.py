@@ -8,13 +8,18 @@ registry finalization and deterministic direct-record branch. The caller owns
 request serialization and must ensure its shared text engine is available.
 Automatic completion retry remains disabled.
 """
+from pocket_memory.rag.performance import timed, span, metric
 from .clause_candidate import Candidate as RetainedCandidate
 from .facts import BoundFacts
 from .registry import EvidenceRegistry
 from .source_scope import ScopedRetrieval
+from .request_cache import retrieval_request
+from .question_plan import QuestionPlan
+from .field_projection import FieldProjection
 
 
 class Candidate(RetainedCandidate):
+    @timed('snapshot.construct')
     def __init__(self, context):
         super().__init__(context)
         self._staged = None
@@ -26,18 +31,33 @@ class Candidate(RetainedCandidate):
         self.app_scope = scope
         self.evidence_registry = EvidenceRegistry(self.notes, self.bridge.ocr)
         self.bound_facts = BoundFacts(self.notes)
+        self.question_plan = QuestionPlan(self.notes, self.bridge.ocr, self.app_scope)
+        self.field_projection = FieldProjection(self.notes, self.bridge.ocr)
+        self.stable.legacy.coverage_ocr_originals = self.bridge.ocr
 
-    def stage(self, question):
+    @timed('evidence.direct_plan')
+    def prepare_direct(self, question):
         self.bound_prepared = None
-        direct = self.bound_facts.prepare(question)
-        if direct:
-            self._staged = None
-            self.bound_prepared = (question, direct)
-            return direct
         self._staged = None
-        prepared = super().prepare(question)
-        self._staged = (question, prepared)
-        return prepared
+        direct = self.field_projection.prepare(question)
+        if direct is None:
+            direct = self.bound_facts.prepare(question)
+        if direct is None:
+            direct = self.question_plan.prepare(question)
+        if direct:
+            self.bound_prepared = (question, direct)
+        return direct
+
+    @timed('evidence.stage')
+    def stage(self, question):
+        with retrieval_request():
+            direct = self.prepare_direct(question)
+            if direct:
+                return direct
+            self._staged = None
+            prepared = super().prepare(question)
+            self._staged = (question, prepared)
+            return prepared
 
     def prepare(self, question):
         if self._staged is not None:

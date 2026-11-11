@@ -1,0 +1,59 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+.office-tools { min-width: 0; padding: 18px; margin-bottom: 16px; }
+/* Keep the surface and its text in the same theme. The legacy workbench .card
+   rule uses white, which cannot be paired with the dark theme's pale text. */
+body.knowledge-workbench .office-tools.card {
+  --office-action-bg: color-mix(in srgb, var(--accent) 82%, var(--text) 18%);
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.office-tools h2 { margin: 0 0 6px; font-size: 18px; }
+.office-tools h3 { margin: 0; font-size: 15px; }
+.office-tools p { margin: 7px 0; }
+.office-tools button, .office-tools input, .office-tools textarea, .office-tools select { font: inherit; }
+.office-tools button { font-size: 13px; }
+.office-tools label { display: grid; gap: 6px; font-size: 13px; color: var(--text-soft); min-width: 0; }
+.office-tools textarea, .office-tools input:not([type=checkbox]), .office-tools select { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text); background: var(--surface-solid); }
+.office-tools textarea { resize: vertical; line-height: 1.65; }
+.office-tools [hidden] { display: none !important; }
+.office-tool-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0; }
+.office-tool-tabs button { flex: 1 1 auto; padding: 9px 8px; }
+body.knowledge-workbench .office-tools .office-tool-tabs button[aria-pressed=true] { background: var(--office-action-bg); color: var(--text-on-blue); border-color: var(--office-action-bg); }
+.office-input-actions, .office-result-actions, .office-heading-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.office-input-actions { margin: 10px 0; }
+.office-heading-row { justify-content: space-between; margin-bottom: 8px; }
+.office-options { margin: 12px 0; }
+.office-caption { font-size: 12px; color: var(--text-soft); line-height: 1.6; overflow-wrap: anywhere; }
+.office-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin: 5px 0 12px; }
+.office-count.is-over { color: var(--danger); font-weight: 600; }
+.office-status { padding: 10px 0; min-height: 1.4em; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.office-status[data-tone=error] { color: var(--danger); }
+.office-status[data-tone=success] { color: var(--accent); }
+.office-result { margin-top: 12px; border-top: 1px solid var(--divider); padding-top: 15px; min-width: 0; }
+.office-warnings { padding: 10px 12px; background: var(--surface-soft); border-left: 3px solid var(--warn); font-size: 12px; line-height: 1.6; margin-bottom: 12px; }
+.office-todo-draft, .office-todo-saved { margin: 10px 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-solid); }
+.office-todo-draft > label:first-child { display: flex; gap: 7px; align-items: center; margin-bottom: 9px; }
+.office-todo-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 9px; }
+.office-tools blockquote { margin: 10px 0 0; padding: 7px 10px; border-left: 2px solid var(--border-strong); font-size: 12px; color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.office-tools details summary { cursor: pointer; color: var(--text-soft); font-size: 13px; }
+.office-tools .office-result-actions { margin-top: 12px; }
+.office-saved-list { border-top: 1px solid var(--divider); padding-top: 15px; margin-top: 18px; }
+.office-todo-saved.is-completed .office-todo-title { text-decoration: line-through; color: var(--text-soft); }
+.office-todo-title { font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; }
+.office-reminder-fields { display: grid; gap: 9px; margin-top: 10px; }
+#office-tools .office-source-button { padding: 3px 0; text-align: left; text-decoration: underline; background: transparent; color: var(--text-soft); border: 0; box-shadow: none; }
+#office-tools .office-source-button:hover { color: var(--text); background: transparent; }
+/* These compact actions need readable text, without inheriting the page's
+   decorative gradients (which also used to style source links as primary buttons). */
+#office-tools button:not(.ghost):not(.office-source-button) {
+  background: var(--office-action-bg);
+  color: var(--text-on-blue);
+  border: 1px solid var(--office-action-bg);
+  box-shadow: none;
+}
+.office-draft-warning { color: var(--warn); font-size: 12px; }
+@media(max-width: 600px) { .office-tools { padding: 12px; } .office-todo-fields { grid-template-columns: 1fr; } .office-input-actions button { flex: 1 1 auto; } }

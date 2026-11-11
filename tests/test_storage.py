@@ -65,7 +65,7 @@ class NoteStoreTests(unittest.TestCase):
         self.assertEqual(self.store.search_notes("Pocket Memory"), [])
         self.assertEqual(self.store.get_taxonomy()["total"], 0)
         self.assertEqual(self.store.note_count(), 0)
-        self.assertEqual(welcome.category, "未分类")
+        self.assertEqual(welcome.category, "欢迎笔记")
         self.assertIsNone(welcome.folder_id)
         self.assertEqual(self.store.get_folders_tree(), [])
         self.assertEqual(self.store.ensure_welcome_note(image_path).id, welcome.id)
@@ -83,7 +83,7 @@ class NoteStoreTests(unittest.TestCase):
         welcome = self.store.ensure_welcome_note(image_path)
 
         self.assertEqual(welcome.id, legacy.id)
-        self.assertEqual(welcome.category, "未分类")
+        self.assertEqual(welcome.category, "欢迎笔记")
         self.assertIsNone(welcome.folder_id)
         self.assertEqual(self.store.get_folders_tree(), [])
 

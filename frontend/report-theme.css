@@ -1,0 +1,79 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* Workbench chrome follows Settings. Report paper and exported HTML keep their own palette. */
+@media screen {
+  :root {
+    --work-from:#e4f4f3; --work-to:#cfe9e5;
+    --work-glow:rgba(71,192,173,.24); --work-info:rgba(31,142,160,.12);
+    --work-rail:rgba(255,255,255,.62); --work-header:#fff; --work-surface:#edf8f6;
+    --work-text:#183039; --work-muted:#526f76; --work-border:#c6ddda;
+    --work-accent:#1f8ea0; --work-active:#d8eeea; --work-button:#fff;
+    --work-on-accent:#fff;
+  }
+  :root[data-theme="paper-warm"] {
+    --work-from:#f4efe5; --work-to:#f4efe5;
+    --work-glow:rgba(127,100,71,.14); --work-info:rgba(127,100,71,.12);
+    --work-surface:#f9f5ec; --work-text:#382f24; --work-muted:#776650;
+    --work-border:#ded2bf; --work-accent:#7f6447; --work-active:#efe6d8;
+  }
+  :root[data-theme="ink-scholar"] {
+    --work-from:#e8ebe6; --work-to:#cdd3cb;
+    --work-glow:rgba(39,55,44,.12); --work-info:rgba(39,55,44,.11);
+    --work-rail:rgba(219,225,217,.94); --work-surface:#f5f7f3;
+    --work-text:#151a16; --work-muted:#58645a; --work-border:#bfc8bd;
+    --work-accent:#27372c; --work-active:#cbd6c9;
+  }
+  :root[data-theme="nordic-mint"] {
+    --work-from:#e3f5ea; --work-to:#d5eddf;
+    --work-glow:rgba(77,149,126,.24); --work-info:rgba(111,174,152,.13);
+    --work-surface:#f7fcf9; --work-text:#20342d; --work-muted:#536e60;
+    --work-border:#c6ddce; --work-accent:#138a67; --work-active:#dceee2;
+  }
+  :root[data-theme="midnight-focus"] {
+    --work-from:#22212a; --work-to:#171720;
+    --work-glow:rgba(143,160,255,.16); --work-info:rgba(143,160,255,.13);
+    --work-rail:rgba(34,32,43,.78); --work-header:rgba(36,33,45,.9);
+    --work-surface:#2a2833; --work-text:#f1eef5; --work-muted:#c0b7cb;
+    --work-border:#4b4357; --work-accent:#c88ed9; --work-active:#49374f;
+    --work-button:#33303d; --work-on-accent:#231c29;
+  }
+  body {
+    background:radial-gradient(circle at 20% 10%,var(--work-glow),transparent 42%),
+      radial-gradient(circle at 85% 0%,var(--work-info),transparent 40%),
+      linear-gradient(135deg,var(--work-from),var(--work-to));
+    background-attachment:fixed;
+  }
+  :root[data-theme="ink-scholar"] body {
+    background:#dce1da linear-gradient(136deg,rgba(255,255,255,.60),rgba(198,205,197,.78)) fixed;
+  }
+  .appbar,.rail,.document-toolbar {
+    --ink:var(--work-text); --muted:var(--work-muted); --line:var(--work-border);
+    --teal:var(--work-accent); --teal-soft:var(--work-active);
+    color:var(--work-text); border-color:var(--work-border);
+  }
+  .appbar {background:var(--work-header)}
+  .appbar .button {color:var(--work-text);border-color:var(--work-border)}
+  .rail {background:var(--work-rail)}
+  .document-toolbar {background:var(--work-surface)}
+  .rail button {background:transparent;color:var(--work-text)}
+  .rail button:hover,.outline a:hover,.history-row:hover,.history-row:focus-within {
+    background:var(--work-active);
+  }
+  .rail .report-kind.active {background:var(--work-active);color:var(--work-accent)}
+  .rail button.primary {background:var(--work-accent);border-color:var(--work-accent);color:var(--work-on-accent)}
+  .document-toolbar button {background:var(--work-button);color:var(--work-text);border-color:var(--work-border)}
+  .document-toolbar button:hover {background:var(--work-active);border-color:var(--work-accent)}
+  .document-toolbar button.primary {background:var(--work-accent);border-color:var(--work-accent);color:var(--work-on-accent)}
+  .document-toolbar button:disabled {color:var(--work-muted);background:var(--work-surface);opacity:.65}
+  .rail .history-row .history-item {background:transparent}
+  .rail .history-delete {color:var(--work-muted)}
+  .rail .history-delete:hover {background:#f8e9e7;color:#a23f36}
+  .rail .history-item small,.outline a {color:var(--work-muted)}
+  .outline a:hover {color:var(--work-text);background:var(--work-active)}
+  .outline .ordinal {color:var(--work-muted)}
+  .appbar :focus-visible,.rail :focus-visible,.document-toolbar :focus-visible {
+    outline-color:var(--work-accent);
+  }
+}

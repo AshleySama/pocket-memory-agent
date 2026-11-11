@@ -1,5 +1,4 @@
-/*
- * Copyright 2026 AshleySama
+/* Copyright 2026 AshleySama
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -212,7 +211,7 @@ html[data-theme] body.knowledge-workbench #settings-retry[hidden] {
   text-overflow: ellipsis;
 }
 
-#category-nav > .nav-item[data-filter="all"] {
+#category-nav .all-notes-row > .nav-item[data-filter="all"] {
   padding-right: 9px;
   min-height: 38px;
 }
@@ -225,7 +224,7 @@ body.knowledge-workbench .favorites-section > summary {
   min-height: 32px;
 }
 
-#category-nav > .nav-item[data-filter="all"] > b,
+#category-nav .all-notes-row > .nav-item[data-filter="all"] > b,
 #category-nav .folder-name > b,
 body.knowledge-workbench .favorites-section #favorite-count {
   box-sizing: border-box;
@@ -250,7 +249,7 @@ body.knowledge-workbench .favorites-section #favorite-count {
 
 #category-nav .folder-row.active .folder-name { font-weight: 650; }
 #category-nav .folder-children .folder-row:not(.active) .folder-name { font-weight: 500; }
-#category-nav > .nav-item[data-filter="all"].active > b,
+#category-nav .all-notes-row > .nav-item[data-filter="all"].active > b,
 #category-nav .folder-row.active .folder-name > b {
   color: var(--text-on-blue) !important;
   background: var(--accent);
@@ -263,6 +262,13 @@ body.knowledge-workbench .favorites-section #favorite-count {
   border-color: transparent;
   color: inherit !important;
   font-weight: 500;
+}
+
+/* Reuse the note-card rainbow while retaining selection and drop feedback.
+   Only the image needs priority over the older navigation background reset. */
+#category-nav .folder-row:not(.drop-target):hover,
+#category-nav .all-notes-row > .nav-item[data-filter="all"]:hover {
+  background-image: var(--list-hover-rainbow) !important;
 }
 
 #category-nav button.folder-toggle:focus-visible,
@@ -341,3 +347,215 @@ html[data-theme] body.knowledge-workbench #editor-dock-content .note-more-items 
 @media (max-width: 620px) {
   #editor-dock-content .new-note-actions .note-save-status { flex-basis: 100%; text-align: right; }
 }
+
+/* Desktop workbench stays side by side. 800 = 160 library + 280 results + 360 detail.
+   Smaller windows scroll horizontally rather than stacking or hiding a workspace. */
+body.knowledge-workbench {
+  height: 100dvh;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+body.knowledge-workbench .app-header {
+  flex: 0 0 auto;
+  min-width: 800px;
+}
+body.knowledge-workbench .workspace {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+  min-width: 800px;
+  grid-template-columns: var(--sidebar-width, 160px) var(--content-width, 320px) minmax(360px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+body.knowledge-workbench .workspace > .sidebar {
+  display: block;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+}
+body.knowledge-workbench .workspace > .content-column {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+}
+body.knowledge-workbench .workspace > .detail-panel {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  border-top: 0;
+  border-left: 1px solid var(--wb-line);
+}
+body.knowledge-workbench .detail-content {
+  min-width: 0;
+  min-height: 0;
+}
+body.knowledge-workbench .column-resizer {
+  display: block;
+  touch-action: none;
+}
+body.knowledge-workbench .results-toolbar {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+body.knowledge-workbench .result-scope {
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+body.knowledge-workbench .result-summary { white-space: normal; }
+body.knowledge-workbench .timeline { min-height: 0; }
+
+@media (max-width: 1250px) {
+  body.knowledge-workbench .app-header {
+    grid-template-columns: minmax(190px, 1fr) max-content;
+    grid-template-rows: auto auto;
+    gap: 10px 16px;
+    padding: 10px 16px;
+  }
+  body.knowledge-workbench .app-header > .app-brand {
+    grid-column: 1;
+    grid-row: 1;
+    padding-left: 0;
+    min-width: 0;
+  }
+  body.knowledge-workbench .app-header > .header-actions {
+    grid-column: 2;
+    grid-row: 1;
+    padding-left: 0;
+    gap: 4px;
+  }
+  body.knowledge-workbench .header-actions button { padding-left: 12px; padding-right: 12px; }
+  body.knowledge-workbench .global-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    order: initial;
+    flex-direction: row;
+    align-items: center;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+  }
+  body.knowledge-workbench .global-search #search { min-width: 0; }
+  body.knowledge-workbench #graph-button { display: inline-flex; }
+  body.knowledge-workbench .workspace > .sidebar { padding: 16px 10px; }
+  body.knowledge-workbench .workspace > .detail-panel { padding: 16px 12px 0; }
+  body.knowledge-workbench .results-toolbar { padding-left: 12px; padding-right: 12px; }
+  body.knowledge-workbench .timeline { padding-left: 12px; padding-right: 12px; }
+}
+
+/* Long source titles must wrap inside the narrow tools pane. */
+body.knowledge-workbench .detail-panel .office-source-button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+/* Keep metadata separate from the summary and align dates at the card edge.
+   Actions keep their existing reserved space on the title/preview rows only. */
+body.knowledge-workbench .result-note-open {
+  grid-template-columns: 29px minmax(0, 1fr);
+  padding-right: 12px;
+  column-gap: 11px;
+  row-gap: 8px;
+}
+body.knowledge-workbench .result-note-main {
+  grid-column: 2 / -1;
+  padding-right: 76px;
+}
+body.knowledge-workbench .result-note-open > .result-type {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+}
+body.knowledge-workbench .result-note-meta {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  font-weight: 400;
+  color: var(--text-soft);
+  white-space: normal;
+}
+body.knowledge-workbench .result-note-meta-details {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+  min-width: 0;
+}
+body.knowledge-workbench .result-note-location,
+body.knowledge-workbench .result-note-meta .result-note-ai-summary {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: inherit;
+}
+body.knowledge-workbench .result-note-date {
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+body.knowledge-workbench .welcome-result-card .result-note-open { grid-template-columns: minmax(0, 1fr); }
+body.knowledge-workbench .welcome-result-card :is(.result-note-main, .result-note-meta) { grid-column: 1 / -1; }
+
+/* Shared sidebar rhythm: headings, counts and small actions use the same edges. */
+body.knowledge-workbench .sidebar-top-divider { margin: 0 0 12px; border: 0; border-top: 1px solid var(--border-soft); }
+body.knowledge-workbench .folder-inline-slot:empty { display: none; }
+body.knowledge-workbench .sidebar .sidebar-section { margin-top: 16px; }
+body.knowledge-workbench .sidebar .recent-section { margin-top: 0; margin-bottom: 12px; padding-bottom: 12px; }
+body.knowledge-workbench .sidebar .sidebar-section > summary { margin: 0; min-height: 34px; padding: 0 9px; font-size: 13px; letter-spacing: 0; }
+body.knowledge-workbench .workspace .sidebar > h2 { margin: 16px 9px 8px; font-size: 13px; letter-spacing: 0; }
+body.knowledge-workbench .sidebar .recent-nav { margin-top: 4px; gap: 2px; }
+body.knowledge-workbench .sidebar .recent-item { min-height: 32px; padding: 6px 9px; }
+body.knowledge-workbench .sidebar .recent-time { min-width: 42px; text-align: right; font-weight: 400; }
+body.knowledge-workbench .sidebar .sidebar-inline-action { width: 32px; min-width: 32px; height: 24px; padding: 0; border-radius: 6px; box-shadow: none !important; }
+body.knowledge-workbench .sidebar .smart-status { margin: 0; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; }
+body.knowledge-workbench .sidebar .stats-panel { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; padding-top: 8px; margin-top: 0; }
+body.knowledge-workbench .sidebar .stat-item { flex-direction: row-reverse; align-items: center; justify-content: space-between; min-height: 32px; gap: 4px; padding: 6px; border: 1px solid var(--border-soft); background: color-mix(in srgb, var(--surface-soft) 55%, transparent); border-radius: 5px; box-shadow: none; }
+body.knowledge-workbench .sidebar .stat-value { font-size: 14px; font-weight: 600; color: var(--text-soft); line-height: 1.2; }
+body.knowledge-workbench .sidebar .stat-label { font-size: 12px; margin: 0; white-space: nowrap; color: var(--text-soft); }
+body.knowledge-workbench .sidebar .stat-item.clickable:hover { background: var(--surface-soft); border-color: var(--border); transform: none; }
+body.knowledge-workbench .sidebar .stat-item.clickable.active { background: var(--accent-soft); border-color: var(--accent); }
+/* Create action follows the label; counts keep the folder column's right edge. */
+#category-nav .all-notes-row { position: relative; margin-bottom: 6px; }
+#category-nav .all-notes-row > .nav-item { width: 100%; min-width: 0; margin-bottom: 0; padding-left: 9px; padding-right: 9px; }
+#category-nav #new-folder-btn { position: absolute; left: 64px; top: 5px; width: 22px; min-width: 22px; height: 28px; min-height: 28px; margin: 0; padding: 0; border-color: transparent; border-radius: 5px; font-size: 19px; line-height: 1; color: var(--text-soft); box-shadow: none; }
+
+/* In-app directory selection keeps the same flow in a browser and desktop window. */
+.directory-browser { width: min(640px,calc(100vw - 32px)); max-height: min(720px,calc(100vh - 40px)); box-sizing: border-box; padding: 22px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-elev); color: var(--text); }
+.directory-browser::backdrop { background: rgba(18,30,35,.32); }
+.directory-browser-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.directory-browser-header h2 { margin: 0; font-size: 20px; }
+.directory-browser-path label { display: block; margin-bottom: 6px; font-size: 12px; color: var(--text-soft); }
+.directory-browser-path > div { display: flex; gap: 8px; }
+.directory-browser-path input { min-width: 0; flex: 1; }
+.directory-browser-nav { display: flex; gap: 8px; margin-top: 12px; }
+.directory-browser-status { min-height: 20px; margin: 10px 0; font-size: 12px; color: var(--text-soft); overflow-wrap: anywhere; }
+.directory-browser-status[data-error] { color: var(--text); }
+.directory-browser-list { max-height: min(340px,40vh); overflow: auto; min-height: 90px; border-block: 1px solid var(--border-soft); padding: 6px 0; }
+.directory-browser button.directory-browser-folder { display: flex; width: 100%; align-items: center; gap: 10px; text-align: left; padding: 9px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); box-shadow: none; }
+.directory-browser button.directory-browser-folder:hover { background: var(--accent-soft); transform: none; }
+.directory-browser-folder svg { width: 20px; height: 20px; flex: 0 0 20px; color: var(--accent); }
+.directory-browser-folder span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.directory-browser-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 16px; }
+.directory-browser-footer > span { flex: 1 1 180px; font-size: 12px; color: var(--text-soft); }
+.directory-browser button { white-space: nowrap; }

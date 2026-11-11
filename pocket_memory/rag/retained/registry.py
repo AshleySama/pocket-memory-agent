@@ -7,6 +7,7 @@ Inspired by WeKnora CitationSources (MIT): expanded context is not a new
 original source. This is an independent Python implementation, not a port.
 Never selects evidence, rewrites answers, changes prompts or guesses offsets.
 """
+from pocket_memory.rag.performance import timed, span, metric
 import copy
 import hashlib
 import json
@@ -47,6 +48,7 @@ class EvidenceRegistry:
         self.notes, self.ocr = notes, ocr
         self.prepared = None
         self.preview_audit = None
+        self._body_digests = {}
 
     def body(self, source, field):
         if source.get('source_type', 'note') != 'note':
@@ -78,8 +80,14 @@ class EvidenceRegistry:
                 unresolved.append(dict(reason='original_span_mismatch', field=field,
                                        char_start=a, char_end_exclusive=b))
                 continue
+            digest_key = (sid, field, body)
+            if digest_key not in self._body_digests:
+                metric('citation.digest_computes')
+                self._body_digests[digest_key] = hashlib.sha256(body.encode()).hexdigest()
+            else:
+                metric('citation.digest_hits')
             span = dict(field=field, char_start=a, char_end_exclusive=b, quote=quote,
-                        source_revision=hashlib.sha256(body.encode()).hexdigest())
+                        source_revision=self._body_digests[digest_key])
             spans.append(span)
         atomic = (source.get('kind') in ('table_row', 'schema_view')
                   or bool(source.get('table_headers') or source.get('structured_rows')))
@@ -112,6 +120,7 @@ class EvidenceRegistry:
                        semantic_support='not_validated', coverage_complete=source.get('coverage_complete', False)))
         return out
 
+    @timed('citation.stage')
     def stage(self, prepared):
         self.prepared = copy.deepcopy(actual_sources(prepared))
         old = prepared.get('sources') or prepared.get('baseline_preparation', {}).get('sources', [])
@@ -121,6 +130,7 @@ class EvidenceRegistry:
             ordinary_prepared_used=prepared.get('ordinary_prepared') is not None)
         return [self.decorate(s) for s in self.prepared]
 
+    @timed('citation.finish')
     def finish(self, response):
         result = copy.deepcopy(response)
         provided = response.get('provided_sources', [])

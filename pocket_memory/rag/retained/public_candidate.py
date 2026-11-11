@@ -7,6 +7,9 @@ Composition keeps the retained schema/table engines intact. General evidence is
 retrieved by LlamaIndex Vector/BM25/RRF then expanded by its metadata postprocessor.
 Only source structure, scope and budget are application-specific.
 """
+from pocket_memory.rag.performance import completion
+from pocket_memory.rag.performance import timed, span, metric
+from pocket_memory.rag.performance import span as performance_span
 import copy
 import hashlib
 import json
@@ -29,6 +32,7 @@ from llama_index.core.indices.vector_store.retrievers import VectorIndexRetrieve
 from llama_index.retrievers.bm25 import BM25Retriever
 import numpy as np
 from .context_contract import Contract, compact
+from .request_cache import cached_retrieval
 
 VERSION='reranked-source-contract-v19'
 BUDGET=1500
@@ -115,13 +119,18 @@ class Candidate:
 
     def vector(self,text):
         key=hashlib.sha256(('bge-small-zh-v1.5-native\n'+text).encode()).hexdigest()
-        row=self.cache.execute('SELECT vector FROM vectors WHERE key=?',(key,)).fetchone()
+        with span('embedding.cache_sql'):
+            row=self.cache.execute('SELECT vector FROM vectors WHERE key=?',(key,)).fetchone()
+        metric('embedding.cache_hits' if row else 'embedding.cache_misses')
         if row:return np.frombuffer(row[0],dtype=np.float32).tolist()
         value=self.embed._engine.embed(text).astype(np.float32)
-        self.cache.execute('INSERT INTO vectors VALUES (?,?)',(key,value.tobytes()))
+        with span('embedding.cache_sql'):
+            self.cache.execute('INSERT INTO vectors VALUES (?,?)',(key,value.tobytes()))
         return value.tolist()
 
+    @timed('units.materialize')
     def units(self,key):
+        metric('units.cache_hits' if key in self.unit_cache else 'units.cache_misses')
         if key in self.unit_cache:return self.unit_cache[key]
         kind,sid=key.split(':');sid=int(sid)
         if kind!='note':
@@ -162,7 +171,9 @@ class Candidate:
                     unit.metadata['paragraph_range']=[offset,offset+len(part)]
                     units.append(unit)
             cursor=b
-        self.cache.commit();self.unit_cache[key]=units
+        with performance_span('embedding.cache_commit'):
+            self.cache.commit()
+        self.unit_cache[key]=units
         return units
 
     def node(self,key,note,text,window,spans,kind,start):
@@ -175,6 +186,7 @@ class Candidate:
         return TextNode(id_='std:'+ident,text=text,metadata=meta,embedding=self.vector(text),
                         excluded_embed_metadata_keys=list(meta),excluded_llm_metadata_keys=list(meta))
 
+    @timed('retrieve.canonical')
     def fused(self,keys,query,region=None):
         sig=(tuple(sorted(keys)),region)
         if sig not in self.retriever_cache:
@@ -187,7 +199,11 @@ class Candidate:
                 token_pattern=r'[a-zA-Z0-9_]+|[\u4e00-\u9fff]',skip_stemming=True,verbose=False)
             self.retriever_cache[sig]=QueryFusionRetriever([v,b],llm=self.llm,mode='reciprocal_rerank',
                 similarity_top_k=min(12,len(nodes)),num_queries=1,use_async=False)
-        return self.retriever_cache[sig].retrieve(query)
+        retriever = self.retriever_cache[sig]
+        # Repeated scoped prepasses and query loops still consume the same
+        # ordered hits and contribute the same votes; only retrieval is reused.
+        return cached_retrieval(self, 'canonical', query,
+            (sig, id(retriever)), lambda: retriever.retrieve(query))
 
     def table_dominant(self,key):
         if not key.startswith('note:'):return False
@@ -206,6 +222,7 @@ class Candidate:
         if not headers:return None
         return request,dict(fields=[dict(name=h,compare=False) for h in headers],unanswerable=False)
 
+    @timed('evidence.base_prepare')
     def prepare(self,question):
         q=normalize(question)
         self.legacy._retrieval_once=None
@@ -401,7 +418,7 @@ class Candidate:
         messages=[dict(role='system',content=system),dict(role='user',content=f'参考资料：\n{context}\n\n问题：{question}')]
         used=sum(len(self.engine._llm.tokenize(m['content'].encode(),add_bos=False)) for m in messages)
         output=min(512,max(128,3072-used-128))
-        generated=self.engine._llm.create_chat_completion(messages=messages,max_tokens=output,temperature=0)
+        generated=completion(self.engine._llm,messages=messages,max_tokens=output,temperature=0)
         choice=generated['choices'][0];answer=choice['message']['content'] or ''
         r=dict(answer=answer,sources=[],provided_sources=[public(s) for s in packed],trace=dict(
             standard_route=p['route'],scope=p['scope'],retrieved=p.get('retrieved',[]),omitted=p.get('omitted',[]),

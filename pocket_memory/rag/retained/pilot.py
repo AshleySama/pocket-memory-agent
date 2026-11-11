@@ -7,6 +7,8 @@ Only questions (not expected answers) enter Candidate. The frozen gold stays in
 selection.json for a separate post-run review. One local HTTP request per case.
 """
 from __future__ import annotations
+from pocket_memory.rag.performance import completion
+from pocket_memory.rag.performance import timed, span, metric
 
 from pathlib import Path
 import re
@@ -16,13 +18,15 @@ import unicodedata
 
 import numpy as np
 from pydantic import PrivateAttr
-from llama_index.core import VectorStoreIndex
+from llama_index.core import StorageContext, VectorStoreIndex
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core.llms import CustomLLM, LLMMetadata, CompletionResponse
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.indices.vector_store.retrievers import VectorIndexRetriever
 from llama_index.core.schema import TextNode
 from llama_index.retrievers.bm25 import BM25Retriever
+from .request_cache import cached_retrieval
+from .vector_store import PreparedVectorStore
 def norm(value):
     return re.sub(r'[^\w\u4e00-\u9fff]', '', unicodedata.normalize('NFKC', value).lower()).removesuffix('txt')
 
@@ -34,7 +38,9 @@ class FrozenBge(BaseEmbedding):
         super().__init__(model_name='local-bge-small-zh-v1.5-frozen-vectors')
         self._engine = engine
 
+    @timed('embedding.query')
     def _get_query_embedding(self, query):
+        metric('query_embedding.cache_hits' if query in self._cache else 'query_embedding.cache_misses')
         if query not in self._cache:
             self._cache[query] = self._engine.embed(query).tolist()
         return self._cache[query]
@@ -57,13 +63,14 @@ class LocalLlm(CustomLLM):
         return LLMMetadata(context_window=3072, num_output=220, model_name=Path(self._engine.model_path).name)
 
     def complete(self, prompt, **kwargs):
-        result = self._engine._llm.create_chat_completion(
+        result = completion(self._engine._llm,
             messages=[{'role': 'user', 'content': prompt}], max_tokens=220, temperature=0)
         return CompletionResponse(text=result['choices'][0]['message']['content'])
 
     def stream_complete(self, prompt, **kwargs):
         yield self.complete(prompt, **kwargs)
 
+@timed('snapshot.sql_and_nodes')
 def load_nodes(database):
     connection = sqlite3.connect(Path(database).resolve().as_uri() + '?mode=ro', uri=True)
     connection.row_factory = sqlite3.Row
@@ -97,7 +104,9 @@ class Candidate:
         self.nodes, self.notes, self.documents = load_nodes(context.store.db_path)
         self.by_id = {node.node_id: node for node in self.nodes}
         self.embed = FrozenBge(context.embedding_service.engine)
-        self.index = VectorStoreIndex(self.nodes, embed_model=self.embed, show_progress=False)
+        storage = StorageContext.from_defaults(vector_store=PreparedVectorStore())
+        self.index = VectorStoreIndex(self.nodes, embed_model=self.embed,
+                                      storage_context=storage, show_progress=False)
         self.bm25_cache = {}
         self.engine = context.engine
         self.llm = LocalLlm(self.engine)
@@ -127,6 +136,7 @@ class Candidate:
         allowed = [n for n in self.nodes if not quoted or n.metadata['source_key'] in keys]
         return ([] if missing else allowed), matched
 
+    @timed('retrieve.initial')
     def retrieve(self, question):
         allowed, scope = self.scope(question)
         if not allowed:
@@ -136,11 +146,18 @@ class Candidate:
             self.bm25_cache[signature] = BM25Retriever(
                 nodes=allowed, similarity_top_k=min(20, len(allowed)),
                 token_pattern=r'[a-zA-Z0-9_]+|[\u4e00-\u9fff]', skip_stemming=True, verbose=False)
-        vector = VectorIndexRetriever(index=self.index, similarity_top_k=min(20, len(allowed)), node_ids=list(signature))
-        hybrid = QueryFusionRetriever([vector, self.bm25_cache[signature]], llm=self.llm,
-                                     mode='reciprocal_rerank', similarity_top_k=8,
-                                     num_queries=1, use_async=False)
-        result = hybrid.retrieve(question)
+        sparse = self.bm25_cache[signature]
+        def retrieve():
+            vector = VectorIndexRetriever(index=self.index, similarity_top_k=min(20, len(allowed)), node_ids=list(signature))
+            hybrid = QueryFusionRetriever([vector, sparse], llm=self.llm,
+                                         mode='reciprocal_rerank', similarity_top_k=8,
+                                         num_queries=1, use_async=False)
+            return hybrid.retrieve(question)
+        # Scope resolution above still runs on a cache hit, preserving both
+        # scope traces and every inherited post-retrieval adjustment. The index
+        # and sparse retriever identify the immutable snapshot used this stage.
+        result = cached_retrieval(self, 'initial', question,
+            (id(self.index), id(sparse), id(self.llm), signature), retrieve)
         assert all(item.node.node_id in signature for item in result)
         return result, scope
 
@@ -207,7 +224,7 @@ class Candidate:
                 '需澄清或未找到答案时，说明具体缺失的信息即可；不要为信息不存在列出一串引用，也不要重复拒答。')
         user = f'参考资料：\n{context or "（未匹配到指定资料）"}\n\n问题：{question}'
         messages = [{'role':'system','content':system},{'role':'user','content':user}]
-        generated = self.engine._llm.create_chat_completion(
+        generated = completion(self.engine._llm,
             messages=messages, max_tokens=220, temperature=0)
         choice = generated['choices'][0]
         answer = choice['message']['content'] or ''

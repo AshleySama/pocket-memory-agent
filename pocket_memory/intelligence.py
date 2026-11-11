@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+from pocket_memory.rag.performance import timed, span, metric, completion, measured_lock
 
 import json
 import logging
@@ -176,7 +177,7 @@ class LlamaCppTextEngine:
     @contextmanager
     def session(self):
         """Keep the native handle alive during externally composed local QA."""
-        with self._lock:
+        with measured_lock(self._lock, 'model.session_wait'), span('model.session_hold'):
             self._ensure_loaded()
             if self._llm is None:
                 raise RuntimeError(self._error or "本地模型不可用")
@@ -246,7 +247,7 @@ class LlamaCppTextEngine:
             },
         ]
         try:
-            output = self._chat(messages, max_tokens=200, temperature=0.0)
+            output = self._chat(messages, max_tokens=200, temperature=0.0, phase='classify')
         except Exception as exc:
             raise RuntimeError("本地模型整理失败") from exc
         try:
@@ -278,7 +279,7 @@ class LlamaCppTextEngine:
             {"role": "user", "content": f"用户问题：{question[:300]}"},
         ]
         try:
-            output = self._chat(messages, max_tokens=80, temperature=0.0)
+            output = self._chat(messages, max_tokens=80, temperature=0.0, phase='query_rewrite')
         except Exception:
             logger.debug("query rewrite failed", exc_info=True)
             return []
@@ -334,7 +335,7 @@ class LlamaCppTextEngine:
             {"role": "user", "content": f"用户问题：{question[:300]}"},
         ]
         try:
-            output = self._chat(messages, max_tokens=120, temperature=0.0)
+            output = self._chat(messages, max_tokens=120, temperature=0.0, phase='intent')
         except Exception:
             logger.debug("intent classify failed", exc_info=True)
             return {"intent": "qa"}
@@ -369,6 +370,7 @@ class LlamaCppTextEngine:
             self._answer_messages(question, contexts, history),
             max_tokens=DEFAULT_RESPONSE_TOKENS,
             temperature=0.0,
+            phase='answer',
         )
         return self._clean_answer(output)
 
@@ -382,19 +384,24 @@ class LlamaCppTextEngine:
             raise RuntimeError(self._error or "llama.cpp 模型未加载")
         with self._lock:
             self._last_used_at = time.monotonic()  # 更新使用时间，防止空闲卸载
-            response = self._llm.create_chat_completion(
+            response = completion(self._llm, _perf_phase='answer',
                 messages=messages,
                 max_tokens=DEFAULT_RESPONSE_TOKENS,
                 temperature=0.0,
                 stream=True,
             )
-            for chunk in response:
-                choices = chunk.get("choices") or []
-                if not choices:
-                    continue
-                delta = choices[0].get("delta", {}).get("content", "")
-                if delta:
-                    yield delta
+            try:
+                for chunk in response:
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {}).get("content", "")
+                    if delta:
+                        yield delta
+            finally:
+                close = getattr(response, 'close', None)
+                if callable(close):
+                    close()
 
     @staticmethod
     def _trim_text(text: str, limit: int) -> str:
@@ -643,13 +650,13 @@ class LlamaCppTextEngine:
         })
         return messages
 
-    def _chat(self, messages: list[dict], max_tokens: int, temperature: float) -> str:
+    def _chat(self, messages: list[dict], max_tokens: int, temperature: float, phase='other') -> str:
         self._ensure_loaded()
         if self._llm is None:
             raise RuntimeError(self._error or "llama.cpp 模型未加载")
         with self._lock:
             self._last_used_at = time.monotonic()  # 更新使用时间，防止空闲卸载
-            response = self._llm.create_chat_completion(
+            response = completion(self._llm, _perf_phase=phase,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -939,6 +946,7 @@ class LlamaCppTextEngine:
         parsed.setdefault("args", {})
         return parsed
 
+    @timed('model.ensure_loaded')
     def _ensure_loaded(self) -> None:
         if self._llm is not None or self._error is not None:
             return
@@ -956,7 +964,8 @@ class LlamaCppTextEngine:
                 logger.info("LlamaCpp unavailable: %s", self._error)
                 return
             def create_llm(*, use_mlock: bool, use_mmap: bool) -> Any:
-                return Llama(
+                from pocket_memory.request_cancel import create_llama
+                return create_llama(Llama,
                     model_path=str(self.model_path),
                     n_ctx=self.n_ctx,
                     n_threads=self.n_threads,
@@ -977,7 +986,10 @@ class LlamaCppTextEngine:
             load_errors: list[Exception] = []
             for use_mlock, use_mmap, label in load_attempts:
                 try:
-                    self._llm = create_llm(use_mlock=use_mlock, use_mmap=use_mmap)
+                    metric('model.load_attempts')
+                    with span('model.load'):
+                        self._llm = create_llm(use_mlock=use_mlock, use_mmap=use_mmap)
+                    metric('model.load_successes')
                     break
                 except Exception as exc:
                     load_errors.append(exc)

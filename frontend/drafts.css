@@ -1,0 +1,52 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+.draft-protection-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--border,#d5e3e3);font-size:12px;color:var(--muted,#64787c)}
+.draft-protection-bar>span{flex:1;min-width:140px}.draft-protection-bar button{min-height:30px;padding:4px 9px;font-size:12px;border-radius:8px}
+#draft-protection-status[data-error="true"]{color:#a34522}
+#draft-dialog{box-sizing:border-box;width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 48px);padding:0;border:1px solid var(--border-strong);border-radius:14px;background:var(--surface-solid);color:var(--text);overflow:hidden;box-shadow:var(--shadow-elev)}
+#draft-dialog[open]{display:flex;flex-direction:column}
+#draft-dialog .dialog-header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex:none;margin:0;padding:22px 24px 18px;border-bottom:1px solid var(--border);background:transparent}
+#draft-dialog .draft-dialog-title-row{display:flex;align-items:center;gap:9px}
+#draft-dialog h2{margin:0;font-size:20px;line-height:1.4;font-weight:650;letter-spacing:0}
+#draft-dialog #draft-dialog-count{padding:1px 7px;border-radius:5px;background:var(--surface-soft);color:var(--text-soft);font-size:12px;font-variant-numeric:tabular-nums}
+#draft-dialog #draft-dialog-count[hidden]{display:none}
+#draft-dialog #draft-dialog-description{margin:5px 0 0;font-size:12px;line-height:1.6;color:var(--text-soft)}
+#draft-dialog button{min-height:34px;border-radius:7px;font:inherit;font-size:13px;box-shadow:none;transform:none;letter-spacing:0}
+#draft-dialog .draft-dialog-close{display:grid;place-items:center;flex:none;width:32px;min-height:32px;padding:6px;border:0;background:transparent;color:var(--text-soft)}
+#draft-dialog .draft-dialog-close svg{width:20px;height:20px}
+#draft-dialog .draft-dialog-close:hover{color:var(--text);background:var(--surface-soft)}
+#draft-dialog button:focus-visible,#draft-dialog summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+#draft-dialog .draft-list{display:grid;gap:12px;min-height:0;padding:18px 24px;overflow-y:auto;overscroll-behavior:contain}
+#draft-dialog .draft-card{min-width:0;padding:16px 18px;border:1px solid var(--border);border-radius:8px;background:var(--surface-solid);box-shadow:none}
+#draft-dialog .draft-card h3{margin:0;font-size:15px;line-height:1.5;font-weight:600;overflow-wrap:anywhere;color:var(--text)}
+#draft-dialog .draft-card-meta{margin:4px 0 11px;color:var(--text-soft);font-size:12px;line-height:1.6}
+#draft-dialog .draft-card-preview{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;color:var(--text-soft);font-size:14px;line-height:1.7}
+#draft-dialog .draft-full-content{margin:7px 0 0;color:var(--text-soft);font-size:12px}
+#draft-dialog .draft-full-content summary{width:fit-content;cursor:pointer;color:var(--accent)}
+#draft-dialog .draft-full-content pre{max-height:220px;overflow:auto;margin:10px 0 0;padding:12px;background:var(--surface-soft);border-radius:5px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text);font:inherit;font-size:14px;line-height:1.7}
+#draft-dialog .draft-card img{display:block;max-width:100%;max-height:110px;object-fit:contain;margin-top:10px;border-radius:5px}
+#draft-dialog .draft-card-actions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:15px;padding-top:12px;border-top:1px solid var(--border-soft)}
+#draft-dialog .draft-card-actions button{padding:6px 10px;border:1px solid transparent;background:transparent;color:var(--text-soft)}
+#draft-dialog .draft-card-actions button:hover{background:var(--surface-soft);color:var(--text)}
+#draft-dialog .draft-card-actions .draft-action-discard:hover{color:var(--danger)}
+#draft-dialog .draft-card-actions .draft-action-restore{margin-left:auto;padding:6px 14px;color:var(--text-on-blue);background:var(--accent);border-color:var(--accent)}
+#draft-dialog .draft-card-actions .draft-action-restore:hover{filter:brightness(.94)}
+#draft-dialog button:disabled{opacity:.5;cursor:wait}
+#draft-dialog .draft-dialog-footer{flex:none;margin:0;padding:12px 24px;border-top:1px solid var(--border);background:var(--surface-soft);color:var(--text-soft);font-size:12px;line-height:1.6}
+#draft-dialog[data-empty="true"] .draft-dialog-footer{display:none}
+#draft-dialog[data-empty="true"] .draft-list{padding:28px 24px 34px}
+#draft-dialog .draft-empty{text-align:center;padding:4px 0}
+#draft-dialog .draft-empty-icon{display:grid;place-items:center;width:58px;height:58px;margin:0 auto 14px;border-radius:12px;background:var(--surface-soft);color:var(--accent)}
+#draft-dialog .draft-empty-icon svg{width:34px;height:34px}
+#draft-dialog .draft-empty h3{margin:0 0 8px;font-size:16px;font-weight:600;color:var(--text)}
+#draft-dialog .draft-empty p{margin:0;font-size:13px;line-height:1.8;color:var(--text-soft)}
+@media(max-width:520px){
+  #draft-dialog{width:calc(100vw - 24px);max-height:calc(100dvh - 24px);border-radius:12px}
+  #draft-dialog .dialog-header{padding:18px}
+  #draft-dialog .draft-list{padding:14px}
+  #draft-dialog .draft-card{padding:14px}
+  #draft-dialog .draft-dialog-footer{padding:12px 18px}
+}
+

@@ -7,6 +7,7 @@ The pinned v19 module is the preserved capability boundary. The verified bridge
 is used only as a source assembly component, never as another answer engine.
 No question planner, generated source selector or answer resynthesis is used.
 """
+from pocket_memory.rag.performance import completion
 import time
 from . import pilot
 from .prepared_pipeline import PreparedStable
@@ -72,7 +73,7 @@ class Candidate:
         if not p['context_fits']:
             return dict(answer='本次相关原文超出可完整处理的范围，请缩小资料范围后再问。',sources=[],provided_sources=p['sources'],
                 answer_status='incomplete',citation_validation=dict(passed=True,errors=[]),trace=dict(closeout=dict(mode='blocked_budget',version=VERSION),generation_calls=0))
-        generated=self.engine._llm.create_chat_completion(messages=p['messages'],max_tokens=512,temperature=0)
+        generated=completion(self.engine._llm,messages=p['messages'],max_tokens=512,temperature=0)
         ch=generated['choices'][0]
         response=guard(dict(answer=ch['message']['content'] or '',provided_sources=p['sources'],sources=[],
             trace=dict(messages=p['messages'],closeout=dict(mode='single_free_text',version=VERSION),

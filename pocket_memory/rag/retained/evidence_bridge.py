@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Canonical original evidence and bounded multi-clause retrieval; no gold input."""
+from pocket_memory.rag.performance import timed, span, metric
+from pocket_memory.rag.performance import span as performance_span
 import copy
 import hashlib
 import re
@@ -58,6 +60,7 @@ class Bridge:
         with sqlite3.connect(Path(database).resolve().as_uri()+'?mode=ro',uri=True) as con:
             self.ocr={i:t or '' for i,t in con.execute('SELECT id,ocr_text FROM notes')}
 
+    @timed('units.bridge')
     def units(self,key):
         if key in self.cache:return self.cache[key]
         units=[copy.deepcopy(n) for n in self.owner.units(key)]
@@ -110,6 +113,7 @@ class Bridge:
             units.append(node)
         self.cache[key]=units;return units
 
+    @timed('retrieve.bridge')
     def retrieve(self,keys,query,kind=None):
         sig=(tuple(sorted(keys)),kind)
         if sig not in self.retrievers:
@@ -137,6 +141,7 @@ class Bridge:
             original_retrieval_node=node.node_id)
         return m
 
+    @timed('evidence.bridge')
     def prepare(self,question,prior):
         allowed,scope=self.owner.scope(question);allowed_ids={n.node_id for n in allowed};keys={n.metadata['source_key'] for n in allowed}
         if not allowed:return prior
@@ -255,7 +260,8 @@ class Bridge:
             if used+768+128>3072:
                 omitted.append(dict(evidence_id=s['evidence_id'],source_key=s['source_key'],reason='whole_unit_token_budget'));continue
             packed.append(s)
-        self.owner.cache.commit()
+        with performance_span('embedding.cache_commit'):
+            self.owner.cache.commit()
         trace=dict(version='canonical-prose-row-ocr-v2',queries=queries,first_stage_nodes=list(dict.fromkeys(first_stage)),
             rankings=rankings,source_keys=sorted(keys),selected=[dict(evidence_id=s['evidence_id'],source_key=s['source_key'],kind=s.get('kind'),field=s.get('source_field'),raw_evidence=s.get('raw_evidence',[])) for s in packed],
             omitted=omitted,coverage_claim='retrieval allocation only, not semantic completeness',

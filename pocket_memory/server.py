@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+from pocket_memory.rag.performance import request_profile, measured_lock, snapshot as performance_snapshot
 
 import base64
 import binascii
@@ -12,6 +13,7 @@ import mimetypes
 import os
 import re
 import shutil
+import secrets
 import subprocess
 import tempfile
 import threading
@@ -33,9 +35,15 @@ from pocket_memory.intelligence import IntelligenceService, resolve_model_path, 
 from pocket_memory.model_download import ModelDownloadService
 from pocket_memory.ocr import OcrService
 from pocket_memory.rag import IntentRouter, QueryResolver, RagPipeline
+from pocket_memory.rag.development import DeferredModelUnavailable, LiveRagPipeline
 from pocket_memory.reporting import ReportService
 from pocket_memory.storage import NoteStore
 from pocket_memory.tools import ToolRegistry
+from pocket_memory.request_cancel import (
+    CancellationRegistry, RequestCancelled, cancellable_lock,
+    check_cancelled, final_response, request_scope,
+)
+from contextlib import nullcontext
 
 logger = logging.getLogger(__name__)
 MAX_JSON_BODY = 16 * 1024 * 1024  # 16MB 上限，防止异常大 body 吃满内存
@@ -69,7 +77,9 @@ class PocketMemoryServer(ThreadingHTTPServer):
         if not is_loopback_host(server_address[0]):
             raise ValueError("Pocket Memory 仅允许监听本机回环地址")
         self.store = store
+        self.preview_epoch = secrets.token_hex(16)
         self.operation_lock = threading.RLock()
+        self.ask_cancellations = CancellationRegistry()
         self._closing = False
         self.config = config
         self.choose_directory = choose_directory
@@ -89,25 +99,49 @@ class PocketMemoryServer(ThreadingHTTPServer):
         self.document_service = DocumentImportService(store, self.embedding_service, self.ocr_service.engine)
         self.rag_pipeline = RagPipeline(store, self.embedding_service)
         self.report_service = ReportService(store, self.intelligence_service.engine)
+        from pocket_memory.report_workspace import ReportWorkspace
+        self.report_workspace = ReportWorkspace(store, self.intelligence_service.engine, self.operation_lock)
         # Custom text-engine integrations retain their existing protocol.
         from pocket_memory.intelligence import LlamaCppTextEngine
         if config.rag_backend == "retained" and isinstance(self.intelligence_service.engine, LlamaCppTextEngine):
-            from pocket_memory.rag.development import LiveRagPipeline, LiveCandidateEngine
+            from pocket_memory.rag.development import LiveCandidateEngine
             native = self.intelligence_service.engine
             self.rag_pipeline = LiveRagPipeline(self.rag_pipeline, native,
                                                 before_refresh=self._wait_for_extraction)
             self.intelligence_service.engine = LiveCandidateEngine(native, self.rag_pipeline)
         self.tool_registry = ToolRegistry(store.data_dir)
+        from pocket_memory.office_tools import OfficeTools
+        self.office_tools = OfficeTools(self.intelligence_service.engine)
         self._shutdown_requested = False  # 标记是否收到 shutdown 请求
         super().__init__(server_address, PocketMemoryHandler)
+        from pocket_memory.app_updates import AppUpdateService
+        self.app_updates = AppUpdateService(config, store.data_dir,
+            server_port=self.server_port, exit_callback=self._exit_for_update)
+        self._update_health_ready = False
         # 写入 lock 文件，供守护进程探测
         from pocket_memory.daemon import write_lock
         write_lock(store.data_dir, os.getpid(), server_address[0], self.server_port)
         logger.info("server 已启动，lock 写入 %s", store.data_dir / ".pocket-memory.lock")
-        self.embedding_service.rebuild()
-        if self.config.ai_warmup_on_start:
-            self.intelligence_service.warm_up()
-        self.intelligence_service.recover()
+        if not os.environ.get('PM_UPDATE_HEALTH_TOKEN'):
+            self.document_service.recover()
+            self.embedding_service.rebuild()
+            if self.config.ai_warmup_on_start:
+                self.intelligence_service.warm_up()
+            self.intelligence_service.recover()
+            # Version metadata only; source previews check on an explicit click.
+            if getattr(__import__('sys'), 'frozen', False):
+                self.app_updates.check_async()
+        self._update_health_ready = True
+
+    def _exit_for_update(self):
+        # Give every launcher time to see restarting and close its own window.
+        # In-flight user work completes under the existing mutation lock first.
+        time.sleep(5)
+        with self.operation_lock:
+            self._prepare_library_change()
+            self._closing = True
+            self._shutdown_requested = True
+        self.shutdown()
 
     def _after_ocr(self, note_id: int) -> None:
         self.embedding_service.enqueue(note_id)
@@ -132,6 +166,7 @@ class PocketMemoryServer(ThreadingHTTPServer):
         clear_lock(old_data_dir)
         write_lock(migrated, os.getpid(), self.server_address[0], self.server_port)
         logger.info("数据目录已迁移: %s -> %s", old_data_dir, migrated)
+        self.document_service.recover()
         self.embedding_service.rebuild()
         return migrated
 
@@ -152,11 +187,14 @@ class PocketMemoryServer(ThreadingHTTPServer):
         clear_lock(old_data_dir)
         write_lock(selected, os.getpid(), self.server_address[0], self.server_port)
         logger.info("数据目录已切换: %s -> %s", old_data_dir, selected)
+        self.document_service.recover()
         self.embedding_service.rebuild()
         self.intelligence_service.recover()
         return selected
 
     def _prepare_library_change(self):
+        if self.office_tools.busy:
+            raise ValueError('文字工具仍在处理当前资料，请完成后再切换资料库。')
         # HTTP mutations are serialized. Drain producers before their downstream
         # consumers, so a task cannot commit an old library's IDs into the new one.
         for service in (self.document_service, self.ocr_service, self.intelligence_service,
@@ -170,6 +208,11 @@ class PocketMemoryServer(ThreadingHTTPServer):
         invalidate = getattr(self.rag_pipeline, 'invalidate', None)
         if callable(invalidate):
             invalidate()
+
+    def update_blocks_writes(self):
+        service = getattr(self, 'app_updates', None)
+        return service is not None and service.status().get('state') in {
+            'downloading', 'verifying', 'restarting'}
 
     def _wait_for_extraction(self):
         for service in (self.document_service, self.ocr_service):
@@ -189,6 +232,7 @@ class PocketMemoryServer(ThreadingHTTPServer):
         self.ocr_service.shutdown()
         self.document_service.shutdown()
         self.embedding_service.shutdown()
+        self.office_tools.close()
         self.intelligence_service.shutdown()
         self.tool_registry.close()
         # 清理 lock 文件
@@ -204,7 +248,14 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         try:
-            self._handle_get()
+            if urlparse(self.path).path.startswith('/api/documents'):
+                # A second window can change the active library between reads.
+                # Validate the receipt's library and read its snapshot atomically.
+                with self.server.operation_lock:
+                    if self._validate_note_library_write(urlparse(self.path).path):
+                        self._handle_get()
+            else:
+                self._handle_get()
         except _SilentAbort:
             pass
         except KeyError:
@@ -215,13 +266,43 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             logger.exception("Unhandled error in GET %s", self.path)
             self._safe_error(HTTPStatus.INTERNAL_SERVER_ERROR, "服务器内部错误")
 
+    @request_profile
     def do_POST(self) -> None:
+        ticket = None
         try:
-            with self.server.operation_lock:
-                if self.server._closing:
-                    self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
-                    return
-                self._handle_post()
+            path = urlparse(self.path).path
+            if path == '/api/settings/browse-data-dir':
+                self._handle_browse_data_dir()
+                return
+            if path == '/api/settings/choose-data-dir':
+                self._handle_choose_data_dir()
+                return
+            if path == '/api/ask/cancel':
+                self._validate_local_cancellation()
+                body = self._read_json()
+                self._json(self.server.ask_cancellations.cancel(body.get('request_id')))
+                return
+            request_id = self.headers.get('X-PocketMemory-Request-ID') if path == '/api/ask' else None
+            if request_id:
+                self._validate_local_cancellation()
+                ticket = self.server.ask_cancellations.begin(request_id)
+            with request_scope(ticket):
+                lock = (cancellable_lock(self.server.operation_lock) if ticket is not None
+                        else measured_lock(self.server.operation_lock, "request.lock_wait"))
+                with lock:
+                    if self.server._closing:
+                        self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
+                        return
+                    if self.server.update_blocks_writes() and path not in {
+                            '/api/app-update/check', '/api/app-update/start', '/api/shutdown'}:
+                        self._safe_error(HTTPStatus.CONFLICT, '正在更新程序，请重启完成后再操作；未提交内容保留在本机草稿中')
+                        return
+                    check_cancelled()
+                    self._handle_post()
+        except RequestCancelled:
+            self.close_connection = True
+            if not getattr(self, '_ask_headers_sent', False):
+                self._safe_error(HTTPStatus.CONFLICT, '本次问答已取消')
         except _SilentAbort:
             pass
         except KeyError:
@@ -231,10 +312,77 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         except Exception:
             logger.exception("Unhandled error in POST %s", self.path)
             self._safe_error(HTTPStatus.INTERNAL_SERVER_ERROR, "服务器内部错误")
+        finally:
+            self.server.ask_cancellations.finish(ticket)
+
+    def _handle_browse_data_dir(self) -> None:
+        # A read-only browser avoids a native dialog hidden behind a daemon's
+        # desktop. Directory listing does not hold up note autosave.
+        self._validate_local_cancellation()
+        body = self._read_json()
+        with measured_lock(self.server.operation_lock, "request.lock_wait"):
+            if self.server._closing:
+                self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
+                return
+            if self.server.update_blocks_writes():
+                self._safe_error(HTTPStatus.CONFLICT, '正在更新程序，请重启完成后再操作；未提交内容保留在本机草稿中')
+                return
+            initial_dir = self.server.store.data_dir
+        from pocket_memory.directory_browser import browse_directory, DirectoryBrowseError
+        try:
+            result = browse_directory(body.get('path'), initial_dir)
+        except DirectoryBrowseError as exc:
+            self._json({'error': str(exc)}, HTTPStatus(exc.status))
+        else:
+            self._json(result)
+
+    def _handle_choose_data_dir(self) -> None:
+        # Choosing only returns a path. Never hold the application write lock
+        # while the user is looking at a native dialog: autosave must continue.
+        self._validate_local_cancellation()
+        self._read_json()
+        with measured_lock(self.server.operation_lock, "request.lock_wait"):
+            if self.server._closing:
+                self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
+                return
+            if self.server.update_blocks_writes():
+                self._safe_error(HTTPStatus.CONFLICT, '正在更新程序，请重启完成后再操作；未提交内容保留在本机草稿中')
+                return
+            initial_dir = self.server.store.data_dir
+            choose_directory = self.server.choose_directory
+        try:
+            selected = choose_directory(initial_dir)
+        except Exception:
+            logger.exception("系统目录选择器不可用")
+            self._json({"error": "无法打开目录选择窗口。请重试，或在目录输入框中粘贴完整路径。"},
+                       HTTPStatus.SERVICE_UNAVAILABLE)
+        else:
+            self._json({"data_dir": str(selected) if selected else None})
+
+    def _validate_local_cancellation(self):
+        # This application is a loopback-only service without remote auth.
+        # Custom request headers and exact Origin checks exclude cross-site POSTs.
+        if not is_loopback_host(self.client_address[0]):
+            raise ValueError('取消问答仅允许本机请求')
+        host = self.headers.get('Host', '')
+        parsed_host = urlparse('http://' + host)
+        if not is_loopback_host(parsed_host.hostname or ''):
+            raise ValueError('无效的本机请求地址')
+        origin = self.headers.get('Origin')
+        if origin is not None:
+            parsed_origin = urlparse(origin)
+            if (parsed_origin.scheme != 'http' or parsed_origin.netloc != host
+                    or parsed_origin.path not in ('', '/')):
+                raise ValueError('取消问答仅允许同源请求')
+        if self.headers.get('Sec-Fetch-Site') == 'cross-site':
+            raise ValueError('取消问答仅允许同源请求')
 
     def do_PUT(self) -> None:
         try:
             with self.server.operation_lock:
+                if self.server.update_blocks_writes():
+                    self._safe_error(HTTPStatus.CONFLICT, '正在更新程序，草稿将保留，请稍后保存')
+                    return
                 if self.server._closing:
                     self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
                     return
@@ -252,6 +400,9 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         try:
             with self.server.operation_lock:
+                if self.server.update_blocks_writes():
+                    self._safe_error(HTTPStatus.CONFLICT, '正在更新程序，请稍后操作')
+                    return
                 if self.server._closing:
                     self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭')
                     return
@@ -267,12 +418,68 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._safe_error(HTTPStatus.INTERNAL_SERVER_ERROR, "服务器内部错误")
 
     def _handle_get(self) -> None:
+        from pocket_memory.office_api import handle_office_api
+        if handle_office_api(self, 'GET'):
+            return
         parsed = urlparse(self.path)
-        if parsed.path == "/api/status":
+        if self._retired_table_analysis(parsed.path):
+            return
+        if parsed.path == '/analysis.html':
+            self._file(self.static_dir / 'analysis.html', root=self.static_dir, status=HTTPStatus.GONE)
+            return
+        if parsed.path == '/api/drafts':
+            self._handle_drafts('GET')
+            return
+        if parsed.path.startswith('/api/report-workspace'):
+            from pocket_memory.report_workspace import TEMPLATES, render_report, export_html
+            workspace = self.server.report_workspace
+            parts = parsed.path.strip('/').split('/')
+            if len(parts) == 2:
+                self._json({'reports': workspace.list_reports(), 'templates': [{'id':k,'label':v[0],'description':v[1]} for k,v in TEMPLATES.items()]})
+            elif len(parts) == 4 and parts[2] == 'jobs':
+                self._json(workspace.job(parts[3]))
+            elif len(parts) == 5 and parts[3] == 'sources':
+                self._json(workspace.source(parts[2], int(parts[4])))
+            elif len(parts) in (3,4):
+                report = workspace.read(parts[2])
+                if len(parts) == 4 and parts[3] == 'export':
+                    payload = export_html(report).encode('utf-8')
+                    self.send_response(200)
+                    self.send_header('Content-Type','text/html; charset=utf-8')
+                    self.send_header('Content-Disposition', "attachment; filename=PocketMemory_Report.html; filename*=UTF-8''"+quote(report['title']+'.html'))
+                    self.send_header('Content-Length',str(len(payload)))
+                    self.end_headers(); self.wfile.write(payload)
+                elif len(parts) == 3:
+                    self._json({'report':report,'html':render_report(report)})
+                else: raise KeyError('report route')
+            else: raise KeyError('report route')
+            return
+        if parsed.path == '/api/qa-feedback/export':
+            self._validate_local_cancellation()
+            if self.headers.get('X-PocketMemory-Feedback') != 'local':
+                raise ValueError('请从本机反馈入口导出')
+            from pocket_memory.qa_feedback import export
+            self._json(export(self.server.store.data_dir))
+        elif parsed.path == "/api/app-update":
+            self._validate_local_cancellation()
+            self._json(self.server.app_updates.status())
+        elif parsed.path == "/api/update-health":
+            self._validate_local_cancellation()
+            expected = os.environ.get('PM_UPDATE_HEALTH_TOKEN', '')
+            actual = self.headers.get('X-Pocket-Update-Token', '')
+            if not expected or not secrets.compare_digest(expected, actual):
+                self._json({'error': '无效的启动检查'}, HTTPStatus.FORBIDDEN)
+                return
+            self._json({'ok': self.server._update_health_ready,
+                        'token': expected, 'app_version': APP_VERSION, 'pid': os.getpid(),
+                        'data_dir': str(self.server.store.data_dir.resolve()),
+                        'config_path': str(self.server.config.path.resolve())})
+        elif parsed.path == "/api/status":
             # 健康检查端点：守护进程探测用，返回最小化状态
-            from pocket_memory.version import APP_VERSION
-
             self._json({"ok": True, "pid": os.getpid(), "app_version": APP_VERSION})
+        elif parsed.path == "/api/ask/source-revision":
+            from pocket_memory.rag.source_preview import revision_token
+            self._json({"revision": revision_token(self.server)})
         elif parsed.path == "/api/notes":
             filters = self._filters(parsed.query)
             notes = self.server.store.list_notes(
@@ -416,8 +623,39 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._file(self.static_dir / relative, root=self.static_dir)
 
     def _handle_post(self) -> None:
+        from pocket_memory.office_api import handle_office_api
+        if handle_office_api(self, 'POST'):
+            return
         parsed = urlparse(self.path)
-        if parsed.path == "/api/notes":
+        if self._retired_table_analysis(parsed.path):
+            return
+        if not self._validate_note_library_write(parsed.path):
+            return
+        if parsed.path == '/api/drafts':
+            self._handle_drafts('POST')
+            return
+        if parsed.path.startswith('/api/report-workspace'):
+            from pocket_memory.report_workspace import render_report
+            self._validate_local_cancellation()
+            parts = parsed.path.strip('/').split('/')
+            if parsed.path == '/api/report-workspace/jobs':
+                self._json(self.server.report_workspace.create_job(self._read_json()), HTTPStatus.ACCEPTED)
+            elif parsed.path == '/api/report-workspace/restore':
+                report=self.server.report_workspace.restore(self._read_json().get('undo_token'))
+                self._json({'report':report,'html':render_report(report)})
+            elif len(parts) == 4 and parts[3] == 'save':
+                report=self.server.report_workspace.save_edit(parts[2],self._read_json())
+                self._json({'report':report,'html':render_report(report)})
+            else: raise KeyError('report route')
+            return
+        if parsed.path == '/api/qa-feedback':
+            self._validate_local_cancellation()
+            from pocket_memory.qa_feedback import save, scope_key
+            body = self._read_json()
+            if body.get('feedback_scope') != scope_key(self.server.store.data_dir, self.server.preview_epoch):
+                raise ValueError('资料库已切换或服务已重启，请重新提问后反馈')
+            self._json(save(self.server.store.data_dir, body), HTTPStatus.CREATED)
+        elif parsed.path == "/api/notes":
             body = self._read_json()
             note = self.server.store.create_note(
                 body.get("title", ""),
@@ -439,11 +677,14 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._json(note.as_dict(), HTTPStatus.CREATED)
         elif parsed.path == "/api/documents":
             body = self._read_json()
-            document = self.server.store.create_document_from_data_url(
+            document, reused = self.server.store.import_document_from_data_url(
                 body.get("name", ""), body.get("data_url", ""), body.get("chunk_profile", "standard")
             )
-            self.server.document_service.enqueue(document.id)
-            self._json(document.as_dict(), HTTPStatus.CREATED)
+            if document.status in {"pending", "failed"}:
+                self.server.document_service.enqueue(document.id)
+            payload = self.server.store.get_document(document.id).as_dict()
+            payload["reused"] = reused
+            self._json(payload, HTTPStatus.OK if reused else HTTPStatus.CREATED)
         elif parsed.path.startswith("/api/documents/") and parsed.path.endswith("/chunk-profile"):
             document_id = int(parsed.path[len("/api/documents/"):-len("/chunk-profile")])
             body = self._read_json()
@@ -563,15 +804,10 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                 self._json({"error": self.server.embedding_service.engine.unavailable_reason,
                             "code": "embedding_required"}, HTTPStatus.SERVICE_UNAVAILABLE)
                 return
-            if not self.server.intelligence_service.engine.available:
-                engine = self.server.intelligence_service.engine
-                model_path = getattr(engine, "model_path", None)
-                model_missing = isinstance(model_path, Path) and not model_path.is_file()
-                self._json({"error": engine.unavailable_reason,
-                            "code": "model_missing" if model_missing else "model_runtime_unavailable",
-                            "model_download": self.server.model_download_service.status()}, HTTPStatus.SERVICE_UNAVAILABLE)
-                return
             engine = self.server.intelligence_service.engine
+            if not isinstance(self.server.rag_pipeline, LiveRagPipeline) and not engine.available:
+                self._send_model_unavailable(engine)
+                return
             # 意图路由：规则优先 + LLM 兜底分类，覆盖时间/列表/统计/元数据/分类/摘要/比较/实体/关联/通用问答
             retrieval_question = understanding.retrieval_query
             # Keep the pipeline bound to the live service. This also makes a
@@ -581,13 +817,17 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             # Intent is a property of the current turn.  The expanded question
             # is only for retrieval: classifying it would let a previous
             # statistics request hijack an unrelated short follow-up.
-            result = self.server.rag_pipeline.route(
-                retrieval_question,
-                engine,
-                extra_terms=list(understanding.aliases),
-                intent=current_intent,
-                evidence_question=understanding.evidence_question,
-            )
+            try:
+                result = self.server.rag_pipeline.route(
+                    retrieval_question,
+                    engine,
+                    extra_terms=list(understanding.aliases),
+                    intent=current_intent,
+                    evidence_question=understanding.evidence_question,
+                )
+            except DeferredModelUnavailable as exc:
+                self._send_model_unavailable(engine, reason=str(exc))
+                return
             retrieval_seconds = time.perf_counter() - retrieval_started
             timing = self._ask_timing(request_started, retrieval_seconds=retrieval_seconds)
             expanded_terms = result.expanded_terms
@@ -740,9 +980,23 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                 self._json(note.as_dict())
             except KeyError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
-        elif parsed.path == "/api/settings/choose-data-dir":
-            selected = self.server.choose_directory(self.server.store.data_dir)
-            self._json({"data_dir": str(selected) if selected else None})
+        elif parsed.path in ('/api/app-update/check', '/api/app-update/start'):
+            self._validate_local_cancellation()
+            if self.headers.get('X-PocketMemory-Update') != '1':
+                raise ValueError('请从应用内软件更新入口操作')
+            body = self._read_json()
+            if body != {}:
+                raise ValueError('软件更新不接受自选目录或下载地址')
+            if parsed.path.endswith('/check'):
+                self._json(self.server.app_updates.check_async())
+            else:
+                self.server.app_updates.data_dir = self.server.store.data_dir.resolve()
+                self.server.app_updates.config = self.server.config
+                from pocket_memory.safe_update import UpdateError
+                try:
+                    self._json(self.server.app_updates.start_update())
+                except UpdateError as exc:
+                    self._json({'error': str(exc)}, HTTPStatus.CONFLICT)
         elif parsed.path == "/api/settings/migrate":
             body = self._read_json()
             target_value = str(body.get("data_dir", "")).strip()
@@ -876,14 +1130,22 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def _handle_put(self) -> None:
         parsed = urlparse(self.path)
+        if self._retired_table_analysis(parsed.path):
+            return
+        if not self._validate_note_library_write(parsed.path):
+            return
         if parsed.path.startswith("/api/documents/") and parsed.path.endswith("/file"):
             document_id = int(parsed.path[len("/api/documents/"):-len("/file")])
             body = self._read_json()
+            previous = self.server.store.get_document(document_id)
             document = self.server.store.replace_document_from_data_url(
                 document_id, body.get("name", ""), body.get("data_url", "")
             )
-            self.server.document_service.enqueue(document.id)
-            self._json(self.server.store.get_document(document.id).as_dict(), HTTPStatus.ACCEPTED)
+            if document.status in {"pending", "failed"}:
+                self.server.document_service.enqueue(document.id)
+            payload = self.server.store.get_document(document.id).as_dict()
+            payload["reused"] = previous.sha256 == document.sha256 and previous.file_type == document.file_type
+            self._json(payload, HTTPStatus.ACCEPTED)
         elif parsed.path.startswith("/api/notes/"):
             note_id = int(parsed.path.rsplit("/", 1)[1])
             body = self._read_json()
@@ -926,6 +1188,20 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def _handle_delete(self) -> None:
         parsed = urlparse(self.path)
+        if self._retired_table_analysis(parsed.path):
+            return
+        if not self._validate_note_library_write(parsed.path):
+            return
+        if parsed.path.startswith('/api/drafts/'):
+            self._handle_drafts('DELETE', parsed.path[len('/api/drafts/'):])
+            return
+        if parsed.path.startswith('/api/report-workspace'):
+            self._validate_local_cancellation()
+            parts = parsed.path.strip('/').split('/')
+            if len(parts) != 3 or parts[:2] != ['api', 'report-workspace']:
+                raise KeyError('report route')
+            self._json(self.server.report_workspace.delete(parts[2], self._read_json().get('version')))
+            return
         if parsed.path.startswith("/api/notes/"):
             note_id = int(parsed.path.rsplit("/", 1)[1])
             self.server.store.delete_note(note_id)
@@ -943,6 +1219,17 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._json({"ok": True})
         else:
             self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    def _retired_table_analysis(self, path: str) -> bool:
+        if path != '/api/table-analysis' and not path.startswith('/api/table-analysis/'):
+            return False
+        # Keep historical files intact; even stale pages cannot create or save analyses.
+        self._json({
+            'error': '独立 Excel 分析功能已下线。可返回专题报告，或在笔记中继续导入 Excel 资料。',
+            'code': 'table_analysis_retired',
+            'return_url': '/reports.html',
+        }, HTTPStatus.GONE)
+        return True
 
     def _custom_asset_url(self, prefix: str) -> str | None:
         data_dir = self.server.store.data_dir
@@ -978,6 +1265,54 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         data_dir = self.server.store.data_dir
         for ext in ("png", "jpg", "jpeg", "webp", "gif", "bmp"):
             (data_dir / f"{prefix}.{ext}").unlink(missing_ok=True)
+
+    def _validate_note_library_write(self, path: str) -> bool:
+        # All three write handlers run under operation_lock. An editor opened
+        # before another window switched libraries must not write matching IDs
+        # into the newly active library. Older clients omit this optional header.
+        if not any(path == prefix or path.startswith(prefix + '/') for prefix in ('/api/notes', '/api/documents')):
+            return True
+        expected = self.headers.get('X-PocketMemory-Library')
+        if expected is None and path.startswith('/api/documents') and self.command == 'GET':
+            expected = parse_qs(urlparse(self.path).query).get('library', [None])[0]
+        if expected is None:
+            return True
+        from pocket_memory.drafts import library_identity
+        if expected != library_identity(self.server.store.data_dir):
+            message = ('资料库已经切换，本次导入或修改未写入其他资料库，请切回原资料库后重试'
+                       if path.startswith('/api/documents') else
+                       '资料库已经切换，本次修改未写入其他资料库，请保留草稿后重新打开笔记')
+            self._json({'error': message,
+                        'code': 'library_mismatch'}, HTTPStatus.CONFLICT)
+            return False
+        return True
+
+    def _handle_drafts(self, method: str, draft_id: str | None = None) -> None:
+        from pocket_memory.drafts import DraftStore, DraftConflict, DraftStorageError
+        self._validate_local_cancellation()
+        body = self._read_json() if method != 'GET' else {}
+        try:
+            # Resolve the active library under the same lock as switching it.
+            # Draft writes deliberately do not enqueue indexing or AI work.
+            with self.server.operation_lock:
+                if self.server._closing:
+                    self._safe_error(HTTPStatus.SERVICE_UNAVAILABLE, '应用正在关闭，草稿尚未确认保存')
+                    return
+                store = DraftStore(self.server.store.data_dir)
+                if method == 'GET':
+                    result = store.list()
+                elif method == 'POST':
+                    result = store.save(body)
+                else:
+                    result = store.close(draft_id, body.get('library_id'))
+            self._json(result)
+        except DraftConflict as exc:
+            payload = {'error': str(exc), 'code': exc.code}
+            if exc.current is not None:
+                payload['draft'] = exc.current
+            self._json(payload, HTTPStatus.CONFLICT)
+        except DraftStorageError as exc:
+            self._json({'error': str(exc), 'code': 'draft_storage_error'}, HTTPStatus.SERVICE_UNAVAILABLE)
 
     def _read_json(self) -> dict:
         try:
@@ -1023,12 +1358,16 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         return result
 
     def _json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
+        if isinstance(payload, dict) and isinstance(payload.get('answer'), str) and 'sources' in payload:
+            from pocket_memory.qa_feedback import scope_key
+            payload = dict(payload, feedback_scope=scope_key(self.server.store.data_dir, self.server.preview_epoch))
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        with final_response():
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
     def _handle_update_check(self) -> None:
         """从服务器获取 version.json，与当前版本比较，返回是否有更新。"""
@@ -1268,10 +1607,16 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         }
         if first_token_seconds is not None:
             timing["first_token_seconds"] = round(max(first_token_seconds, 0.0), 3)
+            # Retained QA emits verified answer text after generation, not the
+            # first native token. Keep the old key for compatibility only.
+            timing["first_answer_event_seconds"] = timing["first_token_seconds"]
         if generation_seconds is not None:
             timing["generation_seconds"] = round(max(generation_seconds, 0.0), 3)
         if model_warm is not None:
             timing["model_warm"] = model_warm
+        details = performance_snapshot()
+        if details is not None:
+            timing["performance"] = details
         return timing
 
     def _send_simple_stream(self, answer: str, kind: str, data: dict | None = None,
@@ -1279,6 +1624,8 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                             conversation: dict | None = None,
                             diagnostics: dict | None = None) -> None:
         """发送不含 token 流的 SSE：仅 sources + done，用于预生成答案（stats/taxonomy/列表型/空结果）。"""
+        check_cancelled()
+        self._ask_headers_sent = True
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -1286,14 +1633,18 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         def write_event(payload: dict) -> None:
-            self.wfile.write(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8"))
-            self.wfile.flush()
+            with final_response() if payload.get('type') == 'done' else nullcontext():
+                check_cancelled()
+                self.wfile.write(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8"))
+                self.wfile.flush()
 
         src = sources or []
         sources_event = {"type": "sources", "sources": src, "expanded_terms": [], "kind": kind,
                          "data": data or {}, "timing": timing or {}, "conversation": conversation or {}}
         done_event = {"type": "done", "answer": answer, "sources": src, "kind": kind,
                       "data": data or {}, "timing": timing or {}, "conversation": conversation or {}}
+        from pocket_memory.qa_feedback import scope_key
+        done_event['feedback_scope'] = scope_key(self.server.store.data_dir, self.server.preview_epoch)
         if diagnostics is not None:
             sources_event["diagnostics"] = diagnostics
             done_event["diagnostics"] = diagnostics
@@ -1327,6 +1678,8 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def _ask_stream(self, question: str, contexts: list[dict], sources: list[dict], history: list[dict] | None = None, expanded_terms: list[str] | None = None, kind: str = "qa", data: dict | None = None, display_question: str | None = None, request_started: float | None = None, retrieval_seconds: float = 0.0, conversation: dict | None = None, diagnostics: dict | None = None) -> None:
         """SSE 流式问答：先发 sources，再逐 token 发答案，最后发 done。"""
+        check_cancelled()
+        self._ask_headers_sent = True
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -1335,8 +1688,15 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
         def write_event(data: dict) -> None:
             payload = json.dumps(data, ensure_ascii=False)
-            self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
-            self.wfile.flush()
+            try:
+                with final_response() if data.get('type') == 'done' else nullcontext():
+                    check_cancelled()
+                    self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # The browser stopped waiting. Do not send a second error to a
+                # closed socket or log expected cancellation as a server fault.
+                raise _SilentAbort() from None
 
         request_started = request_started if request_started is not None else time.perf_counter()
         engine = self.server.intelligence_service.engine
@@ -1348,21 +1708,34 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                          "conversation": conversation or {}}
         if diagnostics is not None:
             sources_event["diagnostics"] = diagnostics
+        from pocket_memory.rag.source_preview import source_preview
+        preview = source_preview(self.server, sources)
+        if preview is not None:
+            sources_event["source_preview"] = preview
         write_event(sources_event)
 
         full_answer = ""
         generation_started = time.perf_counter()
         first_token_at: float | None = None
+        answer_stream = self._answer_stream_with_history(engine, question, contexts, history)
         try:
-            for delta in self._answer_stream_with_history(engine, question, contexts, history):
+            for delta in answer_stream:
+                check_cancelled()
                 if first_token_at is None and delta:
                     first_token_at = time.perf_counter()
                 full_answer += delta
                 write_event({"type": "token", "text": delta})
+        except _SilentAbort:
+            raise
         except Exception as exc:
             write_event({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
             return
+        finally:
+            close = getattr(answer_stream, 'close', None)
+            if callable(close):
+                close()
 
+        check_cancelled()
         model_finished = time.perf_counter()
         clean_answer = getattr(self.server.intelligence_service.engine, "_clean_answer", None)
         cleaned = clean_answer(full_answer) if callable(clean_answer) else full_answer.strip()
@@ -1399,6 +1772,8 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         done_event = {"type": "done", "answer": cleaned, "sources": answer_sources,
                       "kind": kind, "data": data or {}, "timing": timing,
                       "conversation": conversation or {}}
+        from pocket_memory.qa_feedback import scope_key
+        done_event['feedback_scope'] = scope_key(self.server.store.data_dir, self.server.preview_epoch)
         clarification_sources = self._clarification_source_payloads()
         if clarification_sources:
             done_event["clarification_sources"] = clarification_sources
@@ -1451,6 +1826,13 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         }
         target = action.group(1) if action else "操作"
         return f"请明确要{target}的对象或功能，例如“{examples.get(target, '当前操作为什么失败？')}”。"
+
+    def _send_model_unavailable(self, engine, reason=None):
+        model_path = getattr(engine, "model_path", None)
+        model_missing = isinstance(model_path, Path) and not model_path.is_file()
+        self._json({"error": engine.unavailable_reason if reason is None else reason,
+                    "code": "model_missing" if model_missing else "model_runtime_unavailable",
+                    "model_download": self.server.model_download_service.status()}, HTTPStatus.SERVICE_UNAVAILABLE)
 
     def _answer_with_history(
         self,
@@ -1551,7 +1933,7 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             raise RuntimeError(completed.stdout.strip() or "LlamaIndex 没有返回 JSON")
         return json.loads(lines[-1])
 
-    def _file(self, path: Path, root: Path | None = None) -> None:
+    def _file(self, path: Path, root: Path | None = None, status: HTTPStatus = HTTPStatus.OK) -> None:
         try:
             resolved = path.resolve()
             if root and not resolved.is_relative_to(root.resolve()):
@@ -1563,7 +1945,7 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
             return
         content_type = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
-        self.send_response(HTTPStatus.OK)
+        self.send_response(status)
         self.send_header("Content-Type", content_type)
         if root == self.static_dir:
             self.send_header("Cache-Control", "no-store")

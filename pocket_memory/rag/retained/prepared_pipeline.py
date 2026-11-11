@@ -6,6 +6,7 @@
 The execution body is preserved from v19 ask, except that preparation is
 supplied explicitly. No model routing, prompt rule or finalizer is changed.
 """
+from pocket_memory.rag.performance import completion
 from . import public_candidate as pinned
 from . import context_contract as contract_module
 import time
@@ -21,7 +22,7 @@ class PreparedContract(contract_module.Contract):
     def finish_prepared(self,prepared):
         packed,messages,trace=prepared
         start=time.perf_counter()
-        result=self.owner.engine._llm.create_chat_completion(messages=messages,max_tokens=contract_module.OUTPUT,temperature=0)
+        result=completion(self.owner.engine._llm,messages=messages,max_tokens=contract_module.OUTPUT,temperature=0)
         choice=result['choices'][0];usage=result.get('usage',{})
         if usage.get('prompt_tokens') is not None:
             assert usage['prompt_tokens']==trace['budget']['prompt_tokens'],'Native chat token accounting mismatch'
@@ -75,7 +76,7 @@ class PreparedStable(pinned.Candidate):
         messages=[dict(role='system',content=system),dict(role='user',content=f'参考资料：\n{context}\n\n问题：{question}')]
         used=sum(len(self.engine._llm.tokenize(m['content'].encode(),add_bos=False)) for m in messages)
         output=min(512,max(128,3072-used-128))
-        generated=self.engine._llm.create_chat_completion(messages=messages,max_tokens=output,temperature=0)
+        generated=completion(self.engine._llm,messages=messages,max_tokens=output,temperature=0)
         choice=generated['choices'][0];answer=choice['message']['content'] or ''
         r=dict(answer=answer,sources=[],provided_sources=[public(s) for s in packed],trace=dict(
             standard_route=p['route'],scope=p['scope'],retrieved=p.get('retrieved',[]),omitted=p.get('omitted',[]),

@@ -7,6 +7,7 @@ Reuses LlamaIndex SentenceSplitter and the local FlashRank scorer. The only
 deduplication is original-coordinate overlap, not inferred fact equivalence.
 No query generation, generated summaries, expected answers or domain lexicons.
 """
+from pocket_memory.rag.performance import timed, span, metric
 import copy,hashlib,re
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.schema import NodeWithScore
@@ -45,6 +46,7 @@ class CoverageContract:
                 if sequential and self.covered_length((left,right),after)<right-left:
                     lost.append(dict(source_id=source_id,span=[left,right]))
         return lost
+    @timed('evidence.coverage')
     def prepare(self,question,prepared):
         old,old_messages,trace=prepared
         hits=trace.get('retrieved',[])
@@ -53,7 +55,7 @@ class CoverageContract:
         # Count with the reranker's tokenizer to keep long portal/layout lines
         # searchable. The splitter also handles native Chinese sentence marks.
         if self.splitter is None:
-            tokenizer=self.owner.context.reranker.get_ranker().tokenizer
+            tokenizer=self.owner.context.reranker.get_tokenizer()
             self.splitter=SentenceSplitter(chunk_size=200,chunk_overlap=40,
                 tokenizer=lambda s:tokenizer.encode(s,add_special_tokens=False).ids,
                 chunking_tokenizer_fn=lambda s:re.findall(r'[^。！？；]+[。！？；]?',s),

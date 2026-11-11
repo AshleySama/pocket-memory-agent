@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0 - 2026-11-11
+
+First public stable release. Earlier 1.2.x builds were internal release candidates; their numbering is historical, not an upgrade predecessor for this new-user release.
+
+- Retain the verified local 4B, RAG/source safeguards, report workbench, drafts, import recovery, local tools and safe program updates.
+- Keep the subdued sidebar statistics; remove the duplicate total-note row. Today/week/categories/tags remain in a two-column grid.
+- Publish the complete offline download at the stable PocketMemory-latest.zip object; program updates remain versioned and model-free.
+- Canonical repository: https://github.com/AshleySama/pocket-memory-agent.
+
+# Changelog
+
 ## 1.2.0-beta.1 - 2026-10-29
 
 Beta source and separate Windows testing package; the existing Qwen3-4B-Instruct-2507 Q4_K_M model choice is retained.

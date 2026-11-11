@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+from pocket_memory.rag.performance import timed, span, metric
 
 import logging
+import hashlib
 import re
 import sys
 import threading
@@ -15,6 +17,7 @@ import numpy as np
 
 from pocket_memory.chunking import split_note_text
 from pocket_memory.storage import Note, NoteStore
+from pocket_memory import index_state
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +40,7 @@ class BgeEmbeddingEngine:
         self._session = None
         self._tokenizer = None
         self._error: str | None = None
+        self._index_identity = None
         self._lock = threading.Lock()
 
     @property
@@ -49,6 +53,7 @@ class BgeEmbeddingEngine:
         self._load()
         return self._error or ""
 
+    @timed('embedding.compute')
     def embed(self, text: str) -> np.ndarray:
         self._load()
         if self._session is None or self._tokenizer is None:
@@ -69,6 +74,7 @@ class BgeEmbeddingEngine:
         norm = float(np.linalg.norm(vector))
         return vector / norm if norm else vector
 
+    @timed('embedding.ensure_loaded')
     def _load(self) -> None:
         if self._session is not None or self._error is not None:
             return
@@ -84,11 +90,27 @@ class BgeEmbeddingEngine:
                 missing = [str(path) for path in (model_path, tokenizer_path) if not path.is_file()]
                 if missing:
                     raise FileNotFoundError("BGE 模型文件缺失: " + ", ".join(missing))
+                paths=(model_path,tokenizer_path)
+                before=[(p.stat().st_size,p.stat().st_mtime_ns,p.stat().st_ctime_ns) for p in paths]
+                asset_hashes=[]
+                with span('index.model_fingerprint'):
+                    for path in paths:
+                        with path.open('rb') as stream:
+                            asset_hashes.append(hashlib.file_digest(stream,'sha256').hexdigest())
                 self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
                 self._session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+                after=[(p.stat().st_size,p.stat().st_mtime_ns,p.stat().st_ctime_ns) for p in paths]
+                if before==after:
+                    from importlib.metadata import version
+                    self._index_identity = [asset_hashes,ort.__version__,version('tokenizers'),
+                                            'CPUExecutionProvider:text4000:tokens512:CLS:l2:float32:v1']
             except Exception as exc:
                 self._error = f"{type(exc).__name__}: {exc}"
                 logger.info("BGE embedding unavailable: %s", self._error)
+
+    def index_identity(self):
+        self._load()
+        return self._index_identity
 
 
 class EmbeddingService:
@@ -178,7 +200,11 @@ class EmbeddingService:
 
     def enqueue_document(self, document_id: int) -> None:
         """Embed each extracted file chunk separately for long-document recall."""
-        epoch = self.store.source_revision()[0]
+        with self.store._lock:
+            epoch = self.store.source_revision()[0]
+            document = self.store.get_document(document_id)
+            if document.status not in {"indexing", "ready"} or not self.store.list_document_chunks(document_id):
+                return
         if self.engine.available:
             self._submit(self._process_document, document_id, epoch)
         else:
@@ -186,7 +212,8 @@ class EmbeddingService:
             with self.store._lock:
                 if self.store.source_revision()[0] == epoch:
                     try:
-                        self.store.set_document_status(document_id, "ready")
+                        if self.store.get_document(document_id) == document:
+                            self.store.set_document_status(document_id, "ready", expected_sha256=document.sha256)
                     except KeyError:
                         pass
 
@@ -222,6 +249,12 @@ class EmbeddingService:
     def rebuild(self) -> None:
         if not self.engine.available:
             logger.warning("Embedding rebuild skipped: engine unavailable (%s)", self.engine.unavailable_reason)
+            # Text extraction already commits the keyword-searchable chunks.
+            # A restart without the optional vector model must not leave that
+            # completed work stuck in indexing; failed/empty imports stay failed.
+            for document in self.store.list_documents(limit=100000):
+                if document.status == "indexing":
+                    self.enqueue_document(document.id)
             return
         # 先清理孤儿向量：历史删除笔记时若未同步删 embedding，此处兜底清理，
         # 否则 embedding_count 会大于实际笔记数，语义检索也会因 get_note 失败而报错。
@@ -367,6 +400,14 @@ class EmbeddingService:
                 self._clear_index_error("note", note_id, epoch)
                 return
             fingerprint = self._note_fingerprint(note)
+            model=index_state.model_key(self.engine)
+            source=index_state.digest([index_state.PROTOCOL,fingerprint])
+            def validate():
+                return (self.store.source_revision()[0]==epoch and
+                        self._note_fingerprint(self.store.get_note(note_id))==fingerprint)
+            if index_state.reuse(self.store,'note',note_id,model,source,validate):
+                self._clear_index_error('note',note_id,epoch)
+                return
             text = "\n".join(
                 part
                 for part in (
@@ -405,20 +446,7 @@ class EmbeddingService:
                 if self._note_fingerprint(self.store.get_note(note_id)) != fingerprint:
                     self._record_index_error("note", note_id, epoch, "Source changed during indexing; reindex required")
                     return
-                self.store.upsert_embedding(note_id, vector)
-                stored_chunks = self.store.list_note_chunks(note_id)
-                existing_fields = [
-                    (chunk.title, chunk.text, chunk.location, chunk.kind, chunk.chunk_order)
-                    for chunk in stored_chunks
-                ]
-                computed_fields = [
-                    (chunk["title"], chunk["text"], chunk["location"], chunk["kind"], order)
-                    for order, chunk in enumerate(chunks)
-                ]
-                if existing_fields != computed_fields:
-                    stored_chunks = self.store.replace_note_chunks(note_id, chunks)
-                for chunk, chunk_vector in zip(stored_chunks, chunk_vectors):
-                    self.store.upsert_note_chunk_embedding(chunk.id, chunk_vector)
+                index_state.publish_note(self.store,note_id,chunks,vector,chunk_vectors,model,source,validate)
                 self._clear_index_error("note", note_id, epoch)
         except KeyError as exc:
             self._record_index_error("note", note_id, epoch, f"KeyError: {exc}")
@@ -438,6 +466,17 @@ class EmbeddingService:
                 epoch = current_epoch
                 document = self.store.get_document(document_id)
                 chunks = self.store.list_document_chunks(document_id)
+                if document.status not in {"indexing", "ready"} or not chunks:
+                    return
+            model=index_state.model_key(self.engine)
+            source=index_state.document_source(document,chunks)
+            def validate():
+                return (self.store.source_revision()[0]==epoch and
+                        self.store.get_document(document_id)==document and
+                        self.store.list_document_chunks(document_id)==chunks)
+            if document.status=='ready' and index_state.reuse(self.store,'document',document_id,model,source,validate):
+                self._clear_index_error('document',document_id,epoch)
+                return
             chunk_vectors = []
             for chunk in chunks:
                 text = "\n".join(part for part in (chunk.title, chunk.location, chunk.text) if part.strip())
@@ -448,9 +487,7 @@ class EmbeddingService:
                 if self.store.get_document(document_id) != document or self.store.list_document_chunks(document_id) != chunks:
                     self._record_index_error("document", document_id, epoch, "Source changed during indexing; reindex required")
                     return
-                for chunk, vector in zip(chunks, chunk_vectors):
-                    self.store.upsert_document_chunk_embedding(chunk.id, vector)
-                self.store.set_document_status(document_id, "ready")
+                index_state.publish_document(self.store,document_id,chunks,chunk_vectors,model,source,validate)
                 self._clear_index_error("document", document_id, epoch)
         except KeyError as exc:
             self._record_index_error("document", document_id, epoch, f"KeyError: {exc}")

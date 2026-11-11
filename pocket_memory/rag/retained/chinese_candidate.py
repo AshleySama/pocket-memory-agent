@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Isolated table contract, with the prior interface evidence path untouched."""
+from pocket_memory.rag.performance import completion
 import json
 import re
+import sqlite3
 import unicodedata
 from pathlib import Path
 import time
@@ -20,14 +22,23 @@ class Candidate(prior.Candidate):
         self._retrieval_once=None
         self.coverage_trace={}
         self.current_scope=[]
+        # The outer Bridge can provide its existing immutable OCR snapshot.
+        # Standalone legacy callers fetch it lazily only for a retrieved OCR hit.
+        self.coverage_ocr_originals=None
 
     def pack(self,retrieved):
-        result=coverage_pack(self.question,retrieved,self.notes,self.schemas,self.current_scope)
+        if self.coverage_ocr_originals is None and any(h.node.metadata.get('kind')=='ocr' for h in retrieved):
+            with sqlite3.connect(self.context.store.db_path.resolve().as_uri()+'?mode=ro',uri=True) as con:
+                self.coverage_ocr_originals=dict(con.execute('SELECT id,ocr_text FROM notes WHERE ocr_text IS NOT NULL'))
+        ocr_audit={}
+        result=coverage_pack(self.question,retrieved,self.notes,self.schemas,self.current_scope,
+                             ocr_originals=self.coverage_ocr_originals,audit=ocr_audit)
         if result is not None:
             packed,omitted,self.coverage_trace=result
             self.schema_trace={'active':False,'reason':'verified whole-source composite coverage'}
             return packed,omitted
         self.coverage_trace={'active':False}
+        if ocr_audit:self.coverage_trace['ocr_adapter']=ocr_audit
         return super().pack(retrieved)
 
     def retrieve(self,question):
@@ -122,7 +133,7 @@ class Candidate(prior.Candidate):
                         citation_guard={'repair_calls':0},schema_context={'active':False,'reason':'separate general table contract'})
         if request.get('blocked'):
             return dict(answer=request['blocked'],sources=[],provided_sources=[],answer_status='table_scope_clarify',trace=base_trace)
-        generated=self.engine._llm.create_chat_completion(messages=request['messages'],max_tokens=220,temperature=0,
+        generated=completion(self.engine._llm,messages=request['messages'],max_tokens=220,temperature=0,
                   response_format={'type':'json_object','schema':request['schema']})
         choice=generated['choices'][0];raw=choice['message']['content'] or ''
         try: plan=json.loads(raw)

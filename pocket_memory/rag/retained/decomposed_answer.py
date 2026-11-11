@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Bounded source-wise selection, no synthesized factual text or repair loop."""
+from pocket_memory.rag.performance import completion
 import hashlib,json,re
 from . import bound_answer
 from . import evidence_render
@@ -40,7 +41,7 @@ def joint(question,sources,display,llm,calls):
     used=sum(len(llm.tokenize(m['content'].encode(),add_bos=False)) for m in messages)
     output=min(768,3072-used-128)
     if output<384:raise ValueError('Whole source context does not leave a safe answer budget')
-    out=llm.create_chat_completion(messages=messages,max_tokens=output,temperature=0)
+    out=completion(llm,messages=messages,max_tokens=output,temperature=0)
     choice=out['choices'][0];answer=choice['message']['content'] or ''
     calls.append(dict(messages=messages,raw=answer,finish_reason=choice['finish_reason'],usage=out.get('usage')))
     if choice['finish_reason']!='stop':raise ValueError('Answer was truncated; do not present it as complete')
@@ -53,7 +54,7 @@ def ask(question,sources,splitter,table,display,llm,calls=None):
     by_source={}
     for key,atom in request['atoms'].items():by_source.setdefault(atom['source']['source_key'],[]).append((key,atom))
     def generate(messages,schema):
-        out=llm.create_chat_completion(messages=messages,max_tokens=220,temperature=0,response_format=dict(type='json_object',schema=schema))
+        out=completion(llm,messages=messages,max_tokens=220,temperature=0,response_format=dict(type='json_object',schema=schema))
         choice=out['choices'][0];raw=choice['message']['content'] or ''
         calls.append(dict(messages=messages,raw=raw,finish_reason=choice['finish_reason'],usage=out.get('usage')))
         return json.loads(raw)

@@ -207,6 +207,12 @@ class EmbeddingLifecycleTests(unittest.TestCase):
         self.assertEqual("document", self.service.index_errors()[0]["source_kind"])
 
         self.engine.fail = False
+        # Import retry transitions failed -> indexing before asking the embedding
+        # worker to process saved chunks. Failed records are not retried implicitly.
+        self.service.enqueue_document(document.id)
+        self.assertTrue(self.service.drain(timeout=3))
+        self.assertFalse(self.service.index_ready())
+        self.store.set_document_status(document.id, "indexing")
         self.service.enqueue_document(document.id)
         self.assertTrue(self.service.drain(timeout=3))
         self.assertTrue(self.service.index_ready())

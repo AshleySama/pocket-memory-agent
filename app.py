@@ -11,9 +11,11 @@ import sys
 import threading
 import time
 import webbrowser
+import json
+from urllib.request import urlopen
 from pathlib import Path
 
-from pocket_memory.config import AppConfig
+from pocket_memory.config import AppConfig, app_directory
 from pocket_memory.daemon import (
     clear_lock,
     detect_running_server,
@@ -23,6 +25,7 @@ from pocket_memory.daemon import (
 )
 from pocket_memory.server import PocketMemoryServer, is_loopback_host
 from pocket_memory.storage import NoteStore
+from pocket_memory.directory_picker import choose_directory
 
 logger = logging.getLogger(__name__)
 
@@ -78,29 +81,10 @@ def default_data_dir() -> Path:
     return Path.home() / ".local" / "share" / "pocket-memory"
 
 
-def choose_directory(initial_dir: Path | None = None) -> Path | None:
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        selected = filedialog.askdirectory(
-            title="选择 Pocket Memory 数据目录",
-            initialdir=str(initial_dir) if initial_dir else None,
-            mustexist=False,
-        )
-        root.destroy()
-        return Path(selected).resolve() if selected else None
-    except Exception as exc:
-        logger.warning("系统目录选择器不可用: %s", exc)
-        return None
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Pocket Memory local MVP")
     parser.add_argument("--data-dir", type=Path, help="Override the configured data directory")
+    parser.add_argument("--beta", action="store_true", help="Use data-beta only when this Beta profile has no selected library")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--no-browser", action="store_true")
@@ -111,18 +95,31 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def selected_data_dir(args, config: AppConfig) -> Path | None:
+    """An existing profile selection wins over the portable Beta's default."""
+    if args.data_dir:
+        return args.data_dir.resolve()
+    if config.data_dir is not None:
+        return config.data_dir
+    return app_directory() / 'data-beta' if args.beta else None
+
+
 def run_server_only(config: AppConfig, data_dir: Path, host: str, port: int) -> int:
     """仅运行 server（作为守护子进程被启动）。模型常驻，直到收到 shutdown 请求。"""
     if not is_loopback_host(host):
         print("安全限制：Pocket Memory 仅允许监听 127.0.0.1、::1 或 localhost。")
         return 2
+    if os.environ.get('PM_UPDATE_HEALTH_TOKEN'):
+        from pocket_memory.update_probe import run_probe
+        return run_probe(config, data_dir, resource_path('frontend'), host, port)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
     store = NoteStore(data_dir)
     welcome_image = resource_path("frontend/PocketMemory_welcome.jpg")
-    try:
-        store.ensure_welcome_note(welcome_image)
-    except Exception:
-        logger.exception("创建欢迎笔记失败")
+    if not os.environ.get('PM_UPDATE_HEALTH_TOKEN'):
+        try:
+            store.ensure_welcome_note(welcome_image)
+        except Exception:
+            logger.exception("创建欢迎笔记失败")
     server = PocketMemoryServer((host, port), store, config, choose_directory)
     logger.info("Pocket Memory server (daemon) running at http://%s:%s", host, server.server_port)
     try:
@@ -209,6 +206,46 @@ def spawn_server_process(data_dir: Path, host: str, port: int, debug: bool) -> s
     return proc
 
 
+def update_is_restarting(url: str) -> bool:
+    try:
+        with urlopen(url + '/api/app-update', timeout=2) as response:
+            value = json.load(response)
+        return value.get('state') == 'restarting' and value.get('shutdown_requested') is True
+    except Exception:
+        return False
+
+
+def close_launcher_for_update(url: str, destroy_window=None, *, exit_process=None,
+                              close_timeout: float = 3.0) -> bool:
+    """Exit only this launcher after the server confirms its worker handoff.
+
+    pywebview/.NET can retain the launcher even after its native window closes.
+    Bound both a stuck destroy call and lingering native threads. The daemon owns
+    the library and finishes saving independently; the worker also waits for it.
+    Normal window closure never uses this forced-exit path.
+    """
+    if not update_is_restarting(url):
+        return False
+    if destroy_window is not None:
+        finished = threading.Event()
+
+        def close_window():
+            try:
+                destroy_window()
+            except Exception:
+                logger.warning("更新时关闭本窗口失败，将退出当前启动器", exc_info=True)
+            finally:
+                finished.set()
+
+        threading.Thread(target=close_window, daemon=True,
+                         name="update-launcher-close").start()
+        finished.wait(close_timeout)
+    # os._exit affects this launcher only: never terminate the daemon or another
+    # PocketMemory process, and do not rely on .NET's thread shutdown behavior.
+    (exit_process if exit_process is not None else os._exit)(0)
+    return True  # Injectable callbacks can return in focused tests.
+
+
 def open_webview(url: str, debug: bool) -> None:
     """打开 webview 窗口。关闭窗口后函数返回，但不影响 server。"""
     webview = None
@@ -226,6 +263,8 @@ def open_webview(url: str, debug: bool) -> None:
         print(f"如需完全退出，请运行: python app.py --quit")
         try:
             while True:
+                if close_launcher_for_update(url):
+                    return
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
@@ -238,12 +277,14 @@ def open_webview(url: str, debug: bool) -> None:
             print(f"如需完全退出，请运行: python app.py --quit")
             try:
                 while True:
+                    if close_launcher_for_update(url):
+                        return
                     time.sleep(1)
             except KeyboardInterrupt:
                 pass
             return
 
-        webview.create_window(
+        window = webview.create_window(
             "Pocket Memory",
             url,
             width=1180,
@@ -257,11 +298,24 @@ def open_webview(url: str, debug: bool) -> None:
             start_kwargs["icon"] = icon_path
         if debug:
             start_kwargs["debug"] = True
-        webview.start(**start_kwargs)
+        stopped = threading.Event()
+        def update_watch():
+            while not stopped.wait(1):
+                if close_launcher_for_update(url, window.destroy):
+                    return
+        threading.Thread(target=update_watch, daemon=True, name='update-window-watch').start()
+        try:
+            webview.start(**start_kwargs)
+        finally:
+            stopped.set()
 
 
 def main() -> int:
     args = parse_args()
+
+    # Preserve the exact selected config when an updater restarts the application.
+    configured_path = os.environ.get('PM_UPDATE_CONFIG_PATH')
+    config_path = Path(configured_path).resolve() if configured_path else None
 
     if not is_loopback_host(args.host):
         print("安全限制：Pocket Memory 仅允许监听 127.0.0.1、::1 或 localhost。")
@@ -269,15 +323,15 @@ def main() -> int:
 
     # --quit：退出后台 server
     if args.quit:
-        config = AppConfig.load()
-        data_dir = args.data_dir.resolve() if args.data_dir else config.data_dir
+        config = AppConfig.load(config_path)
+        data_dir = selected_data_dir(args, config)
         if data_dir is None:
             print("未配置数据目录，无法定位 server")
             return 1
         return quit_running_server(data_dir)
 
-    config = AppConfig.load()
-    data_dir = args.data_dir.resolve() if args.data_dir else config.data_dir
+    config = AppConfig.load(config_path)
+    data_dir = selected_data_dir(args, config)
     if data_dir is None:
         data_dir = default_data_dir()
         config.set_data_dir(data_dir)

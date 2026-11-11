@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
@@ -434,13 +435,59 @@ class DocumentImportService:
         self.embedding_service = embedding_service
         self.ocr_engine = ocr_engine
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pocket-memory-document")
+        self._queue_lock = threading.RLock()
+        self._pending: set[tuple] = set()
 
-    def enqueue(self, document_id: int) -> None:
-        self.store.set_document_status(document_id, "extracting")
-        self.executor.submit(self._process, document_id)
+    def _version(self, document: Document) -> tuple:
+        # Called under the store lock. A new file/profile/manual merge is new
+        # work, while repeated retry clicks for the same work are coalesced.
+        adjustments = self.store.connection.execute(
+            "SELECT start_order, end_order FROM document_chunk_adjustments "
+            "WHERE document_id = ? AND document_sha256 = ? AND profile = ? "
+            "ORDER BY start_order, end_order",
+            (document.id, document.sha256, document.chunk_profile),
+        ).fetchall()
+        return (self.store.source_revision()[0], document.id, document.sha256,
+                document.stored_path, document.file_type, document.chunk_profile,
+                tuple(tuple(row) for row in adjustments))
 
-    def reindex(self, document_id: int) -> None:
-        self.enqueue(document_id)
+    def enqueue(self, document_id: int) -> bool:
+        with self._queue_lock, self.store._lock:
+            document = self.store.get_document(document_id)
+            version = self._version(document)
+            if version in self._pending or (document.status == "indexing" and self.store.list_document_chunks(document_id)):
+                return False
+            self._pending.add(version)
+            try:
+                self.store.set_document_status(document_id, "extracting", expected_sha256=document.sha256)
+                self.executor.submit(self._process, document_id, version)
+            except Exception as exc:
+                self._pending.discard(version)
+                self.store.set_document_status(
+                    document_id, "failed", f"原文件已保存，未能启动处理，请重试。{type(exc).__name__}: {exc}",
+                    expected_sha256=document.sha256,
+                )
+                return False
+            return True
+
+    def reindex(self, document_id: int) -> bool:
+        return self.enqueue(document_id)
+
+    def recover(self) -> None:
+        """Expose interrupted extraction for retry without claiming it is ready."""
+        with self.store._lock:
+            for document in self.store.list_documents(limit=100000):
+                unfinished = document.status in {"pending", "extracting"}
+                empty_result = (document.status in {"indexing", "ready"}
+                                and not self.store.list_document_chunks(document.id))
+                if unfinished or empty_result:
+                    message = ("上次导入未完成，原文件已保存，请重试解析。"
+                               if (self.store.data_dir / document.stored_path).is_file()
+                               else "导入原文件暂不可用，请重新选择同一文件以恢复。")
+                    self.store.set_document_status(
+                        document.id, "failed", message,
+                        expected_sha256=document.sha256,
+                    )
 
     def status(self) -> dict:
         documents = self.store.list_documents()
@@ -454,24 +501,43 @@ class DocumentImportService:
     def shutdown(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)
 
-    def _process(self, document_id: int) -> None:
+    def _process(self, document_id: int, version: tuple | None = None) -> None:
         document = None
         try:
-            document = self.store.get_document(document_id)
-            path = self.store.data_dir / document.stored_path
+            with self.store._lock:
+                document = self.store.get_document(document_id)
+                current = self._version(document)
+                if version is not None and current != version:
+                    return
+                version = current
+                path = self.store.data_dir / document.stored_path
             ocr = self._recognize if self.ocr_engine is not None and self.ocr_engine.available else None
             chunks = DocumentExtractor.extract(document, path, ocr, profile=document.chunk_profile)
-            chunks = self.store.apply_document_chunk_adjustments(document, chunks)
             if not chunks:
                 raise ValueError("没有可索引的文本")
-            replaced = self.store.replace_document_chunks(document_id, chunks, expected_sha256=document.sha256)
-            if replaced is not None:
-                self.embedding_service.enqueue_document(document_id)
+            with self.store._lock:
+                if self._version(self.store.get_document(document_id)) != version:
+                    return
+                chunks = self.store.apply_document_chunk_adjustments(document, chunks)
+                replaced = self.store.replace_document_chunks(document_id, chunks, expected_sha256=document.sha256)
+                if replaced is not None:
+                    self.embedding_service.enqueue_document(document_id)
         except KeyError:
             return
         except Exception as exc:
-            if document is not None and self.store.document_matches_sha256(document_id, document.sha256):
-                self.store.set_document_status(document_id, "failed", f"{type(exc).__name__}: {exc}")
+            if document is not None:
+                with self.store._lock:
+                    try:
+                        if self._version(self.store.get_document(document_id)) == version:
+                            self.store.set_document_status(
+                                document_id, "failed", f"{type(exc).__name__}: {exc}",
+                                expected_sha256=document.sha256,
+                            )
+                    except KeyError:
+                        pass
+        finally:
+            with self._queue_lock:
+                self._pending.discard(version)
 
     def _recognize(self, path: Path) -> str:
         return self.ocr_engine.recognize(path)

@@ -1,0 +1,38 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+.app-update-notice[hidden],.app-update-panel [hidden]{display:none!important}
+.app-update-notice{display:inline-flex;align-items:center;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface-solid);overflow:hidden;flex-shrink:0}
+.app-update-notice .update-badge{display:block;margin:0;padding:5px 9px;font-size:12px;line-height:1.5;border:0;border-radius:0;background:transparent;color:var(--accent);box-shadow:none;animation:none;text-decoration:none;white-space:nowrap}
+.app-update-notice .update-badge:hover{background:var(--accent-soft);box-shadow:none;transform:none}
+.app-update-notice .app-update-dismiss{padding:4px 7px;line-height:1.5;font-size:16px;color:var(--text-soft);border:0;border-left:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none}
+.app-update-panel{color:var(--text)}
+.app-update-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:18px}
+.app-update-heading h3{margin:0 0 5px;font-size:18px;font-weight:650}
+.app-update-heading p{margin:0;font-size:12px;color:var(--text-soft)}
+.app-update-state{padding:3px 8px;border:1px solid var(--border);border-radius:4px;color:var(--text-soft);font-size:11px;white-space:nowrap;background:var(--surface-soft)}
+.app-update-versions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0 0 17px;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.app-update-versions dt{font-size:12px;color:var(--text-soft);margin-bottom:5px}
+.app-update-versions dd{font-size:15px;font-weight:600;margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.app-update-panel .app-update-message{margin:0 0 12px;font-size:13px;line-height:1.75;overflow-wrap:anywhere}
+.app-update-panel .app-update-preview{margin:8px 0 16px;padding:10px 12px;background:var(--surface-soft);border-left:2px solid var(--border-strong);font-size:12px;color:var(--text-soft)}
+.app-update-changes{margin:17px 0;padding-top:14px;border-top:1px solid var(--border)}
+.app-update-changes h4{font-size:13px;margin:0 0 8px;font-weight:600}
+.app-update-changes p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.8;margin:0;max-height:180px;overflow:auto}
+.app-update-progress-wrap{display:flex;flex-direction:column;gap:6px;margin:18px 0}
+.app-update-progress-wrap progress{width:100%;height:9px;accent-color:var(--accent);border:0;border-radius:3px;overflow:hidden}
+.app-update-progress-wrap progress::-webkit-progress-bar{background:var(--surface-soft)}
+.app-update-progress-wrap progress::-webkit-progress-value{background:var(--accent)}
+.app-update-progress-wrap span{font-size:12px;color:var(--text-soft);font-variant-numeric:tabular-nums}
+.app-update-panel .app-update-error{margin:12px 0;padding:10px 12px;color:var(--danger);background:var(--surface-soft);border-left:2px solid var(--danger);font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+.app-update-panel .app-update-last-result{margin:14px 0;padding:10px 12px;background:var(--surface-soft);border-left:2px solid var(--border-strong);font-size:12px;line-height:1.7;color:var(--text-soft);overflow-wrap:anywhere}
+.app-update-panel .app-update-last-result[data-failed=true]{border-color:var(--warn)}
+.app-update-panel .app-update-protection{margin:16px 0 0;color:var(--text-soft);font-size:12px;line-height:1.7}
+.app-update-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:20px;padding-top:17px;border-top:1px solid var(--border)}
+.app-update-actions #app-update-later{margin-left:auto}
+.app-update-actions button{font-size:13px}
+.app-update-panel[data-state=error] .app-update-state{color:var(--danger)}
+.app-update-panel[data-state=available] .app-update-state{color:var(--accent);border-color:var(--border-strong)}
+#settings-dialog .settings-tabs{flex-wrap:wrap}
+@media(max-width:560px){.app-update-versions{gap:10px}.app-update-versions dd{font-size:13px}.app-update-heading{gap:9px}.app-update-actions{gap:7px}.app-update-actions button{padding:8px 10px}.app-update-notice .update-badge{max-width:140px;overflow:hidden;text-overflow:ellipsis}}

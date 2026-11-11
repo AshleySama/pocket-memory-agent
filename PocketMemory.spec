@@ -7,6 +7,9 @@ import re
 import runpy
 from pathlib import Path
 
+policy = runpy.run_path(str(Path(SPECPATH) / 'scripts' / 'release_policy.py'))
+excluded_resource = policy['excluded_resource']
+
 release_version = runpy.run_path(str(Path(SPECPATH) / 'pocket_memory' / 'version.py'))['APP_VERSION']
 version_numbers = tuple(int(n) for n in re.match(r'(\d+)\.(\d+)\.(\d+)', release_version).groups()) + (0,)
 
@@ -85,6 +88,10 @@ if os.environ.get('POCKET_MEMORY_NO_MODELS') != '1':
 # - matplotlib：仅 scripts/evaluate_rag.py 画图用
 # 注意：不排除 distutils/lib2to3 等，PyInstaller 自身钩子依赖它们会崩溃
 excludes = [
+    'hf_xet', 'nltk.test',
+    'rapidocr.inference_engine.mnn', 'rapidocr.inference_engine.openvino',
+    'rapidocr.inference_engine.paddle', 'rapidocr.inference_engine.pytorch',
+    'rapidocr.inference_engine.tensorrt',
     'pytest', 'unittest', 'doctest',
     'haystack', 'transformers', 'torch', 'tensorflow',
     'llama_index.llms.openai', 'llama_index.embeddings.openai',
@@ -95,7 +102,7 @@ excludes = [
 
 a = Analysis(
     ['app.py'],
-    pathex=[],
+    pathex=[SPECPATH],
     binaries=llama_dlls[1] + rapidocr_datas[1] + docx_bundle[1] + openpyxl_bundle[1] + pymupdf_bundle[1],
     datas=datas + llama_dlls[0] + rapidocr_datas[0] + docx_bundle[0] + openpyxl_bundle[0] + pymupdf_bundle[0] + rag_datas,
     hiddenimports=llama_dlls[2] + rapidocr_datas[2] + docx_bundle[2] + openpyxl_bundle[2] + pymupdf_bundle[2] + rag_hiddenimports,
@@ -106,6 +113,10 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# PyInstaller hooks can collect data independently of module excludes.
+# Keep the same policy at build and delivery boundaries.
+a.binaries = [item for item in a.binaries if not excluded_resource(item[0])]
+a.datas = [item for item in a.datas if not excluded_resource(item[0])]
 pyz = PYZ(a.pure)
 
 # 版本信息资源：让 exe 在 Windows 属性中显示为正规软件，降低杀软启发式风险

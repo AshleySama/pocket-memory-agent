@@ -1,17 +1,20 @@
+<!-- Copyright 2026 AshleySama
+SPDX-License-Identifier: Apache-2.0 -->
+
 <!doctype html>
-<!--
-Copyright 2026 AshleySama
-SPDX-License-Identifier: Apache-2.0
--->
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="/brand/pocket-memory-small-logo.png">
+    <link rel="stylesheet" href="/drafts.css?v=20261108">
+    <link rel="stylesheet" href="/imports.css?v=20261108">
     <link id="notification-icon" rel="prefetch" href="/brand/pocket-memory-small-logo.png">
     <title>Pocket Memory</title>
-  <link rel="stylesheet" href="/styles.css?v=20261007-nav-1">
-  <link rel="stylesheet" href="/ui-controls.css?v=20261007-brand-align-1">
+  <link rel="stylesheet" href="/styles.css?v=20261111-sidebar-rainbow">
+  <link rel="stylesheet" href="/ui-controls.css?v=20261111-list-sidebar">
+  <link rel="stylesheet" href="/app-update.css?v=20261109">
+  <link rel="stylesheet" href="/office-tools.css?v=20261111">
   </head>
   <body class="knowledge-workbench">
     <header class="app-header">
@@ -39,22 +42,19 @@ SPDX-License-Identifier: Apache-2.0
         <button id="graph-button" class="ghost" type="button">知识图谱</button>
         <button id="report-button" class="ghost" type="button">专题报告</button>
         <button id="settings-button" class="ghost" type="button">设置</button>
-        <a id="update-badge" class="update-badge hidden" href="#" target="_blank" title="发现新版本，点击下载">有新版本</a>
+        <span id="app-update-notice" class="app-update-notice" hidden><button id="update-badge" class="update-badge" type="button" title="打开软件更新">有新版本</button><button id="app-update-dismiss" class="app-update-dismiss" type="button" aria-label="关闭更新通知" title="稍后提醒">×</button></span>
       </div>
     </header>
 
     <main class="workspace">
       <aside class="sidebar">
-        <div class="sidebar-header">
-          <h2>我的资料库</h2>
-          <button id="new-folder-btn" class="ghost icon-btn" type="button" title="新建顶级分区">+</button>
-        </div>
+        <hr class="sidebar-top-divider">
         <div id="new-folder-inline" class="folder-inline-slot"></div>
         <details class="sidebar-section recent-section" open>
           <summary>最近编辑</summary>
           <nav id="recent-nav" class="recent-nav"></nav>
         </details>
-        <nav id="category-nav"></nav>
+        <nav id="category-nav"><button id="new-folder-btn" class="ghost icon-btn" type="button" title="新建顶级分区" aria-label="新建顶级分区">+</button></nav>
 
         <details class="sidebar-section favorites-section">
           <summary><span>收藏夹</span><b id="favorite-count">0</b></summary>
@@ -95,7 +95,7 @@ SPDX-License-Identifier: Apache-2.0
               <button class="result-scope-button" type="button" data-result-scope="document">文档 <b id="document-result-count">0</b></button>
               <span id="result-summary" class="result-summary">正在加载笔记</span>
             </div>
-            <button id="result-sort" class="result-sort" type="button" title="点击切换更新时间降序或升序">按更新时间 ↓</button>
+            <button id="result-sort" class="result-sort" type="button" title="拖动笔记调整顺序；点击按更新时间降序排列">手动顺序</button>
           </div>
           <div id="report-selection-bar" class="report-selection-bar hidden" aria-live="polite">
             <span id="report-selection-count">已选 0 项资料</span>
@@ -132,6 +132,7 @@ SPDX-License-Identifier: Apache-2.0
         </div>
         <div class="detail-content">
           <div id="editor-pane" class="detail-pane active">
+            <div class="draft-protection-bar"><span id="draft-protection-status" role="status" aria-live="polite">正在连接草稿保护…</span><button id="retry-drafts" class="ghost" type="button" hidden>重试</button><button id="open-drafts" class="ghost" type="button">草稿箱</button></div>
             <section id="editor-dock" class="editor-dock" aria-label="当前笔记阅读与编辑">
               <div id="editor-dock-content" class="editor-dock-content"></div>
             </section>
@@ -141,11 +142,36 @@ SPDX-License-Identifier: Apache-2.0
           </div>
 
           <div id="tool-pane" class="detail-pane">
+            <section id="office-tools" class="office-tools card" aria-label="待办与文字助手">
+              <h2>待办与文字助手</h2>
+              <p class="office-caption">使用当前笔记或粘贴文字，由本机小模型处理。</p>
+              <div class="office-tool-tabs" role="group" aria-label="选择文字工具">
+                <button type="button" class="ghost" data-office-kind="todos" aria-pressed="true">待办提取</button>
+                <button type="button" class="ghost" data-office-kind="rewrite" aria-pressed="false">文本加工</button>
+              </div>
+              <p id="office-hint" class="office-caption"></p>
+              <div class="office-input-actions">
+                <button id="office-current" type="button" class="ghost">使用当前笔记</button>
+                <button id="office-selection" type="button" class="ghost" disabled>使用选中文字</button>
+                <button id="office-clear" type="button" class="ghost">清空</button>
+              </div>
+              <label for="office-text">需要处理的文字</label>
+              <textarea id="office-text" rows="7" placeholder="在这里粘贴一段记录、消息或说明…" aria-describedby="office-count office-source"></textarea>
+              <div class="office-meta office-caption"><span id="office-source"></span><span id="office-count" class="office-count"></span></div>
+              <div id="office-rewrite-options" class="office-options" hidden>
+                <label>加工方式<select id="office-mode"><option value="polish">润色表达</option><option value="concise">精简内容</option><option value="polite">礼貌措辞</option><option value="correct">纠正错别字</option></select></label>
+              </div>
+              <div class="office-input-actions"><button id="office-run" type="button" disabled>开始待办提取</button><button id="office-stop" type="button" class="ghost" hidden>停止等待</button></div>
+              <div id="office-status" class="office-status" role="status" aria-live="polite"></div>
+              <p id="office-draft-warning" class="office-draft-warning" role="status" hidden></p>
+              <section id="office-result" class="office-result" aria-label="可编辑的处理结果" hidden></section>
+              <details class="office-saved-list" open><summary>我的待办 · <span id="office-todo-count">0</span> 项未完成</summary><div id="office-saved-todos"></div></details>
+            </section>
             <section class="tool-panel card">
               <div class="tool-header">
                 <div>
                   <p class="eyebrow">本地小工具</p>
-                  <h2>告诉小模型你想做什么</h2>
+                  <h2>提醒与番茄钟</h2>
                 </div>
               </div>
               <div class="tool-input-row">
@@ -181,6 +207,10 @@ SPDX-License-Identifier: Apache-2.0
         <input id="document-folder-input" type="file" multiple webkitdirectory directory hidden>
         <input id="document-replace-input" type="file" accept=".txt,.docx,.xlsx,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
         <p id="document-import-hint" class="muted">支持 TXT、Word、Excel、PDF。导入后会按标准策略建立本地切片索引，单个文件最大 10MB。</p>
+        <p class="muted">文件先暂存在本机当前浏览器中，显示“已暂存”后可关闭页面。重新打开可继续导入；清理网站数据会移除尚未入库的暂存。待导入暂存上限 200MB。</p>
+        <div class="import-status-header"><h3>导入进度与待处理文件</h3><div class="import-status-actions"><button id="import-resume" type="button" class="ghost" disabled>继续待导入文件</button><button id="import-refresh" type="button" class="ghost">刷新状态</button><button id="import-clear" type="button" class="ghost">清除已完成记录</button></div></div>
+        <p id="import-summary" class="import-summary" role="status" aria-live="polite"></p>
+        <ul id="import-status-list" class="import-status-list"></ul>
       </div>
     </dialog>
 
@@ -227,6 +257,7 @@ SPDX-License-Identifier: Apache-2.0
           <button type="button" class="settings-tab active" data-tab-target="appearance">外观</button>
           <button type="button" class="settings-tab" data-tab-target="intelligence">智能</button>
           <button type="button" class="settings-tab" data-tab-target="data">数据</button>
+          <button type="button" class="settings-tab" data-tab-target="app-update">软件更新</button>
           <button type="button" class="settings-tab" data-tab-target="help">帮助</button>
         </div>
 
@@ -264,14 +295,13 @@ SPDX-License-Identifier: Apache-2.0
             </label>
             <span id="ai-warmup-label" class="inline-muted">启动后后台加载模型，减少首次问答等待</span>
           </div>
-          <p class="muted">默认开启。预热不阻塞笔记和导入；模型空闲 10 分钟会自动释放约 3-4GB 内存。</p>
 
           <label>本地模型状态</label>
           <div class="directory-row">
             <span id="model-status-text" class="inline-muted">查询中...</span>
             <button id="unload-model-btn" type="button" class="ghost" disabled>当前未加载</button>
           </div>
-          <p class="muted">模型会在启动后后台预热，也可在智能问答或重新整理时按需载入；空闲 10 分钟会自动释放内存。未加载时没有可释放的内存。</p>
+          <p class="muted">办公时如需腾出内存，可手动释放模型；下次提问时会重新加载。未加载时没有可释放的模型内存。</p>
 
           <details class="settings-model-advanced">
             <summary>高级：切换兼容 GGUF 模型</summary>
@@ -298,6 +328,18 @@ SPDX-License-Identifier: Apache-2.0
           <label>数据备份</label>
           <button id="export-data" type="button" class="ghost">导出完整备份 (.zip)</button>
           <p class="muted">备份包含数据库、Markdown、图片、页签和自定义资源，可用于完整恢复。</p>
+        </section>
+
+        <section id="app-update-panel" class="settings-panel-tab app-update-panel" data-tab="app-update" aria-labelledby="app-update-heading">
+          <div class="app-update-heading"><div><h3 id="app-update-heading">软件更新</h3><p>在这里检查和更新 Pocket Memory。</p></div><span id="app-update-state" class="app-update-state">正在读取</span></div>
+          <dl class="app-update-versions"><div><dt>当前版本</dt><dd id="app-update-current">—</dd></div><div><dt>新版本</dt><dd id="app-update-latest">—</dd></div><div><dt>更新大小</dt><dd id="app-update-size">—</dd></div></dl>
+          <p id="app-update-message" class="app-update-message" role="status" aria-live="polite">正在读取更新状态…</p>
+          <section id="app-update-changes" class="app-update-changes" hidden><h4>本次改动</h4><p id="app-update-notes"></p></section>
+          <div id="app-update-progress-wrap" class="app-update-progress-wrap" hidden><progress id="app-update-progress" max="100" aria-label="软件更新进度"></progress><span id="app-update-progress-text"></span></div>
+          <p id="app-update-error" class="app-update-error" role="alert" hidden></p>
+          <p id="app-update-last-result" class="app-update-last-result" role="status" hidden></p>
+          <p id="app-update-protection" class="app-update-protection" hidden></p>
+          <div class="app-update-actions"><button id="app-update-check" type="button" class="ghost">检查更新</button><button id="app-update-start" type="button" hidden disabled>更新并重启</button><button id="app-update-later" type="button" class="ghost">稍后</button></div>
         </section>
 
         <section class="settings-panel-tab" data-tab="help">
@@ -412,6 +454,29 @@ SPDX-License-Identifier: Apache-2.0
       </div>
     </dialog>
 
-    <script src="/app.js?v=20261007-nav-1"></script>
+  <dialog id="directory-browser" class="directory-browser" aria-labelledby="directory-browser-title">
+    <header class="directory-browser-header"><h2 id="directory-browser-title">选择资料目录</h2><button id="directory-browser-close" class="ghost" type="button" aria-label="关闭目录选择">关闭</button></header>
+    <form id="directory-browser-path-form" class="directory-browser-path"><label for="directory-browser-path">文件夹路径</label><div><input id="directory-browser-path" autocomplete="off" spellcheck="false" placeholder="输入文件夹路径"><button class="ghost" type="submit">前往</button></div></form>
+    <nav class="directory-browser-nav" aria-label="文件夹导航"><button id="directory-browser-roots" type="button" class="ghost">此电脑</button><button id="directory-browser-parent" type="button" class="ghost" disabled>上一级</button></nav>
+    <p id="directory-browser-status" class="directory-browser-status" role="status" aria-live="polite"></p>
+    <div id="directory-browser-list" class="directory-browser-list" aria-label="文件夹列表"></div>
+    <footer class="directory-browser-footer"><span>选择后，再决定切换或迁移资料。</span><button id="directory-browser-cancel" type="button" class="ghost">取消</button><button id="directory-browser-select" type="button" disabled>选择此目录</button></footer>
+  </dialog>
+
+  <dialog id="draft-dialog" class="draft-dialog" aria-labelledby="draft-dialog-title" aria-describedby="draft-dialog-description">
+    <form method="dialog" class="dialog-header">
+      <div class="draft-dialog-heading"><div class="draft-dialog-title-row"><h2 id="draft-dialog-title">草稿箱</h2><span id="draft-dialog-count" hidden></span></div><p id="draft-dialog-description">本机保存 · 仅当前资料库</p></div>
+      <button class="ghost draft-dialog-close" type="submit" aria-label="关闭草稿箱" title="关闭"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button>
+    </form>
+    <div id="draft-list" class="draft-list"></div>
+    <p class="draft-dialog-footer">继续编辑后，点击「保存笔记」完成保存。</p>
+  </dialog>
+  <script src="/drafts.js?v=20261108"></script>
+  <script src="/draft-ui.js?v=20261108"></script>
+  <script src="/import-cache.js?v=20261108"></script>
+  <script src="/imports.js?v=20261108-staging"></script>
+  <script src="/app.js?v=20261111-office-tools"></script>
+  <script src="/office-tools.js?v=20261111-feedback2"></script>
+  <script src="/app-update.js?v=20261111-copy"></script>
   </body>
 </html>

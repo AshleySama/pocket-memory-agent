@@ -1,49 +1,21 @@
 # Pocket Memory
 
-Pocket Memory is a Windows-first, local knowledge workspace for notes and files. It helps you record material, import documents, retrieve evidence, ask questions against local sources, and return to the original location for review.
+Windows 本地资料工作台：把笔记、文件、问答、待办和报告放在同一个工作空间。当前源代码版本为 **1.0.0**。
 
-## Product tour
+## 功能
 
-### [Open the live product tour ->](https://ashleysama.github.io/pocket-memory-agent/)
+- 多页签笔记、分类标签、收藏/置顶、历史版本；编辑草稿自动保存与恢复。
+- TXT、DOCX、XLSX、PDF、图片导入；OCR、失败重试、重复原件识别；未提交原件可暂存当前浏览器。
+- 全文检索、中文向量/BM25混合检索、重排与带出处的本地问答。保留字段/表格/OCR范围校验和确定性直答。
+- 六类专题报告：项目复盘、研究专题、方案建议、对比分析、学习总结、会议纪要；图表、来源追溯、编辑保存及HTML导出。
+- 待办提取与文字加工：根据当前笔记或粘贴内容生成可核对、可编辑的结果；确认后保存。独立Excel分析工作台已下线，普通Excel文件导入保留。
+- 完整离线首次安装；后续程序更新复用现有模型，保护资料及配置，启动检查失败回退。
 
-<p align="center">
-  <img src="website/pocket-memory-workbench-demo.png" alt="Pocket Memory workbench with a note list, editor, and AI answer panel" width="760">
-</p>
+默认使用现有 Qwen3-4B-Instruct-2507 Q4_K_M GGUF。资料和推理留在本机；自动更新/模型补充下载是可选网络行为，不是云端生成。复杂跨文档、条件推理、碎裂OCR仍需人工核对；正式版本号不等于答案准确率保证。T14s等纯CPU办公电脑的长问答可能需要几十秒。
 
-<p align="center"><i>One workspace for notes, files, editing, and source-grounded answers.</i></p>
+## 从源码运行
 
-<p align="center">
-  <img src="website/pocket-memory-project-review.png" alt="Pocket Memory project review and traceable answer example" width="760">
-</p>
-
-<p align="center"><i>Answers are paired with evidence, source information, and a path back to the original material.</i></p>
-
-> **1.2.0-beta.1 — Beta software.** This repository is for evaluation and community collaboration. It is not a guarantee of factual correctness, a substitute for source review, or a security-certified enterprise product.
-
-## What it does
-
-- Multi-tab rich-text notes with tables, images, history, pinning, favorites, folders, tags, backlinks, and a local relation graph. Notes open in reading mode; choose Edit/Done to edit, with visible saving, saved, and failed-save states.
-- Import TXT, DOCX, XLSX, PDF, and images. Content is parsed into locatable chunks such as paragraphs, pages, worksheets, and row ranges.
-- Search across local material; the default retained Q&A backend combines BGE vectors and BM25 through LlamaIndex, then uses local FlashRank reranking and source-aware evidence assembly.
-- Local evidence-grounded Q&A that shows a concise answer, source, evidence sentence, and an entry point back to the original note or document.
-- OCR for local images, original-file replacement and re-indexing, full backup, data-directory switching, and editable HTML topic-report drafts.
-
-## Local-first design
-
-- Notes, attachments, SQLite metadata, indexes, and configured models are stored in local directories.
-- The application binds its unauthenticated HTTP service to loopback addresses only.
-- The default Q&A path uses a local GGUF model. No cloud LLM API key is required.
-
-This is not an absolute security guarantee. Do not use an unreviewed Beta build as the sole control for sensitive, regulated, or high-risk decisions. Always verify important numbers, dates, authorization rules, quality, and safety information in the original source.
-
-## Quick start: source checkout
-
-### Prerequisites
-
-- Windows 10/11
-- Python 3.11 or later
-- Microsoft Edge WebView2 Runtime recommended for the desktop window
-- Optional local model files for semantic search, OCR, automatic organization, and Q&A
+Windows 10/11 x64，Python 3.11；桌面窗口建议安装Edge WebView2。
 
 ```powershell
 git clone https://github.com/AshleySama/pocket-memory-agent.git
@@ -52,77 +24,20 @@ cd pocket-memory-agent
 .\run_dev.bat
 ```
 
-`setup_venv.bat` installs the complete `requirements.txt` dependency set, including `requirements-rag.txt`, and checks imports. Install the assets in [Model setup](docs/MODELS.md) before using retained Q&A; Python dependencies alone do not include model weights. This Beta keeps the existing Qwen3-4B-Instruct-2507 Q4_K_M model configuration.
+按 [模型说明](docs/MODELS.md) 准备本地模型。GitHub不包含模型、DLL/EXE、安装包、私人资料或开发期间的原始评测记录。完整离线包面向无需配置Python的新用户；腾讯云下载文件另行发布，本提交不会自动上线下载。
 
-For an isolated local data directory during development:
+## 构建与验证
 
-```powershell
-.\.venv\Scripts\python.exe app.py --data-dir .\dev-data --no-browser
-```
-
-The repository deliberately does **not** contain model weights, user notes, databases, release archives, or test outputs. See [Model setup and licenses](docs/MODELS.md) before adding models.
-
-## Trying the Windows Beta package
-
-Extract the Beta into a new folder and use `Start-Beta.bat`. It sets `LOCALAPPDATA` to the package's `beta-profile` folder and passes `--data-dir` for `data-beta`, keeping Beta configuration and data separate from the previous stable installation. Use `Stop-Beta.bat` to stop the Beta background process; closing the window may leave it running. Directly opening `PocketMemory.exe` can reuse the Windows user's existing configuration.
-
-Keep the old stable folder and original library. To test existing content, use a complete backup restored into a separate copy; do not point the Beta at the original library. See [Windows operation](docs/INSTALL_WINDOWS.md). Packaged local-model Q&A, OCR, document parsing, child-tab writes and backup/restore were exercised. The strict historical quality smoke remains failed: a correct table answer includes an adjacent row in displayed evidence; a correct missing-field refusal cites the inspected table rather than returning zero sources. No RAG code was changed to make these checks pass. Target-machine and business acceptance remain pending.
-
-## Typical workflow
-
-1. Create a note or import files.
-2. Review the extracted document chunks when the material is complex.
-3. Search by title, keyword, or a natural-language question.
-4. For important answers, open the cited source and verify the highlighted evidence in context.
-5. Select relevant materials to generate an editable HTML topic report when you need a structured output.
-
-## Quality and limitations
-
-Pocket Memory uses retrieval-augmented generation (RAG), not a guaranteed fact database. Retrieval can miss relevant material or select a superficially similar passage. OCR and complex spreadsheet/PDF parsing can also be imperfect. The public fixtures are synthetic regression materials; they are **not** evidence that the product has passed a real-user acceptance benchmark.
-
-Read [RAG limitations and evaluation](docs/RAG_LIMITATIONS_AND_EVALUATION.md) before relying on Q&A results.
-
-## Development
-
-Install development dependencies with `python -m pip install -r requirements-dev.txt`. Run the Python suite and frontend checks (the latter require Node.js):
+见 [1.0.0发布说明](docs/RELEASE_1.0.0.md) 和 [离线交付流程](docs/OFFLINE_BUILD.md)。功能代码和当前保护测试在同一仓库；`scripts/release_policy.py`统一剔除视频FFmpeg DLL、未用的下载加速/推理后端、第三方测试样例和废弃设计素材。
 
 ```powershell
-$env:PYTHONDONTWRITEBYTECODE='1'
-python -m unittest discover -s tests -q
-node tests/frontend/test_reference_highlights.cjs
-node tests/frontend/test_answer_display.cjs
-node tests/frontend/test_clarification_display.cjs
-node tests/frontend/test_editor_workflow.cjs
+.venv\Scripts\python.exe -m unittest discover -s tests -v
+.venv\Scripts\python.exe -m unittest discover -s tests/release_current -v
+node tests/frontend_current/run.cjs
 ```
 
-The 2026-10-29 source candidate has passing results for 567 distinct Python tests and 36 frontend checks. One stale test expectation for the displayed note-tab label was corrected and rechecked. These engineering checks do not measure answer factual accuracy. Packaged local-model Q&A, OCR, document parsing, child-tab writes and backup/restore were exercised. The strict historical quality smoke remains failed: a correct table answer includes an adjacent row in displayed evidence; a correct missing-field refusal cites the inspected table rather than returning zero sources. No RAG code was changed to make these checks pass. Target-machine and business acceptance remain pending.
+自动测试验证工程约束，不代表人工事实准确率。[评测与限制](docs/RAG_LIMITATIONS_AND_EVALUATION.md)保留历史口径；发布时不把历史成绩冒充新模型实测。
 
-## Documentation
+## 开源组件与许可
 
-- [Windows installation and local operation](docs/INSTALL_WINDOWS.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Model setup and third-party model boundaries](docs/MODELS.md)
-- [Privacy and data boundaries](docs/PRIVACY.md)
-- [RAG limitations and evaluation](docs/RAG_LIMITATIONS_AND_EVALUATION.md)
-- [Third-party notices](THIRD_PARTY_NOTICES.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security reporting](SECURITY.md)
-
-## License
-
-Pocket Memory source code is licensed under [Apache-2.0](LICENSE). Model weights, OCR assets, example data, fonts, and third-party packages are governed by their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-### License and attribution
-
-If you redistribute this project or create a derivative work, retain the [LICENSE](LICENSE) and [NOTICE](NOTICE) files and preserve the original-project attribution:
-
-    Original project: Pocket Memory
-    Original author: AshleySama
-    https://github.com/AshleySama/pocket-memory-agent
-    Licensed under Apache-2.0
-
-You may add your own copyright notice for your original changes, but do not remove the original notice from files or distributions that include Pocket Memory code.
-
-## Community feedback
-
-Please use GitHub Issues for reproducible defects and feature proposals. Do not attach private notes, credentials, customer data, screenshots containing sensitive information, or model files to public issues.
+使用 llama-cpp-python / llama.cpp、LlamaIndex core/BM25、FlashRank、BGE、RapidOCR、ONNX Runtime、PyMuPDF、python-docx、openpyxl 等。借鉴来源管理思想不代表完整采用某个开源产品。详见 [NOTICE](NOTICE)、[第三方声明](THIRD_PARTY_NOTICES.md)、[源码分发说明](SOURCE_DISTRIBUTION.md) 与 `licenses/`。模型和依赖分别遵守其许可证；许可证是分发必要文件，保留在离线包中。

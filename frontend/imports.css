@@ -1,0 +1,21 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+.document-dialog { width:min(760px,calc(100vw - 32px)); max-height:85vh; overflow-y:auto; }
+.import-status-header { display:flex; align-items:center; gap:12px; justify-content:space-between; margin-top:20px; border-top:1px solid var(--border); padding-top:16px; }
+.import-status-header h3 { margin:0; font-size:16px; }
+.import-status-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.import-status-list { list-style:none; padding:0; margin:8px 0; }
+.import-status-item { padding:14px 0; border-bottom:1px solid var(--border); }
+.import-item-heading { display:flex; align-items:baseline; gap:12px; justify-content:space-between; }
+.import-item-heading strong { overflow-wrap:anywhere; min-width:0; }
+.import-item-heading span { white-space:nowrap; font-size:12px; }
+.import-status-item p { margin:7px 0; line-height:1.6; font-size:13px; overflow-wrap:anywhere; }
+.import-status-item[data-failed="true"] .import-item-heading span { font-weight:700; }
+.import-item-actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+.import-item-actions button { min-height:32px; font-size:13px; }
+.import-item-actions a { font-size:13px; color:var(--accent,#188b9e); text-decoration:none; }
+.import-item-actions a:hover { text-decoration:underline; }
+.import-summary { min-height:1.5em; margin:10px 0; font-size:13px; }
+.import-status-list:empty::before { content:"尚无待处理文件。"; display:block; padding:12px 0; opacity:.7; }

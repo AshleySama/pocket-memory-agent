@@ -1,0 +1,4 @@
+# Preserve copied website assets byte for byte for the synchronization manifest.
+static/** -text
+index.html text eol=lf
+site-sync.json text eol=lf

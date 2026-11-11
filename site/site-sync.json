@@ -6,17 +6,17 @@
   "video_url": "https://download-files-1312623621.cos.ap-beijing.myqcloud.com/pocket-memory-demo.mp4",
   "assets": {
     "static/img/report-actions-20261111.jpg": "7d0642b1fa360e57d12b693adc5b6d5f21a28fc610226220899c159a650cea96",
-    "static/samples/action-followup.html": "7fdd6cd2a839d96a88f8f0235e807140f61c242ff7a52347c1a6cb60e27d0821",
+    "static/samples/action-followup.html": "6c59b9cf2bce3bdc59f26e57be771ddc719fd57493beb811ef686a95025f5525",
     "static/img/report-review-20261111.jpg": "be14a8827d5ca1238818eb1e2592f4b0366727e7c45d2a0839b6a3497fde6e0a",
-    "static/samples/project-review.html": "f6e568b71c4ae4c833152d4bbc5420b622e0a101a89926fd3d87e73f16c602b3",
+    "static/samples/project-review.html": "3df757359b7c08119f0fd256fe2646cbcc83272bc02f397f395d85f835fff9c3",
     "static/img/text-assistant-20261111.jpg": "528c8f188a6a03df658f7103f49c880bffaf6a3561d44ec53e2a763a004dfc8a",
     "static/img/RAG_demo.png": "21b5f1b2cf8c6ce3ffe76b28c15209076dd4fb253350d927fd527140b9097fbf",
     "static/img/workbench-20261111.jpg": "392cb3ba988b8ac8ea414bfe200c0ec2df0d3747a4d0c63b70249e21ec18b6e0",
     "static/img/pocket-memory-workbench-demo.png": "ba0066c4a229bffcfdda043cf9dd137de17d6f3dea8da407f8885429414a6da0",
     "static/img/pocket-memory-logo.png": "a72b030976558e3d33336beb124114bb260332ffc61f9cb6259115d1a42f04cd",
-    "static/js/proof-gallery.js": "49a3676b2887332f7488cac4e61cfbfceb5131c68c7c47b8f7c5a4fc3f9a24cc",
-    "static/js/site.js": "bd1ecbce0e1cc97d659fd08ac90dfae59401290203f8ce82e69c371102f8bf87",
-    "static/css/site.css": "367f528969403c50bc28092f7be6520e6a0595b30a3a76f4061c50df6b192386"
+    "static/js/proof-gallery.js": "1622b37f37d7e8e455e3daa25cfe54abbb39ff82e2ebf8f1dc6fa5852673de16",
+    "static/js/site.js": "38b39470af212d1aa5668087263b98040eedc307c22ff79dda09eeab844d30a4",
+    "static/css/site.css": "33a1d2f7ec208737b48437512ceda598d7e94caf6d73ef14061f97fd1a4f4272"
   },
   "index_sha256": "6142c412af770ab4f9e1e85d6ac28c4e66e3878e1e3da921f03120330d01c48c"
 }

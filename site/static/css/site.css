@@ -1,3 +1,4 @@
+/* Copyright 2026 AshleySama | SPDX-License-Identifier: Apache-2.0 */
 
     :root { --ink:#122d31; --muted:#5c7375; --paper:#ffffff; --canvas:#f4faf8; --mint:#e5f4ef; --aqua:#e3f1f4; --teal:#078d84; --teal-deep:#056c66; --line:#d4e5df; --gold:#dfad52; --coral:#df675d; --night:#102a29; --radius:8px; }
     * { box-sizing:border-box; } html { scroll-behavior:smooth; scroll-padding-top:142px; } body { margin:0; background:var(--canvas); color:var(--ink); font-family:"Microsoft YaHei UI","Segoe UI",Arial,sans-serif; line-height:1.72; } a { color:inherit; } section[id], .feature-row[id] { scroll-margin-top:142px; }

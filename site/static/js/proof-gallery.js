@@ -1,3 +1,4 @@
+// Copyright 2026 AshleySama | SPDX-License-Identifier: Apache-2.0
 // Optional progressive enhancement: without JS both actual examples remain visible.
 document.querySelectorAll('[data-gallery]').forEach((gallery) => {
   const buttons = [...gallery.querySelectorAll('[data-view]')];

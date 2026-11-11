@@ -2,6 +2,22 @@
 
 Windows 本地资料工作台：把笔记、文件、问答、待办和报告放在同一个工作空间。当前源代码版本为 **1.0.0**。
 
+## 产品展示
+
+### [查看在线产品介绍（GitHub Pages）→](https://ashleysama.github.io/pocket-memory-agent/)
+
+<p align="center">
+  <img src="website/pocket-memory-workbench-demo.png" alt="Pocket Memory 工作台：笔记列表、编辑区与 AI 回答面板" width="760">
+</p>
+
+<p align="center"><i>在同一个工作台中管理笔记、文件，编辑内容并核对回答来源。</i></p>
+
+<p align="center">
+  <img src="website/pocket-memory-project-review.png" alt="Pocket Memory 项目复盘与回答来源追溯示例" width="760">
+</p>
+
+<p align="center"><i>回答附有证据与来源入口，方便回到原始资料核对。截图保留自此前的产品演示，局部界面以当前版本为准。</i></p>
+
 ## 功能
 
 - 多页签笔记、分类标签、收藏/置顶、历史版本；编辑草稿自动保存与恢复。

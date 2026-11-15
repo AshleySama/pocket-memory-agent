@@ -551,6 +551,17 @@ class PocketMemoryServerTests(unittest.TestCase):
         self.assertFalse(self.config.ai_warmup_on_start)
         self.assertFalse(AppConfig.load(self.config.path).ai_warmup_on_start)
 
+    def test_explicit_model_retry_is_queued_without_changing_user_settings(self) -> None:
+        from unittest.mock import patch
+        before = (self.config.llm_model_path, self.config.ai_auto_apply, self.config.ai_warmup_on_start)
+        with patch.object(self.intelligence_service, "retry_model", return_value=True) as retry:
+            status, payload = self.request("/api/intelligence/retry", "POST", {})
+        self.assertEqual(status, 202)
+        self.assertTrue(payload["started"])
+        retry.assert_called_once_with()
+        self.assertEqual(before, (self.config.llm_model_path, self.config.ai_auto_apply,
+                                  self.config.ai_warmup_on_start))
+
     def test_disabling_auto_organisation_skips_new_note_ai_status(self) -> None:
         _, setting = self.request("/api/settings/ai-mode", "POST", {"auto_apply": False})
         self.assertFalse(setting["ai_auto_apply"])

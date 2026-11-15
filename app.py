@@ -21,11 +21,17 @@ from pocket_memory.daemon import (
     detect_running_server,
     find_free_port,
     request_server_shutdown,
+    read_lock,
+    server_status,
     wait_for_server_ready,
 )
 from pocket_memory.server import PocketMemoryServer, is_loopback_host
 from pocket_memory.storage import NoteStore
 from pocket_memory.directory_picker import choose_directory
+from pocket_memory.desktop_directory import DesktopDirectoryApi
+from pocket_memory.desktop_runtime import ensure_native_runtime_config
+from pocket_memory.desktop_readiness import DesktopReadiness, update_desktop_requested
+from pocket_memory.desktop_tray import DesktopSession, NativeProcessWatch
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +94,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--browser", action="store_true", help="直接使用系统浏览器打开本地界面")
     parser.add_argument("--debug", action="store_true", help="开启 DevTools（F12）和页面刷新（Ctrl+R）")
     parser.add_argument("--server-only", action="store_true", help="仅启动 server 守护进程（不打开窗口）")
     parser.add_argument("--quit", action="store_true", help="退出正在运行的后台 server")
@@ -246,68 +253,243 @@ def close_launcher_for_update(url: str, destroy_window=None, *, exit_process=Non
     return True  # Injectable callbacks can return in focused tests.
 
 
-def open_webview(url: str, debug: bool) -> None:
-    """打开 webview 窗口。关闭窗口后函数返回，但不影响 server。"""
-    webview = None
+def configure_launcher_log(data_dir: Path) -> None:
+    """Persist desktop-only errors too; frozen windowed builds have no console."""
     try:
-        import webview as _webview
-        if not hasattr(_webview, "create_window") or not hasattr(_webview, "start"):
-            _webview = None
-    except ImportError:
-        _webview = None
-    webview = _webview
+        folder = data_dir / "logs"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"launcher-{time.strftime('%Y%m%d')}.log"
+        root = logging.getLogger()
+        if not any(isinstance(h, logging.FileHandler) and
+                   Path(h.baseFilename) == path.resolve() for h in root.handlers):
+            handler = logging.FileHandler(path, encoding="utf-8")
+            handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s"))
+            root.addHandler(handler)
+    except OSError:
+        logger.warning("无法写入启动日志，继续启动", exc_info=True)
 
-    if webview is None:
-        webbrowser.open(url)
-        print(f"Pocket Memory running at {url}. 后台 server 已启动，关闭浏览器不影响 server。")
-        print(f"如需完全退出，请运行: python app.py --quit")
+
+def show_browser_launch_help(url: str) -> None:
+    """No .NET dependency: still give the user a usable URL if shell launch fails."""
+    text = f"Pocket Memory 本地服务已启动。\n\n请打开浏览器，在地址栏输入：\n{url}\n\n资料仍保存在本机。"
+    logger.error("无法自动打开浏览器；本地地址：%s", url)
+    if sys.platform == "win32":
         try:
-            while True:
-                if close_launcher_for_update(url):
-                    return
-                time.sleep(1)
-        except KeyboardInterrupt:
-            pass
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, text, "Pocket Memory", 0x40)
+        except Exception:
+            logger.warning("无法显示启动提示", exc_info=True)
     else:
-        if not is_webview2_installed():
-            logger.warning("WebView2 Runtime 不可用，回退到系统浏览器")
-            print("WebView2 Runtime 不可用，使用系统浏览器打开。")
-            webbrowser.open(url)
-            print(f"Pocket Memory running at {url}. 后台 server 已启动，关闭浏览器不影响 server。")
-            print(f"如需完全退出，请运行: python app.py --quit")
-            try:
-                while True:
-                    if close_launcher_for_update(url):
-                        return
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                pass
-            return
+        print(text)
 
+
+def open_browser_session(url: str) -> None:
+    """Reuse the same daemon and keep its update handoff alive; never spawn AI."""
+    try:
+        opened = webbrowser.open(url, new=2)
+    except Exception:
+        logger.warning("系统浏览器启动失败", exc_info=True)
+        opened = False
+    if not opened:
+        show_browser_launch_help(url)
+        return
+    logger.info("已用系统浏览器打开本地界面：%s", url)
+    unavailable = 0
+    try:
+        while True:
+            if close_launcher_for_update(url):
+                return
+            try:
+                with urlopen(url + '/api/status', timeout=2) as response:
+                    alive = json.load(response).get('ok') is True
+            except Exception:
+                alive = False
+            unavailable = 0 if alive else unavailable + 1
+            if unavailable >= 3:
+                logger.info("本地服务已退出，浏览器启动器结束。")
+                return
+            time.sleep(1)
+    except KeyboardInterrupt:
+        return
+
+
+def show_native_startup_error(message: str) -> None:
+    """Keep errors on desktop; never silently switch an EXE user to a browser."""
+    text = ("Pocket Memory 无法打开桌面窗口。\n\n" + message +
+            "\n\n请确认已完整解压程序。详细原因已记录到资料目录的 logs/launcher-日期.log。")
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, 'Pocket Memory 启动失败', 0x10)
+    else:
+        print(text)
+
+
+class BoundDesktopServer:
+    """Observe one server process, not the mutable location of its library.
+
+    The read-only process handle survives directory migration and cannot follow
+    PID reuse. Every shutdown POST additionally checks the URL's current PID.
+    """
+    def __init__(self, data_dir: Path, url: str):
+        self.url = url
+        self.pid = None
+        self.watch = None
+        identity = read_lock(data_dir)
+        if (not identity or identity.get('url') != url
+                or type(identity.get('pid')) is not int or identity['pid'] <= 0):
+            logger.warning('未能绑定桌面后台身份；退出时不会停止未知服务。')
+            return
+        watch = None
+        try:
+            watch = NativeProcessWatch(identity['pid'])
+            status = server_status(url)
+            if (not status or status.get('pid') != identity['pid']
+                    or watch.has_exited()):
+                watch.close()
+                logger.warning('桌面后台身份已变化；未绑定该服务。')
+                return
+            self.pid = identity['pid']
+            self.watch = watch
+        except Exception:
+            if watch is not None:
+                watch.close()
+            logger.warning('无法观察桌面后台进程；不会停止未知服务。', exc_info=True)
+
+    def has_exited(self):
+        return self.watch is not None and self.watch.has_exited()
+
+    def __call__(self):
+        if self.watch is None:
+            return False
+        if self.watch.has_exited():
+            return True
+        status = server_status(self.url)
+        if not status or status.get('pid') != self.pid:
+            logger.warning('后台地址已不属于本会话；不发送退出请求。')
+            return False
+        if self.watch.has_exited():
+            return True
+        # Leave enough time for an in-flight request holding operation_lock.
+        # This runs off the UI thread. Never force-kill model/storage workers.
+        return request_server_shutdown(self.url, timeout=120)
+
+    def close(self):
+        if self.watch is not None:
+            self.watch.close()
+
+
+def desktop_shutdown_callback(data_dir: Path, url: str):
+    return BoundDesktopServer(data_dir, url)
+
+
+def close_desktop_if_server_exited(shutdown, desktop, window):
+    exited = getattr(shutdown, 'has_exited', None)
+    if not callable(exited) or not exited():
+        return False
+    logger.info('绑定的后台进程已退出，关闭本桌面会话。')
+    if desktop is not None:
+        desktop.close_for_server_exit()
+    else:
+        window.destroy()
+    return True
+
+
+def open_webview(url: str, debug: bool, *, shutdown=None) -> bool:
+    """Start the native desktop host after preparing its CLR configuration."""
+    stopped = threading.Event()
+    window = None
+    readiness = None
+    desktop = None
+    update_attempt = update_desktop_requested()
+    try:
+        readiness = DesktopReadiness.from_environment(url)
+        config_path = ensure_native_runtime_config()
+        if config_path is not None:
+            logger.info("原生桌面运行配置已就绪：%s", config_path)
+        import webview
+        if not callable(getattr(webview, "create_window", None)) or not callable(getattr(webview, "start", None)):
+            raise ImportError("pywebview API unavailable")
+        # WebView2 otherwise cancels <a download>/attachment downloads before
+        # its native SaveFileDialog can appear. Managed report exports already
+        # exist on disk; this enables the user's additional "下载副本" action.
+        webview_settings = getattr(webview, 'settings', None)
+        if webview_settings is not None and 'ALLOW_DOWNLOADS' in webview_settings:
+            webview_settings['ALLOW_DOWNLOADS'] = True
+        if not is_webview2_installed():
+            raise RuntimeError("此电脑缺少 Microsoft Edge WebView2 Runtime，请安装该运行组件后重试。")
+        directory_api = DesktopDirectoryApi()
         window = webview.create_window(
-            "Pocket Memory",
-            url,
-            width=1180,
-            height=820,
-            min_size=(820, 600),
-            maximized=True,
+            "Pocket Memory", url, width=1180, height=820,
+            min_size=(820, 600), maximized=True, js_api=directory_api,
         )
-        start_kwargs = {}
+        directory_api._window = window
+        start_kwargs = {"gui": "edgechromium"}
         icon_path = find_app_icon()
         if icon_path:
             start_kwargs["icon"] = icon_path
         if debug:
             start_kwargs["debug"] = True
-        stopped = threading.Event()
+        if readiness is not None:
+            readiness.attach(window)
+            start_kwargs['func'] = readiness.run
+        if (sys.platform == 'win32' and getattr(window, 'events', None) is not None
+                and hasattr(window.events, 'closing')):
+            desktop = DesktopSession(
+                window, icon_path, shutdown,
+                must_close=lambda: readiness is not None and readiness.failed,
+            )
+            desktop.attach()
         def update_watch():
             while not stopped.wait(1):
-                if close_launcher_for_update(url, window.destroy):
+                destroy = desktop.close_for_update if desktop is not None else window.destroy
+                if close_launcher_for_update(url, destroy):
+                    return
+                # Another GUI or a delayed accepted shutdown may have ended
+                # our shared server. Do not leave a dead window/tray behind.
+                if close_desktop_if_server_exited(shutdown, desktop, window):
                     return
         threading.Thread(target=update_watch, daemon=True, name='update-window-watch').start()
-        try:
-            webview.start(**start_kwargs)
-        finally:
-            stopped.set()
+        logger.info("正在启动原生窗口。")
+        webview.start(**start_kwargs)
+        if readiness is not None:
+            readiness.close()
+        logger.info("原生窗口已正常关闭。")
+        return readiness is None or not readiness.failed
+    except Exception as exc:
+        stopped.set()
+        if desktop is not None:
+            desktop.allow_close = True
+        if update_attempt:
+            logger.error("更新后的原生桌面窗口启动失败 (%s)。", type(exc).__name__)
+            if readiness is not None:
+                try:
+                    readiness.fail('native_startup_failed')
+                except Exception:
+                    logger.error("无法写入桌面启动失败记录。")
+        else:
+            logger.exception("原生桌面窗口启动失败；不会自动打开浏览器。")
+        if window is not None and getattr(window, 'native', None) is not None:
+            def close_partial_window():
+                try:
+                    window.destroy()
+                except Exception:
+                    logger.warning("关闭未完成初始化的窗口失败", exc_info=True)
+            closer = threading.Thread(target=close_partial_window, daemon=True)
+            closer.start()
+            closer.join(timeout=1)
+        if not update_attempt:
+            show_native_startup_error(str(exc))
+        return False
+    finally:
+        stopped.set()
+        if desktop is not None:
+            desktop.allow_close = True
+            desktop.stop()
+        if readiness is not None:
+            readiness.stopped.set()
+        cleanup = getattr(shutdown, 'close', None)
+        if callable(cleanup):
+            cleanup()
 
 
 def main() -> int:
@@ -340,7 +522,13 @@ def main() -> int:
     if args.server_only:
         return run_server_only(config, data_dir, args.host, args.port)
 
+    from pocket_memory.legacy_update_handoff import yield_to_supervisor
+    if yield_to_supervisor(config, data_dir, args):
+        return 0
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+
+    configure_launcher_log(data_dir)
 
     # --restart：先停掉旧 server，确保加载新代码
     if args.restart:
@@ -354,8 +542,12 @@ def main() -> int:
         if args.no_browser:
             print(url)
             return 0
-        open_webview(url, args.debug)
-        logger.info("窗口已关闭。后台 server 仍在运行，下次启动将秒开。")
+        if args.browser:
+            open_browser_session(url)
+        else:
+            if not open_webview(url, args.debug, shutdown=desktop_shutdown_callback(data_dir, url)):
+                return 1
+        logger.info("桌面会话已结束。")
         return 0
 
     # 无 server 运行：启动 server 子进程
@@ -371,6 +563,12 @@ def main() -> int:
     if not wait_for_server_ready(url, timeout=120):
         logger.error("server 启动超时")
         print("启动失败：server 长时间未就绪，请检查日志")
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                logger.error("本次启动的后台仍未退出，保留日志供诊断")
         return 1
 
     logger.info("server 已就绪: %s", url)
@@ -383,11 +581,16 @@ def main() -> int:
             pass
         return 0
 
-    # 打开 webview 窗口（关闭后不影响 server）
-    open_webview(url, args.debug)
-    logger.info("窗口已关闭。后台 server 仍在运行，下次启动将秒开。")
-    print(f"窗口已关闭，后台 server 仍在运行。")
-    print(f"如需完全退出: python app.py --quit")
+    # 原生窗口关闭后收起到通知区域；托盘“退出”关闭本次后台会话。
+    if args.browser:
+        open_browser_session(url)
+    else:
+        if not open_webview(url, args.debug, shutdown=desktop_shutdown_callback(data_dir, url)):
+            # Only stop the daemon this launch created; never stop an existing
+            # session that may contain another user's active work.
+            quit_running_server(data_dir)
+            return 1
+    logger.info("桌面会话已结束。")
     return 0
 
 

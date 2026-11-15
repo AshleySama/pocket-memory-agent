@@ -6,12 +6,14 @@ Windows x64、Python 3.11，安装 `requirements-dev.txt`。准备已核验的�
 $env:POCKET_MEMORY_NO_MODELS = '1'
 .venv\Scripts\python.exe -m PyInstaller --noconfirm PocketMemory.spec
 .venv\Scripts\python.exe -m PyInstaller --noconfirm --onefile --noconsole --name PocketMemoryUpdateWorker --paths . scripts/update_worker.py
-.venv\Scripts\python.exe scripts/prepare_offline_delivery.py --built-app dist/PocketMemory --model-source D:/verified-models --destination release/PocketMemory-1.0.0 --version 1.0.0 --mode full --updater-exe dist/PocketMemoryUpdateWorker.exe --schema-id legacy-unversioned
+.venv\Scripts\python.exe scripts/prepare_offline_delivery.py --built-app dist/PocketMemory --model-source D:/verified-models --destination release/PocketMemory-1.0.5 --version 1.0.5 --mode full --updater-exe dist/PocketMemoryUpdateWorker.exe --schema-id legacy-unversioned
 ```
 
 在built-app内补入当前 `scripts/PACKAGE_README.txt`（命名README.txt）、LICENSE、NOTICE、THIRD_PARTY_NOTICES.md、RERANKER_NOTICE.md、SOURCE_DISTRIBUTION.md及licenses目录，再运行布局脚本。实际运行该完整布局的EXE验证OCR/文件解析/问答/报告/备份；测试使用独立配置及临时资料，不能把测试后的数据目录重新压入包。
 
 将 `--mode full` 改为 `--mode update` 并选择新输出目录，可生成仅程序payload与校验清单；该目录不是新用户安装包。现有schema无迁移时使用上述标识，不得用同一标识掩盖未来不兼容迁移。
+
+完整 ZIP 以版本目录为根；程序更新 ZIP 必须直接包含 `update-manifest.json` 和 `payload/`，不能额外套一层目录。更新清单的 URL 指向版本化程序包，`size` 与 `sha256` 取最终 ZIP 的实值；不指向包含模型的 `latest` 完整包。
 
 `scripts/release_policy.py` 与 spec、交付脚本共同执行排除规则。不得删 `cv2.pyd`、ONNX/NumPy、文档解析库或运行时元数据来冒充无损精简。测试源文件留Git以供维护；第三方测试数据和本地原始运行结果不打包。
 

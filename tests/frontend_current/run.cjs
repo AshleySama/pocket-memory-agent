@@ -1,3 +1,7 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 const {spawnSync}=require('node:child_process');
 const path=require('node:path');
 for(const name of ['test_draft_vault.cjs','test_draft_editor.cjs','test_import_staging.cjs','test_import_legacy.cjs']) {

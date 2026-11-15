@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.5 - 2026-11-15
+
+- Improve PDF citation display and original-text highlighting while retaining source identities and full evidence for verification.
+- Extend long-document learning/research reports with source-bound knowledge points, conditions and cross-page context. Simplify export feedback and expose the saved file and HTML download.
+- Add native notification-area restore/quit controls and restore the Windows folder picker owned by the desktop window.
+- Synchronize the intervening 1.0.1–1.0.4 desktop DLL, Windows short-path, model-load diagnostics and update handoff fixes into the public source. Retain the existing 4B model, data/configuration preservation and failed-start rollback design.
+- New installs default to AI organization and background model warmup; upgrades retain saved preferences.
+
+Source checks and package integrity were verified. Further 1.0.5 EXE upgrade/rollback and native-picker acceptance was stopped at the owner's request; it remains pending on the target PC. No new performance or general RAG-accuracy claim is made. See [release notes](docs/RELEASE_1.0.5.md).
+
 ## 1.0.0 - 2026-11-11
 
 First public stable release. Earlier 1.2.x builds were internal release candidates; their numbering is historical, not an upgrade predecessor for this new-user release.

@@ -19,7 +19,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from collections import Counter
-from .report_sections import readable, focus_view, quote_span
+from .report_sections import readable, focus_view, quote_span, presentation_records
 
 TEMPLATES = {
     'project': ('项目复盘／工作汇报', '围绕已完成工作、产品取舍、风险与下一步行动，区分笔记记录与建议'),
@@ -258,6 +258,35 @@ class ReportWorkspace:
                     risk=re.split(r'处理动作[：:]',text,maxsplit=1)[0].strip('；;。 ')
                     actions.append({'risk':risk,'action':fields['处理动作'],'owner':fields['负责人'],'due':fields['完成时间'],'ref':rid})
         if not records and not tables: raise ValueError('资料格式尚不能安全组织，请选择可读正文或规范表格')
+        from . import report_digest
+        if template in ('learning','research') and report_digest.applicable(units):
+            from . import report_grounded_digest
+            from .report_pdf_structure import enrich_pdf_units
+            stage('正在读取PDF标题层级并核对原文位置')
+            structure_receipts=[]
+            for source in selected:
+                if source['kind']!='document':continue
+                doc=self.store.get_document(source['id'])
+                if doc.file_type.lower()!='pdf':continue
+                original=self.store.data_dir / doc.stored_path
+                same_source=[u for u in units if u['kind']=='document' and u['source_id']==source['id']]
+                structure_receipts.append(enrich_pdf_units(original,same_source))
+            digest_result, digest_claims, generation = report_grounded_digest.generate(
+                self.engine, title, TEMPLATES[template][1], units, register,
+                self.directory / '.digest-cache', stage)
+            digest_result['source_structure']=structure_receipts
+            report={'id':uuid.uuid4().hex,'version':1,'created':now(),'updated':now(),
+                    'title':title,'template':template,'template_label':TEMPLATES[template][0],
+                    'selected':selected,'units':units,'refs':refs,'claims':digest_claims,
+                    'records':records,'tables':tables,'actions':actions,'charts':[],
+                    'notes':{},'edited':False,'reviewed':False,
+                    'model':'Qwen3-4B-Instruct-2507 / 本地现有配置',
+                    'generation':generation,'digest':digest_result,
+                      'limitations':['按原文主题、角色、完整条件与清单选编；模型决定要点取舍，事实文字来自绑定原文，不进行无依据自由扩写。',
+                                   '归纳基于所选资料快照，不代表资料中的技术表述已按最新版本核实。',
+                                   '引用身份与原文区间已核对；归纳仍需人工核对语义、条件与遗漏。']}
+            if any(not valid_ref(r,units) for r in refs): raise ValueError('引用身份核对失败，报告未保存')
+            return report
         # Bounded model input; report tables and complete original records remain independent.
         selected_records=[]; queues=[[r for r in records if refs[r['ref']-1]['source_id']==s['id'] and refs[r['ref']-1]['kind']==s['kind']] for s in selected]
         if template!='project':
@@ -351,7 +380,13 @@ def chart_svg(chart):
 def render_report(r, appendix=False):
     if any(not valid_ref(ref,r['units']) for ref in r['refs']):
         raise ValueError('报告快照引用不一致，请重新生成')
+    if r.get('digest',{}).get('protocol') == 'whole-document-v1':
+        from .report_digest_view import render_digest
+        return render_digest(r, appendix=appendix)
     heading=HEADINGS[r['template']]; notes=r.get('notes',{})
+    # Reading view only. Original units, references, model input and saved edits
+    # stay untouched; repeated PDF watermark fragments remain in the appendix.
+    view_records=presentation_records(r)
     def note(key): return '<p class="edited-copy">'+esc(notes[key])+'</p><small class="tag amber">人工编辑 · 待复核</small>' if notes.get(key) else ''
     section_number=0
     def section(key,title,body):
@@ -380,7 +415,7 @@ def render_report(r, appendix=False):
     result+=section('summary',heading[0],summary)
     if r['template']=='project':
         enumerated=''
-        for record in r['records']:
+        for record in view_records:
             if record['field']=='ocr_text': continue
             parts=list(re.finditer(r'(?:第一|第二|第三|第四|第五|第六)[，、]',record['text']))
             if len(parts)<3: continue
@@ -392,8 +427,9 @@ def render_report(r, appendix=False):
             enumerated+='</div></div>'
         if enumerated: result+=section('outcomes','资料明确列出的成果与取舍',enumerated)
     if r['template']!='project':
-        focus_title,focus_body=focus_view(r,esc,citation,table_html)
-        result+=section('chart',focus_title,focus_body)
+        focus_title,focus_body=focus_view(dict(r,records=view_records),esc,citation,table_html)
+        if focus_body or notes.get('chart'):
+            result+=section('chart',focus_title,focus_body)
     elif r['charts']:
         body=''
         for c in r['charts']:
@@ -414,7 +450,7 @@ def render_report(r, appendix=False):
     else:
         records=''
         for s in r['selected']:
-            items=[x for x in r['records'] if r['refs'][x['ref']-1]['source_id']==s['id'] and r['refs'][x['ref']-1]['kind']==s['kind'] and not re.match(r'^风险[一二三四五六七八九十\d]+[：:]',x['text'])]
+            items=[x for x in view_records if r['refs'][x['ref']-1]['source_id']==s['id'] and r['refs'][x['ref']-1]['kind']==s['kind'] and not re.match(r'^风险[一二三四五六七八九十\d]+[：:]',x['text'])]
             if items:
                 def passage(x):
                     ref=r['refs'][x['ref']-1]
@@ -433,18 +469,16 @@ def render_report(r, appendix=False):
     if r['actions']:
         actions=table_html(['风险 / 问题','处理动作（原文）','负责人','资料中的期限','依据'],[[esc(a['risk']),esc(a['action']),esc(a['owner']),esc(a['due']),citation(a['ref'])] for a in r['actions']])
         actions+='<p class="table-caption">期限保留资料原话；相对时间没有擅自换算日期。资料未给出执行状态，不标为已完成。</p>'
-    else:
-        prompts={
-            'research':'研究边界：原文摘录与模型归纳应回到来源核对；没有原始政策或实测结果时，不把材料摘要当权威结论。',
-            'compare':'决策边界：资料没有提供可统一计算的成本、准确率或耗时指标时，不生成优劣评分。适用性以原文条件为准。',
-            'proposal':'立项待确认：预算、排期、实际负责人和批准记录需由用户补充。资料中的拟议技术路线不代表本工具已经采用。',
-            'learning':'学习核对：先对照原文确认字段、条件、否定和修订关系；不能把历史需求或笔记自述核验当作已连接业务系统验证。',
-        }
-        actions='<p class="muted">'+esc(prompts.get(r['template'],'资料中没有可确定解析的“风险—动作—负责人—期限”记录，不自动指派责任人。'))+'</p>'
-    result+=section('actions',heading[2],'<div class="panel">'+actions+'</div>')
+        result+=section('actions',heading[2],'<div class="panel">'+actions+'</div>')
+    elif notes.get('actions'):
+        result+=section('actions',heading[2],'')
     limitations=[str(x).replace('下方另保留全部可组织正文、原表与 OCR', '完整正文、原表与 OCR 可在引用资料和导出附录中核对') for x in r['limitations']]
-    gaps='<div class="decision-banner"><div><strong>交付前需要确认</strong><ul>'+''.join('<li>'+esc(x)+'</li>' for x in limitations)+'</ul><p>需人工补充：实际验收结果、行动完成情况、确定日期，以及仍存在的冲突资料。</p></div></div>'
-    result+=section('gaps','待确认事项与使用边界',gaps)
+    # Technical limits are available without impersonating substantive report
+    # findings. Keep user-authored notes visible even if a section has no data.
+    if notes.get('gaps'):
+        result+=section('gaps','待确认事项','')
+    if limitations:
+        result+='<details class="report-source-index report-method"><summary>编制说明</summary><ul>'+''.join('<li>'+esc(x)+'</li>' for x in limitations)+'</ul></details>'
     # One compact entry per saved page/field keeps all source snapshots reachable,
     # including material not selected as a summary point. No originals are deleted.
     source_units={}
@@ -457,10 +491,10 @@ def render_report(r, appendix=False):
         result+='</ul></details>'
     result+=f'<footer class="report-footer"><span>纯本地 4B · 生成 {r["generation"]["seconds"]:.1f}s · 原文与图表同一快照</span><span>可编辑初稿，不代替专业审批</span></footer>'
     if appendix:
-        result+='<section class="section appendix"><h2>引用附录 · 生成时的原文快照</h2><p>离线文件已包含下列原文，不连接本机服务。区间按保存字段字符位置记录。</p>'
+        result+='<details class="section appendix" id="report-source-appendix"><summary>参考资料与原文快照</summary><p>点击正文引用可定位到对应原文。完整快照保留，用于核对。</p>'
         for ref in r['refs']:
             result+=f'<article id="source-{ref["id"]}"><h3>[{ref["id"]}] {esc(ref["title"])} · {esc(ref["tab"])} · {"OCR" if ref["field"]=="ocr_text" else "正文"}</h3><blockquote>{esc(ref["quote"])}</blockquote><small>字段 {esc(ref["field"])} · 区间 [{ref["start"]}, {ref["end"]}) · 修订 {ref["revision"][:12]}</small></article>'
-        result+='</section>'
+        result+='</details>'
     return result
 
 def export_html(r):

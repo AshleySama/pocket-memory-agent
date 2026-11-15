@@ -86,11 +86,45 @@ def _no_links(path: Path) -> None:
 
 
 def _absolute(path: os.PathLike | str) -> Path:
-    raw = Path(os.path.abspath(os.fspath(path)))
+    original = os.fspath(path)
+    if original.replace('/', '\\').startswith(('\\\\?\\', '\\\\.\\')):
+        raise UpdateError("Windows device/extended paths are not supported")
+    # ntpath.abspath itself can trim trailing spaces/dots. Inspect the caller's
+    # spelling first, before invoking either Win32 normalization function.
+    selected = Path(original)
+    for part in selected.parts[1 if selected.anchor else 0:]:
+        if part not in {'.', '..'}:
+            _relative(part.replace('~', '_'))
+    raw = Path(os.path.abspath(original))
     _no_links(raw)
-    # Do not accept Win32 spelling aliases even for a caller-selected root.
+    # Archive/manifest paths remain strict. Host paths may contain real Windows
+    # 8.3 aliases (notably TEMP/LOCALAPPDATA on managed PCs). Validate spelling
+    # BEFORE expansion so Win32 cannot silently trim a trailing dot/space or
+    # hide a reparse point. Only an existing, same-file alias may be expanded.
+    for part in raw.parts[1:]:
+        _relative(part.replace("~", "_"))
+    if os.name == "nt":
+        existing, suffix = raw, []
+        while not existing.exists():
+            _relative(existing.name)  # an unresolvable short name is not trusted
+            suffix.append(existing.name)
+            existing = existing.parent
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        expand = kernel.GetLongPathNameW
+        expand.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+        expand.restype = wintypes.DWORD
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = expand(str(existing), buffer, len(buffer))
+        if not length or length >= len(buffer):
+            raise UpdateError(f"Cannot resolve local Windows path: {existing}")
+        resolved = Path(buffer.value)
+        if not resolved.is_absolute() or not os.path.samefile(existing, resolved):
+            raise UpdateError(f"Windows path identity changed: {existing}")
+        raw = resolved.joinpath(*reversed(suffix))
     for part in raw.parts[1:]:
         _relative(part)
+    _no_links(raw)
     return raw
 
 
@@ -238,6 +272,7 @@ def running_install_processes(install: Path) -> list[int]:
     """Windows-only path-specific check; never stop a process."""
     if os.name != "nt":
         return []
+    install = _absolute(install)
     from ctypes import wintypes
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     class ProcessEntry(ctypes.Structure):
@@ -253,6 +288,8 @@ def running_install_processes(install: Path) -> list[int]:
     kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel.OpenProcess.restype = wintypes.HANDLE
     kernel.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.GetExitCodeProcess.restype = wintypes.BOOL
     kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     snapshot = kernel.CreateToolhelp32Snapshot(2, 0)
     if snapshot == ctypes.c_void_p(-1).value:
@@ -269,23 +306,41 @@ def running_install_processes(install: Path) -> list[int]:
             if entry.szExeFile.casefold() == "pocketmemory.exe":
                 handle = kernel.OpenProcess(0x1000, False, entry.th32ProcessID)
                 if not handle:
-                    # Process may have exited. Access denied cannot prove it is safe.
-                    if ctypes.get_last_error() == 5:
-                        raise UpdateError("Cannot inspect a running PocketMemory.exe; close it before updating")
+                    error = ctypes.get_last_error()
+                    # A Toolhelp PID may disappear before OpenProcess. Only the
+                    # explicit no-such-PID result permits skipping this entry.
+                    if error != 87:  # ERROR_INVALID_PARAMETER for vanished PID
+                        raise UpdateError(f"Cannot inspect a running PocketMemory.exe; "
+                                          f"PID={entry.th32ProcessID}, WinError={error}. "
+                                          "Close it before updating")
                 else:
                     try:
                         size = wintypes.DWORD(32768)
                         buffer = ctypes.create_unicode_buffer(size.value)
                         if not kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
-                            raise UpdateError("Cannot determine the running PocketMemory.exe path")
-                        image_path = os.path.abspath(buffer.value).casefold()
+                            error = ctypes.get_last_error()
+                            code = wintypes.DWORD(259)
+                            # Prove exit on this SAME handle. Looking up the PID
+                            # again can observe a different, recycled process.
+                            exited = kernel.GetExitCodeProcess(handle, ctypes.byref(code))
+                            exit_error = 0 if exited else ctypes.get_last_error()
+                            if not exited or code.value == 259:  # STILL_ACTIVE
+                                raise UpdateError("Cannot determine the running PocketMemory.exe path; "
+                                                  f"PID={entry.th32ProcessID}, WinError={error}, "
+                                                  f"exit_code={code.value if exited else 'unknown'}, "
+                                                  f"exit_error={exit_error}")
+                            image_path = None
+                        else:
+                            image_path = str(_absolute(buffer.value)).casefold()
                         backup_prefix = str(install / STATE_DIR).casefold() + os.sep
-                        if (image_path == expected or (image_path.startswith(backup_prefix)
+                        if image_path is not None and (image_path == expected or (image_path.startswith(backup_prefix)
                                 and image_path.endswith(os.sep + "backup" + os.sep + "pocketmemory.exe"))):
                             matches.append(int(entry.th32ProcessID))
                     finally:
                         kernel.CloseHandle(handle)
             more = kernel.Process32NextW(snapshot, ctypes.byref(entry))
+            if not more and ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+                raise UpdateError(f"Unable to finish inspecting process list; WinError={ctypes.get_last_error()}")
     finally:
         kernel.CloseHandle(snapshot)
     return matches
@@ -662,7 +717,26 @@ class SafeUpdater:
                     raise UpdateError(f"Update failed ({exc}); recovery needs attention ({recovery}). Close the app and run recover. Backups retained.") from exc
                 raise UpdateError(f"Update failed and was rolled back: {exc}") from exc
 
-    def commit(self, health_note: str) -> dict:
+    def begin_desktop_confirmation(self, transaction: str, version: str) -> dict:
+        """Reopen only the authenticated legacy transaction's metadata.
+
+        Released workers commit before GUI startup. Keep their backups and
+        mark that same transaction pending until the desktop receipt arrives.
+        """
+        self._require_external_helper()
+        with self._locked():
+            self._not_running()
+            journal = self._journal()
+            if (not journal or journal['transaction'] != transaction
+                    or journal['version'] != version
+                    or journal['state'] not in {'committed', 'pending_health'}):
+                raise UpdateError('Legacy desktop handoff transaction changed')
+            journal['state'] = 'pending_health'
+            journal['health_verification'] = 'awaiting_desktop_attestation'
+            self._save(journal)
+            return self._status(journal)
+
+    def commit(self, health_note: str, *, desktop_pids=None) -> dict:
         self._require_external_helper()
         if not isinstance(health_note, str) or len(health_note.strip()) < 8:
             raise UpdateError("Provide an explicit real-application health verification note")
@@ -670,13 +744,23 @@ class SafeUpdater:
             journal = self._journal()
             if not journal or journal["state"] not in {"pending_health", "committed"}:
                 raise UpdateError("No pending update to confirm")
-            self._not_running()
+            if desktop_pids is None:
+                self._not_running()
+            else:
+                # Metadata-only confirmation after the caller verified the live
+                # native window. File replacement/rollback still require exit.
+                if (not isinstance(desktop_pids, (list, tuple)) or len(desktop_pids) != 2
+                        or any(type(pid) is not int or pid <= 0 for pid in desktop_pids)
+                        or len(set(desktop_pids)) != 2
+                        or set(running_install_processes(self.install)) != set(desktop_pids)):
+                    raise UpdateError("Live desktop identities changed before confirmation")
             receipt = _read_json(self.receipt_path)
             manifest = validate_manifest(receipt["manifest"])
             for entry in manifest["files"]:
                 _verify(self.install / entry["path"], entry)
             journal["state"] = "committed"
             journal["health_note"] = health_note.strip()
-            journal["health_verification"] = "caller_attestation"
+            verification = "live_desktop_attestation" if desktop_pids else "caller_attestation"
+            journal["health_verification"] = verification
             self._save(journal)
-            return {**self._status(journal), "health_verification": "caller_attestation", "backups_retained": True}
+            return {**self._status(journal), "health_verification": verification, "backups_retained": True}

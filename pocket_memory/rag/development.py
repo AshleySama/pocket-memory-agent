@@ -34,7 +34,9 @@ def public_source(source, store):
                    parent_note_id=note.parent_note_id, note_id=ident,
                    url=f'/api/notes/{ident}', tab_name=note.tab_name)
     elif kind == 'document':
-        out.update(id=ident, url=f'/api/documents/{ident}/file', source_type='document')
+        chunk = out.get('chunk_id')
+        suffix = f'?chunk_id={chunk}' if isinstance(chunk, int) else ''
+        out.update(id=ident, url=f'/api/documents/{ident}/file{suffix}', source_type='document')
     out.setdefault('excerpt', out.get('evidence', ''))
     out.setdefault('reason', '本地原文证据')
     out.setdefault('location', '原文')
@@ -207,7 +209,7 @@ class LiveRagPipeline:
         output = []
         for source in response.get('sources', []):
             public = public_source(source, self.store)
-            public.update(presentation(source, answer, direct=direct))
+            public.update(presentation(source, answer, direct=direct, store=self.store))
             output.append(public)
         return answer, output
 

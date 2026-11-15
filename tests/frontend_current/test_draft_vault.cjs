@@ -1,3 +1,7 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto');
 const context={window:{},crypto:crypto.webcrypto,setTimeout,clearTimeout,Blob, navigator:{sendBeacon(){}}};vm.createContext(context);
 vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../../frontend/drafts.js'),'utf8'),context);

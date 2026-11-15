@@ -924,6 +924,10 @@ function renderSidebar() {
 
   // Reuse the button node so its listener and command-palette entry survive rerenders.
   const newFolderButton = $("#new-folder-btn");
+  const newFolderSlot = $("#new-folder-inline");
+  const folderFocus = newFolderSlot.contains(document.activeElement) ? document.activeElement : null;
+  const folderSelection = folderFocus?.tagName === "INPUT"
+    ? [folderFocus.selectionStart, folderFocus.selectionEnd] : null;
   $("#category-nav").innerHTML = `
     <div class="all-notes-row">
       <button class="nav-item ${active({})}" data-filter="all">
@@ -932,6 +936,11 @@ function renderSidebar() {
     </div>
     ${state.folders.length ? renderFolderTree(state.folders) : `<p class="muted" style="padding:8px">还没有分区，点击全部笔记右侧 + 创建</p>`}`;
   $("#category-nav .all-notes-row").append(newFolderButton);
+  $("#category-nav .all-notes-row").after(newFolderSlot);
+  if (folderFocus) {
+    folderFocus.focus({ preventScroll: true });
+    if (folderSelection) folderFocus.setSelectionRange(...folderSelection);
+  }
 
   $("#tag-nav").innerHTML = state.taxonomy.tags.slice(0, 24).map((tag) => `
     <button class="tag-filter ${active({ tag: tag.name })}" data-tag="${escapeHtml(tag.name)}">
@@ -1084,8 +1093,14 @@ function answerSourceLink(source, label, className) {
   // Keep the backend's citation identity and opening target together. Titles
   // and evidence are user content, so every inserted value stays escaped.
   return source.url
-    ? `<a class="${className}" href="#" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title || "")}" data-doc-exact="${Object.hasOwn(source, 'display_evidence')}" data-doc-evidence="${escapeHtml(source.display_evidence ?? source.evidence ?? "")}">${escapeHtml(label)}</a>`
+    ? `<a class="${className}" href="#" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title || "")}" data-doc-exact="${Object.hasOwn(source, 'display_evidence')}" data-doc-ranges="${escapeHtml(JSON.stringify(source.display_document_spans ?? []))}" data-doc-evidence="${escapeHtml(source.display_evidence ?? source.evidence ?? "")}">${escapeHtml(label)}</a>`
     : `<span class="${className}">${escapeHtml(label)}</span>`;
+}
+
+function documentLinkOptions(link) {
+  let spans = [];
+  try { const value = JSON.parse(link.dataset.docRanges || '[]'); if (Array.isArray(value)) spans = value; } catch (_) { /* no guessed highlight */ }
+  return { exactEvidence: link.dataset.docExact === 'true', documentSpans: spans };
 }
 
 function renderAnswerText(answer, sources = []) {
@@ -1877,6 +1892,7 @@ async function refresh() {
     setTimeout(() => { if (isCurrent()) scrollToNote(targetId); }, 80);
   }
   scheduleOcrPoll();
+  window.__PM_DESKTOP_READY__ = true;
   return true;
 }
 
@@ -2552,9 +2568,23 @@ $("#inline-attachment-remove").addEventListener("click", () => {
 $("#inline-content").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); $("#inline-save").click(); }
 });
+async function clearSearchResults({ focus = true } = {}) {
+  clearTimeout(window.searchTimer);
+  $("#search").value = "";
+  state.filter = {};
+  $("#search-clear").classList.add("hidden");
+  // Focus before refreshing so the editor guard cannot suppress explicit navigation.
+  if (focus) $("#search").focus();
+  await refresh();
+}
+
 $("#search").addEventListener("input", () => {
   $("#search-clear").classList.toggle("hidden", !$("#search").value);
   clearTimeout(window.searchTimer);
+  if (!$("#search").value.trim()) {
+    void clearSearchResults({ focus: false }).catch((error) => showToast("刷新失败", error.message));
+    return;
+  }
   window.searchTimer = setTimeout(refresh, 180);
 });
 $("#search").addEventListener("change", refresh);
@@ -2565,10 +2595,8 @@ $("#search").addEventListener("keydown", (event) => {
   }
 });
 $("#search-clear").addEventListener("click", async () => {
-  $("#search").value = "";
-  $("#search-clear").classList.add("hidden");
-  await refresh();
-  $("#search").focus();
+  try { await clearSearchResults(); }
+  catch (error) { showToast("刷新失败", error.message); }
 });
 $("#search-mode").addEventListener("change", refresh);
 // Read-only preview lifecycle. Final citations belong exclusively to `done`.
@@ -2653,7 +2681,7 @@ async function openSourcePreviewLink(link) {
     // Do not open a preview from the interval before the next revision poll,
     // or one replaced by the final answer while this check was in flight.
     if (!await checkAskRevision(session) || session.completed || !link.isConnected) return;
-    await openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", { exactEvidence: link.dataset.docExact === 'true' });
+    await openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", documentLinkOptions(link));
   } catch (error) {
     if (askIsCurrent(session)) stopAskWaiting("暂时无法确认原文版本，请重新提问后打开资料。");
   }
@@ -3744,15 +3772,19 @@ function showInlineFolderInput(parentId = null) {
       return;
     }
     const submit = form.querySelector("button[type=submit]");
+    if (submit.disabled) return;
     submit.disabled = true;
     try {
       await request("/api/folders", { method: "POST", body: JSON.stringify({ parent_id: parentId, name }) });
       if (parentId != null) state.expandedFolders.add(parentId);
-      await refresh();
     } catch (error) {
       submit.disabled = false;
       showToast("创建失败", error.message);
+      return;
     }
+    close();
+    try { await refresh(); }
+    catch (error) { showToast("分区已创建，列表刷新失败", error.message); }
   });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -4458,6 +4490,7 @@ document.querySelectorAll(".settings-tab").forEach((tab) => {
 });
 
 let settingsLoadSession = null;
+let modelStatusPollTimer = null;
 const SETTINGS_LOAD_TIMEOUT_MS = 10000;
 const SETTINGS_REMOTE_CONTROLS = [
   "#data-dir", "#choose-directory", "#export-data", "#background-input",
@@ -4465,6 +4498,7 @@ const SETTINGS_REMOTE_CONTROLS = [
 ];
 
 function cancelSettingsLoad() {
+  clearTimeout(modelStatusPollTimer);
   if (!settingsLoadSession) return;
   const session = settingsLoadSession;
   settingsLoadSession = null;
@@ -4549,23 +4583,32 @@ $("#settings-dialog").addEventListener("close", () => {
 $("#settings-dialog").addEventListener("cancel", cancelSettingsLoad);
 
 async function refreshModelStatus({ signal, isCurrent = () => true } = {}) {
+  clearTimeout(modelStatusPollTimer);
   const el = $("#model-status-text");
   if (!el) return;
   try {
     const status = await request("/api/intelligence/status", { signal });
     if (!isCurrent()) return;
-    if (!status.available) {
-      el.textContent = `模型不可用：${status.reason || "未返回具体原因"}`;
-    } else if (status.warming) {
+    if (status.warming) {
       el.textContent = "模型正在后台预热...";
+    } else if (!status.available) {
+      el.textContent = `模型不可用：${status.reason || "未返回具体原因"}`;
     } else {
       el.textContent = status.model_loaded
         ? "模型已加载"
         : "模型未加载（内存已释放）";
     }
     const unloadButton = $("#unload-model-btn");
-    unloadButton.disabled = !status.model_loaded;
-    unloadButton.textContent = status.model_loaded ? "释放模型内存" : "当前未加载";
+    const canRetry = status.can_retry === true && !status.warming && !status.model_loaded;
+    unloadButton.dataset.action = canRetry ? "retry" : "unload";
+    unloadButton.disabled = status.warming || (!status.model_loaded && !canRetry);
+    unloadButton.textContent = status.warming ? "加载中…"
+      : status.model_loaded ? "释放模型内存" : canRetry ? "重新加载" : "当前未加载";
+    if (status.warming && $("#settings-dialog").open) {
+      modelStatusPollTimer = setTimeout(() => {
+        if (isCurrent() && $("#settings-dialog").open) refreshModelStatus({ signal, isCurrent });
+      }, 1500);
+    }
   } catch (err) {
     if (!isCurrent()) return;
     el.textContent = "状态查询失败";
@@ -4576,13 +4619,19 @@ async function refreshModelStatus({ signal, isCurrent = () => true } = {}) {
 
 $("#unload-model-btn").addEventListener("click", async () => {
   const btn = $("#unload-model-btn");
+  const retry = btn.dataset.action === "retry";
+  const session = settingsLoadSession;
+  const isCurrent = () => session === settingsLoadSession && $("#settings-dialog").open;
   btn.disabled = true;
-  $("#model-status-text").textContent = "正在卸载模型...";
+  $("#model-status-text").textContent = retry ? "正在重新加载模型…" : "正在卸载模型...";
   try {
-    await request("/api/intelligence/unload", { method: "POST", body: "{}" });
-    await refreshModelStatus();
+    await request(retry ? "/api/intelligence/retry" : "/api/intelligence/unload", {
+      method: "POST", body: "{}", signal: session?.controller.signal,
+    });
+    if (isCurrent()) await refreshModelStatus({ signal: session?.controller.signal, isCurrent });
   } catch (err) {
-    $("#model-status-text").textContent = `卸载失败: ${err.message}`;
+    if (!isCurrent()) return;
+    $("#model-status-text").textContent = `${retry ? "重试" : "卸载"}失败: ${err.message}`;
     btn.disabled = false;
   }
 });
@@ -4748,76 +4797,56 @@ $("#clear-background").addEventListener("click", async () => {
   }
 });
 
-const directoryBrowserState = { path: "", parent: null, controller: null, revision: 0 };
+let directorySelectionRevision = 0;
+$("#settings-dialog").addEventListener("close", () => { ++directorySelectionRevision; });
 
-async function browseDataDirectory(path) {
-  const dialog = $("#directory-browser");
-  directoryBrowserState.controller?.abort();
-  const controller = new AbortController();
-  const revision = ++directoryBrowserState.revision;
-  directoryBrowserState.controller = controller;
-  const isCurrent = () => dialog.open && directoryBrowserState.revision === revision;
-  const status = $("#directory-browser-status");
-  status.textContent = "正在读取文件夹…";
-  status.removeAttribute("data-error");
-  $("#directory-browser-select").disabled = true;
-  $("#directory-browser-list").innerHTML = "";
-  let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 10000);
-  try {
-    const result = await request("/api/settings/browse-data-dir", {
-      method: "POST", body: JSON.stringify({ path }), signal: controller.signal,
-    });
-    if (!isCurrent()) return;
-    directoryBrowserState.path = result.path || "";
-    directoryBrowserState.parent = result.parent;
-    $("#directory-browser-path").value = directoryBrowserState.path;
-    $("#directory-browser-parent").disabled = !directoryBrowserState.path;
-    $("#directory-browser-select").disabled = !directoryBrowserState.path;
-    const folders = result.directories || [];
-    $("#directory-browser-list").innerHTML = folders.map((folder) => `<button class="directory-browser-folder ghost" type="button" data-directory-path="${escapeHtml(folder.path)}" title="${escapeHtml(folder.path)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9H3z"/></svg><span>${escapeHtml(folder.name)}</span><span aria-hidden="true">›</span></button>`).join("");
-    status.textContent = result.truncated ? "子文件夹较多，可输入路径直接前往。" : folders.length ? `${folders.length} 个${result.path ? "子文件夹" : "磁盘"}` : "此目录没有子文件夹，可以直接选择。";
-  } catch (error) {
-    if (!isCurrent() || (controller.signal.aborted && !timedOut)) return;
-    status.textContent = timedOut ? "读取目录超时，请重试或返回“此电脑”。" : (error.message || "暂时无法读取此目录，请选择其他目录。");
-    status.dataset.error = "true";
-  } finally {
-    clearTimeout(timer);
-    if (directoryBrowserState.controller === controller) directoryBrowserState.controller = null;
-  }
+function waitForDirectoryApi() {
+  if (window.pywebview?.api?.choose_data_directory) return Promise.resolve(window.pywebview.api);
+  return new Promise((resolve) => {
+    let timer;
+    const ready = () => {
+      clearTimeout(timer);
+      window.removeEventListener("pywebviewready", ready);
+      resolve(window.pywebview?.api || null);
+    };
+    window.addEventListener("pywebviewready", ready, { once: true });
+    timer = setTimeout(ready, 2000);
+  });
 }
 
-$("#choose-directory").addEventListener("click", () => {
-  const dialog = $("#directory-browser");
-  if (!dialog.open) dialog.showModal();
-  void browseDataDirectory($("#data-dir").value.trim() || null);
-});
-$("#directory-browser-path").addEventListener("input", () => {
-  $("#directory-browser-select").disabled = true;
-});
-$("#directory-browser-path-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  void browseDataDirectory($("#directory-browser-path").value.trim());
-});
-$("#directory-browser-list").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-directory-path]");
-  if (button) void browseDataDirectory(button.dataset.directoryPath);
-});
-$("#directory-browser-roots").addEventListener("click", () => void browseDataDirectory(""));
-$("#directory-browser-parent").addEventListener("click", () => void browseDataDirectory(directoryBrowserState.parent || ""));
-for (const selector of ["#directory-browser-close", "#directory-browser-cancel"]) $(selector).addEventListener("click", () => $("#directory-browser").close());
-$("#directory-browser").addEventListener("close", () => {
-  ++directoryBrowserState.revision;
-  directoryBrowserState.controller?.abort();
-  directoryBrowserState.controller = null;
-});
-$("#directory-browser-select").addEventListener("click", () => {
-  if (!directoryBrowserState.path || $("#directory-browser-select").disabled) return;
-  state.selectedDirectory = directoryBrowserState.path;
-  $("#data-dir").value = state.selectedDirectory;
-  $("#switch-directory").disabled = false;
-  $("#migrate-directory").disabled = false;
-  $("#directory-browser").close();
+$("#choose-directory").addEventListener("click", async () => {
+  const button = $("#choose-directory");
+  if (button.disabled) return;
+  const revision = ++directorySelectionRevision;
+  const settingsSession = settingsLoadSession;
+  const initial = $("#data-dir").value;
+  const originalText = button.textContent;
+  const isCurrent = () => revision === directorySelectionRevision && settingsSession === settingsLoadSession && $("#settings-dialog").open;
+  button.disabled = true;
+  button.textContent = "正在选择…";
+  try {
+    const api = await waitForDirectoryApi();
+    if (!isCurrent()) return;
+    if (!api?.choose_data_directory) {
+      showToast("请选择资料目录", "请在桌面窗口中选择文件夹，也可直接粘贴完整路径。");
+      $("#data-dir").focus();
+      return;
+    }
+    const result = await api.choose_data_directory(initial.trim() || null);
+    // Closing/reopening Settings, or editing the path meanwhile, invalidates a late result.
+    if (!isCurrent() || $("#data-dir").value !== initial) return;
+    if (result?.error) throw new Error(result.error);
+    if (!result?.data_dir) return; // Cancel leaves the current path and selection unchanged.
+    state.selectedDirectory = result.data_dir;
+    $("#data-dir").value = state.selectedDirectory;
+    $("#switch-directory").disabled = false;
+    $("#migrate-directory").disabled = false;
+  } catch (error) {
+    if (isCurrent()) showToast("选择目录失败", error.message || "请重试或粘贴完整路径。");
+  } finally {
+    button.textContent = originalText;
+    button.disabled = ["loading", "error"].includes($("#settings-load-status").dataset.state);
+  }
 });
 
 $("#data-dir").addEventListener("input", (event) => {
@@ -4968,6 +4997,7 @@ async function openDoc(url, title, evidence = "", options = {}) {
       chunkId: Number(documentParams.get("chunk_id")) || null,
       evidence,
       exactEvidence: options.exactEvidence,
+      documentSpans: options.documentSpans,
     });
     return;
   }
@@ -5024,6 +5054,21 @@ async function openDoc(url, title, evidence = "", options = {}) {
   }
 }
 
+function renderDocumentCitationText(chunk, documentId, spans = []) {
+  const chars = Array.from(String(chunk.text || ''));
+  const relevant = spans.filter(s => s.document_id === documentId && s.chunk_id === chunk.id);
+  let cursor = 0, html = '';
+  for (const s of relevant.slice().sort((a, b) => a.char_start - b.char_start)) {
+    if (s.field !== 'document_text' || s.source_revision !== chunk.text_revision ||
+        !Number.isSafeInteger(s.char_start) || !Number.isSafeInteger(s.char_end_exclusive) ||
+        s.char_start < cursor || s.char_end_exclusive <= s.char_start || s.char_end_exclusive > chars.length ||
+        chars.slice(s.char_start, s.char_end_exclusive).join('') !== s.quote) return escapeHtml(chunk.text);
+    html += escapeHtml(chars.slice(cursor, s.char_start).join('')) + '<mark>' + escapeHtml(s.quote) + '</mark>';
+    cursor = s.char_end_exclusive;
+  }
+  return html + escapeHtml(chars.slice(cursor).join(''));
+}
+
 async function openImportedDocument(documentId, fallbackTitle = "导入文档", options = {}) {
   const library = draftVault.library;
   $('#doc-preview-body').dataset.documentLibrary = library || '';
@@ -5058,7 +5103,9 @@ async function openImportedDocument(documentId, fallbackTitle = "导入文档", 
     const chunkHtml = chunks.length
       ? chunks.map((chunk, index) => `<article class="document-chunk${Number(chunk.id) === Number(options.chunkId) ? " is-reference" : ""}" data-document-chunk-id="${chunk.id}">
           <header><strong>切片 ${index + 1}</strong><span>${escapeHtml(chunk.location || "正文")}</span></header>
-          <pre>${highlightText(chunk.text, highlightTerms)}</pre>
+          <pre>${options.exactEvidence
+            ? renderDocumentCitationText(chunk, documentId, options.documentSpans || [])
+            : highlightText(chunk.text, highlightTerms)}</pre>
         </article>`).join("")
       : `<p class="muted">${document.status === "failed" ? `提取失败：${escapeHtml(document.error || "请重新建立索引")}` : "尚未生成切片，正在处理或等待重新建立索引。"}</p>`;
     $("#doc-preview-body").innerHTML = `
@@ -5169,7 +5216,7 @@ document.addEventListener("click", (event) => {
       void openSourcePreviewLink(link);
       return;
     }
-    openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", { exactEvidence: link.dataset.docExact === 'true' });
+    openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", documentLinkOptions(link));
   }
 });
 
@@ -5188,6 +5235,7 @@ $("#answer-panel").innerHTML = `<div class="empty-guide"><p class="muted">在搜
 
 installDraftEvents();
 void draftVault.init();
+window.__PM_DESKTOP_READY__ = false;
 refresh().catch((err) => {
   $("#timeline").innerHTML = `<p class="muted empty-state">加载失败：${escapeHtml(err.message)}。请确认服务已启动。</p>`;
   console.error("初始加载失败", err);
@@ -5427,7 +5475,6 @@ document.addEventListener("keydown", (e) => {
 
   // Esc: 多级回退（弹窗 > 文档预览 > 设置 > 录入条 > 清筛选）
   if (e.key === "Escape") {
-    if ($("#directory-browser").open) { e.preventDefault(); $("#directory-browser").close(); return; }
     // 优先关闭模态弹窗（quick-jump / command-palette / settings / graph）
     if ($("#quick-jump-dialog").open) { $("#quick-jump-dialog").close(); return; }
     if ($("#command-palette-dialog").open) { $("#command-palette-dialog").close(); return; }

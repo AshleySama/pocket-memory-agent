@@ -152,7 +152,7 @@ class IntelligenceServiceTests(unittest.TestCase):
     def test_model_load_falls_back_to_non_mmap_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             model_path = Path(temp) / "model.gguf"
-            model_path.write_bytes(b"placeholder")
+            model_path.write_bytes(b"GGUF" + bytes(20))
             calls: list[dict] = []
 
             def fake_llama(**kwargs):

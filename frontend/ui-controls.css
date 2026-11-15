@@ -520,6 +520,9 @@ body.knowledge-workbench .welcome-result-card :is(.result-note-main, .result-not
 /* Shared sidebar rhythm: headings, counts and small actions use the same edges. */
 body.knowledge-workbench .sidebar-top-divider { margin: 0 0 12px; border: 0; border-top: 1px solid var(--border-soft); }
 body.knowledge-workbench .folder-inline-slot:empty { display: none; }
+body.knowledge-workbench #category-nav > .folder-inline-slot { padding: 0 0 6px; }
+body.knowledge-workbench #category-nav > .folder-inline-slot input { grid-column: 1 / -1; }
+body.knowledge-workbench #category-nav > .folder-inline-slot button[type="submit"] { grid-column: 2; }
 body.knowledge-workbench .sidebar .sidebar-section { margin-top: 16px; }
 body.knowledge-workbench .sidebar .recent-section { margin-top: 0; margin-bottom: 12px; padding-bottom: 12px; }
 body.knowledge-workbench .sidebar .sidebar-section > summary { margin: 0; min-height: 34px; padding: 0 9px; font-size: 13px; letter-spacing: 0; }
@@ -539,23 +542,3 @@ body.knowledge-workbench .sidebar .stat-item.clickable.active { background: var(
 #category-nav .all-notes-row { position: relative; margin-bottom: 6px; }
 #category-nav .all-notes-row > .nav-item { width: 100%; min-width: 0; margin-bottom: 0; padding-left: 9px; padding-right: 9px; }
 #category-nav #new-folder-btn { position: absolute; left: 64px; top: 5px; width: 22px; min-width: 22px; height: 28px; min-height: 28px; margin: 0; padding: 0; border-color: transparent; border-radius: 5px; font-size: 19px; line-height: 1; color: var(--text-soft); box-shadow: none; }
-
-/* In-app directory selection keeps the same flow in a browser and desktop window. */
-.directory-browser { width: min(640px,calc(100vw - 32px)); max-height: min(720px,calc(100vh - 40px)); box-sizing: border-box; padding: 22px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-elev); color: var(--text); }
-.directory-browser::backdrop { background: rgba(18,30,35,.32); }
-.directory-browser-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.directory-browser-header h2 { margin: 0; font-size: 20px; }
-.directory-browser-path label { display: block; margin-bottom: 6px; font-size: 12px; color: var(--text-soft); }
-.directory-browser-path > div { display: flex; gap: 8px; }
-.directory-browser-path input { min-width: 0; flex: 1; }
-.directory-browser-nav { display: flex; gap: 8px; margin-top: 12px; }
-.directory-browser-status { min-height: 20px; margin: 10px 0; font-size: 12px; color: var(--text-soft); overflow-wrap: anywhere; }
-.directory-browser-status[data-error] { color: var(--text); }
-.directory-browser-list { max-height: min(340px,40vh); overflow: auto; min-height: 90px; border-block: 1px solid var(--border-soft); padding: 6px 0; }
-.directory-browser button.directory-browser-folder { display: flex; width: 100%; align-items: center; gap: 10px; text-align: left; padding: 9px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); box-shadow: none; }
-.directory-browser button.directory-browser-folder:hover { background: var(--accent-soft); transform: none; }
-.directory-browser-folder svg { width: 20px; height: 20px; flex: 0 0 20px; color: var(--accent); }
-.directory-browser-folder span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.directory-browser-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 16px; }
-.directory-browser-footer > span { flex: 1 1 180px; font-size: 12px; color: var(--text-soft); }
-.directory-browser button { white-space: nowrap; }

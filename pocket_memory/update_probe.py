@@ -45,6 +45,8 @@ def run_probe(config, data_dir, frontend, host, port):
     if not token:
         raise ValueError('启动检查缺少一次性令牌')
     result = check_inputs(config, data_dir, frontend)
+    from pocket_memory.legacy_update_handoff import stage_handoff
+    stage_handoff(config, data_dir)
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
         def authorized(self):

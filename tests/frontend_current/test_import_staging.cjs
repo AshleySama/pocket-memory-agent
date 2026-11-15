@@ -1,3 +1,7 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 const assert=require('node:assert/strict');
 const Queue=require('../../frontend/imports.js');
 const files=(name='draft.txt',body='saved bytes')=>({name,size:body.length,lastModified:1,body});

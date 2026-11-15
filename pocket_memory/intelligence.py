@@ -16,6 +16,9 @@ from datetime import datetime
 from pathlib import Path
 
 from pocket_memory.storage import NoteStore
+from pocket_memory.model_health import (
+    ModelFileError, diagnose_load_failure, inspect_model_file, memory_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -195,14 +198,15 @@ class LlamaCppTextEngine:
     def runtime_status(self) -> dict:
         """Return availability without loading multi-gigabyte model weights."""
         if self._llm is not None:
-            return {"available": True, "reason": "", "model_loaded": True}
+            return {"available": True, "reason": "", "model_loaded": True, "can_retry": False}
         if self._error:
-            return {"available": False, "reason": self._error, "model_loaded": False}
+            return {"available": False, "reason": self._error, "model_loaded": False, "can_retry": True}
         if not self.model_path.is_file():
             return {
                 "available": False,
-                "reason": f"文本理解模型文件缺失: {self.model_path}",
+                "reason": "模型文件未找到。请确认已完整解压安装包，再重新加载。",
                 "model_loaded": False,
+                "can_retry": True,
             }
         try:
             import llama_cpp  # noqa: F401
@@ -213,6 +217,15 @@ class LlamaCppTextEngine:
                 "model_loaded": False,
             }
         return {"available": True, "reason": "", "model_loaded": False}
+
+    def retry_load(self) -> bool:
+        """Only an explicit user action clears a remembered load failure."""
+        with self._lock:
+            if self._llm is not None:
+                return True
+            self._error = None
+            self._ensure_loaded()
+            return self._llm is not None
 
     def classify(
         self,
@@ -667,6 +680,43 @@ class LlamaCppTextEngine:
                 return ""
             return choices[0].get("message", {}).get("content", "") or ""
 
+    def report_prompt_tokens(self, messages: list[dict]) -> int:
+        """Actual GGUF chat template budget for long reports; no model sampling."""
+        from llama_cpp import llama_chat_format
+        with self.session():
+            llm = self._llm
+            if llm.chat_handler is not None:
+                raise ValueError('当前自定义聊天格式尚不能核对长文报告预算')
+            if llm.chat_format == 'chat_template.default':
+                formatter = llama_chat_format.Jinja2ChatFormatter(
+                    template=llm.metadata['tokenizer.chat_template'],
+                    eos_token=llm._model.token_get_text(llm.token_eos()) if llm.token_eos()!=-1 else '',
+                    bos_token=llm._model.token_get_text(llm.token_bos()) if llm.token_bos()!=-1 else '',
+                    stop_token_ids=[llm.token_eos()])
+            elif llm.chat_format == 'chatml':
+                formatter = llama_chat_format.format_chatml
+            else:
+                raise ValueError('当前聊天格式尚不能核对长文报告预算')
+            rendered = formatter(messages=messages)
+            return len(llm.tokenize(rendered.prompt.encode('utf-8'), add_bos=not rendered.added_special, special=True))
+
+    def report_completion(self, messages: list[dict], max_tokens: int, schema=None) -> dict:
+        """Report-only structured completion with truncation and cost receipts."""
+        with self.session():
+            count = self.report_prompt_tokens(messages)
+            if count + max_tokens + 64 > self.n_ctx:
+                raise ValueError('报告输入超过上下文预算，未截断资料')
+            started = time.perf_counter()
+            output_format={'type':'json_object'}
+            if schema is not None: output_format['schema']=schema
+            response = completion(self._llm, messages=messages, max_tokens=max_tokens,
+                                  temperature=0, seed=0, stream=False,
+                                  response_format=output_format, _perf_phase='other')
+            choice = (response.get('choices') or [{}])[0]
+            return {'text':choice.get('message',{}).get('content',''),
+                    'finish_reason':choice.get('finish_reason'), 'usage':response.get('usage',{}),
+                    'prompt_tokens_checked':count, 'seconds':round(time.perf_counter()-started,3)}
+
     def generate_moc(self, folder_name: str, notes: list[dict]) -> str:
         """为文件夹生成 MOC（Map of Content）内容。
 
@@ -953,9 +1003,11 @@ class LlamaCppTextEngine:
         with self._lock:
             if self._llm is not None or self._error is not None:
                 return
-            if not self.model_path.is_file():
-                self._error = f"文本理解模型文件缺失: {self.model_path}"
-                logger.info("LlamaCpp unavailable: %s", self._error)
+            try:
+                preflight = inspect_model_file(self.model_path)
+            except ModelFileError as exc:
+                self._error = str(exc)
+                logger.warning("model_load_preflight_failed %s", json.dumps(exc.details, ensure_ascii=False))
                 return
             try:
                 from llama_cpp import Llama
@@ -965,15 +1017,26 @@ class LlamaCppTextEngine:
                 return
             def create_llm(*, use_mlock: bool, use_mmap: bool) -> Any:
                 from pocket_memory.request_cancel import create_llama
-                return create_llama(Llama,
-                    model_path=str(self.model_path),
-                    n_ctx=self.n_ctx,
-                    n_threads=self.n_threads,
-                    n_gpu_layers=self.n_gpu_layers,
-                    verbose=False,
-                    use_mlock=use_mlock,
-                    use_mmap=use_mmap,
-                )
+                # The daemon already writes stderr to its local server log.
+                # Only construction is verbose, so native file/allocator errors
+                # survive; no prompts or answers are generated in this block.
+                try:
+                    loaded = create_llama(Llama,
+                        model_path=str(self.model_path),
+                        n_ctx=self.n_ctx,
+                        n_threads=self.n_threads,
+                        n_gpu_layers=self.n_gpu_layers,
+                        verbose=True,
+                        use_mlock=use_mlock,
+                        use_mmap=use_mmap,
+                    )
+                    if hasattr(loaded, "verbose"):
+                        loaded.verbose = False
+                    return loaded
+                finally:
+                    native_logger = sys.modules.get("llama_cpp._logger")
+                    if native_logger is not None and callable(getattr(native_logger, "set_verbose", None)):
+                        native_logger.set_verbose(False)
 
             # Some enterprise endpoint tools block memory-mapping a large GGUF in
             # a managed/download directory. Keep mmap for the fast path, then use
@@ -983,8 +1046,15 @@ class LlamaCppTextEngine:
                 (False, True, "普通内存映射"),
                 (False, False, "非内存映射"),
             )
-            load_errors: list[Exception] = []
+            # Keep text, not exception/traceback objects that can retain a
+            # partially constructed native model between fallback attempts.
+            load_errors: list[str] = []
             for use_mlock, use_mmap, label in load_attempts:
+                logger.info("model_load_attempt %s", json.dumps({
+                    "mode": label, "file": preflight, "memory_before": memory_snapshot(),
+                    "n_ctx": self.n_ctx, "n_threads": self.n_threads,
+                    "n_gpu_layers": self.n_gpu_layers,
+                }, ensure_ascii=False))
                 try:
                     metric('model.load_attempts')
                     with span('model.load'):
@@ -992,15 +1062,11 @@ class LlamaCppTextEngine:
                     metric('model.load_successes')
                     break
                 except Exception as exc:
-                    load_errors.append(exc)
+                    load_errors.append(f"{label}: {type(exc).__name__}: {exc}")
                     logger.warning("%s加载模型失败: %s", label, exc)
             if self._llm is None:
-                final_error = load_errors[-1]
-                self._error = (
-                    f"{type(final_error).__name__}: {final_error}"
-                    "（已尝试锁页、普通内存及非内存映射加载）"
-                )
-                logger.info("LlamaCpp unavailable: %s", self._error)
+                self._error, diagnostics = diagnose_load_failure(self.model_path, preflight, load_errors)
+                logger.warning("model_load_failed %s", json.dumps(diagnostics, ensure_ascii=False))
                 return
 
             self._last_used_at = time.monotonic()
@@ -1084,9 +1150,20 @@ class IntelligenceService:
             self._warmup_future = self.executor.submit(self._warm_model)
             return True
 
-    def _warm_model(self) -> None:
+    def retry_model(self) -> bool:
+        """Coalesce clicks with startup warmup; all work uses the same AI queue."""
+        with self._warmup_lock:
+            if bool(getattr(self.engine, "model_loaded", False)):
+                return False
+            if self._warmup_future is not None and not self._warmup_future.done():
+                return False
+            self._warmup_future = self.executor.submit(self._warm_model, retry=True)
+            return True
+
+    def _warm_model(self, *, retry: bool = False) -> None:
         try:
-            if self.engine.available:
+            available = self.engine.retry_load() if retry else self.engine.available
+            if available:
                 logger.info("本地模型后台预热完成")
             else:
                 logger.info("本地模型后台预热未完成: %s", self.engine.unavailable_reason)

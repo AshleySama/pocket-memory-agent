@@ -312,8 +312,12 @@ def worker_identity_matches(pid: int, launched_pid: int, executable: Path) -> bo
     try:
         size = wintypes.DWORD(32768)
         buffer = ctypes.create_unicode_buffer(size.value)
-        return bool(kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size))
-                    and os.path.normcase(os.path.abspath(buffer.value)) == os.path.normcase(str(executable)))
+        if not kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return False
+        try:
+            return _absolute(buffer.value) == _absolute(executable)
+        except (OSError, UpdateError):
+            return False
     finally:
         kernel.CloseHandle(handle)
 

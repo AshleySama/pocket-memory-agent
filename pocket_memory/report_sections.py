@@ -8,6 +8,81 @@ import re
 from collections import Counter
 
 
+def presentation_records(report):
+    """Omit proven repeated watermark fragments from views, never snapshots.
+
+    Require a repeated suffix on several pages of the SAME document, composed
+    only of short, overlapping copies of one label. A repeated warning sentence,
+    numeric value, arbitrary footer, or a note is not sufficient evidence.
+    """
+    candidates = {}
+    document_pages = Counter()
+    repeats = Counter()
+    for unit in report['units']:
+        if unit['kind'] != 'document' or unit['field'] != 'document_text':
+            continue
+        document_pages[unit['source_id']] += 1
+        lines = list(re.finditer(r'[^\n]+', unit['body']))
+        candidate = None
+        for count in range(3, min(10, len(lines)) + 1):
+            tail = lines[-count:]
+            labels = [m.group().strip() for m in tail]
+            longest = max(labels, key=len)
+            if (not all(re.fullmatch(r'[A-Za-z\u4e00-\u9fff ]{2,24}', x) for x in labels)
+                    or len(set(labels)) < 2 or labels.count(longest) < 2
+                    or not all(x in longest for x in labels)):
+                continue
+            candidate = (tuple(labels), tail[0].start())
+        if candidate:
+            candidates[unit['unit_id']] = candidate
+            repeats[(unit['source_id'], candidate[0])] += 1
+    cuts = {}
+    for unit in report['units']:
+        candidate = candidates.get(unit['unit_id'])
+        if candidate and repeats[(unit['source_id'], candidate[0])] >= max(3, document_pages[unit['source_id']] * .6):
+            cuts[unit['unit_id']] = candidate[1]
+    refs = {ref['id']: ref for ref in report['refs']}
+    result = []
+    for record in report['records']:
+        ref = refs[record['ref']]
+        cut = cuts.get(ref['unit_id'])
+        if cut is not None and ref['end'] > cut:
+            record = dict(record, text=record['text'][:max(0, cut-ref['start'])].rstrip())
+        if record['text'].strip():
+            result.append(record)
+    return result
+
+
+def list_parts(text):
+    """Recognize explicit lists without treating decimals/IP/version wraps as steps."""
+    # Horizontal spacing only: \s* used to eat the next PDF line, turning an IP
+    # component into a list marker and swallowing digits in the following line.
+    markers = list(re.finditer(r'(?m)^[ \t]*(?:(?P<bullet>[-*])[ \t]+|(?P<number>\d{1,3})(?P<sep>[.、．）)])(?P<gap>[ \t]*))(?P<item>[^\n]*)', text))
+    if len(markers) >= 2:
+        numbered = all(m['number'] is not None for m in markers)
+        bullets = all(m['bullet'] is not None for m in markers)
+        valid = bullets
+        if numbered:
+            nums = [int(m['number']) for m in markers]
+            valid = (nums == list(range(nums[0], nums[0]+len(nums)))
+                     and len({m['sep'] for m in markers}) == 1
+                     and all(m['sep'] not in '.．' or m['gap'] or not re.match(r'\d', m['item']) for m in markers)
+                     and all(m['item'].strip() for m in markers))
+        if valid:
+            starts = [m.start() for m in markers]
+            items = [text[m.start('item'):starts[i+1] if i+1<len(markers) else len(text)].strip() for i,m in enumerate(markers)]
+            if all(items):
+                return text[:markers[0].start()].strip(), items
+        # A malformed numbered structure is not rescued by a weaker delimiter.
+        return '', []
+    inline = list(re.finditer(r'第([一二三四五六七八九十])[，、]', text))
+    if len(inline) >= 2:
+        nums = ['一二三四五六七八九十'.index(m[1]) for m in inline]
+        if nums == list(range(nums[0], nums[0]+len(nums))):
+            return text[:inline[0].start()].strip(), [text[m.end():inline[i+1].start() if i+1<len(inline) else len(text)].strip() for i,m in enumerate(inline)]
+    return '', []
+
+
 def readable(text):
     # Only a display projection: references always retain the untouched field.
     text = re.sub(r'<(?:script|style)\b[^>]*>[\s\S]*?</(?:script|style)>', '', text, flags=re.I)
@@ -54,20 +129,15 @@ def groups(records):
             heading=re.sub(r'^#+\s*','',text).rstrip('：:')
             heading_by_source[source]=heading
             continue
-        items=[]
-        markers=list(re.finditer(r'(?:^|\n)\s*(?:[-*]\s+|\d+[.、．）)]\s*)',text))
-        inline=list(re.finditer(r'第[一二三四五六七八九十]+[，、]',text))
-        matches=markers if len(markers)>=2 else inline if len(inline)>=2 else []
-        if matches:
-            intro=text[:matches[0].start()].strip()
-            if intro: heading=intro
-            items=[text[m.end():matches[i+1].start() if i+1<len(matches) else len(text)].strip() for i,m in enumerate(matches)]
-        elif '；' in text:
-            # Sentence boundaries stay visible; no inferred classification.
-            items=[s.strip() for s in re.split(r'[；]',text) if s.strip()]
-            if len(items)<2: items=[]
+        intro,items=list_parts(text)
+        if intro and len(intro)<=80 and intro.endswith(('：',':')):
+            heading=intro.rstrip('：:');intro=''
         if items:
-            out.append({'title':heading,'items':items,'ref':record['ref'],'source':record['title'],'field':record['field']})
+            out.append({'title':heading,'items':items,'context':intro,'ref':record['ref'],'source':record['title'],'field':record['field']})
+        elif '；' in text:
+            # Semicolons alone do not prove steps. Keep the complete paragraph,
+            # including prerequisites and exceptions, without invented numbering.
+            out.append({'title':heading,'paragraph':text,'items':[],'ref':record['ref'],'source':record['title'],'field':record['field']})
     return out
 
 
@@ -91,9 +161,12 @@ def flow_groups(records):
 
 
 def card_group(g,esc,cite,ordered=False):
+    if g.get('paragraph'):
+        return f'<div class="panel source-shape"><div class="panel-head"><h3>{esc(g["title"])}</h3>{cite(g["ref"])}</div><div class="panel-body"><p class="source-paragraph">{esc(g["paragraph"])}</p></div></div>'
     cls='evidence-flow' if ordered else 'evidence-grid'
     items=''.join(f'<article><span class="item-number">{i+1:02}</span><p>{esc(text)}</p></article>' for i,text in enumerate(g['items']))
-    return f'<div class="panel source-shape"><div class="panel-head"><h3>{esc(g["title"])}</h3>{cite(g["ref"])}</div><div class="{cls}">{items}</div></div>'
+    context='<p class="panel-body group-context">'+esc(g['context'])+'</p>' if g.get('context') else ''
+    return f'<div class="panel source-shape"><div class="panel-head"><h3>{esc(g["title"])}</h3>{cite(g["ref"])}</div>{context}<div class="{cls}">{items}</div></div>'
 
 
 def focus_view(r,esc,cite,table_html):
@@ -132,10 +205,10 @@ def focus_view(r,esc,cite,table_html):
         body+=''.join(card_group(g,esc,cite,True) for g in flows)
         return '能力对照与使用路径',body
     if kind=='learning':
-        body='<p class="section-desc">链路与顺序仅来自原文箭头或明确步骤；不把不同笔记的字段名称自动合并，也不自动裁决历史修改要求。</p>'
+        body=''
         body+=''.join(card_group(g,esc,cite,True) for g in flows)
         body+=''.join(card_group(g,esc,cite) for g in gs)
-        return '知识链路与操作清单',body
+        return '知识要点与清单',body
     # Research: same dimensions must come from an explicit table, not guessed cells.
     body='<p class="section-desc">按原文场景与条件组织资料；结构图表示原文并列关系，不表示已证明的因果或实施先后。</p>'
     body+=''.join(card_group(g,esc,cite) for g in gs)

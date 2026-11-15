@@ -6,6 +6,7 @@ from pocket_memory.rag.performance import request_profile, measured_lock, snapsh
 
 import base64
 import binascii
+import hashlib
 import inspect
 import json
 import logging
@@ -418,6 +419,9 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._safe_error(HTTPStatus.INTERNAL_SERVER_ERROR, "服务器内部错误")
 
     def _handle_get(self) -> None:
+        from pocket_memory.report_exports import handle_report_export_api
+        if handle_report_export_api(self, 'GET'):
+            return
         from pocket_memory.office_api import handle_office_api
         if handle_office_api(self, 'GET'):
             return
@@ -465,7 +469,8 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._json(self.server.app_updates.status())
         elif parsed.path == "/api/update-health":
             self._validate_local_cancellation()
-            expected = os.environ.get('PM_UPDATE_HEALTH_TOKEN', '')
+            expected = (os.environ.get('PM_UPDATE_HEALTH_TOKEN')
+                        or os.environ.get('PM_UPDATE_DESKTOP_TOKEN', ''))
             actual = self.headers.get('X-Pocket-Update-Token', '')
             if not expected or not secrets.compare_digest(expected, actual):
                 self._json({'error': '无效的启动检查'}, HTTPStatus.FORBIDDEN)
@@ -497,7 +502,8 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             document = self.server.store.get_document(document_id)
             self._json({
                 "document": document.as_dict(),
-                "chunks": [chunk.as_dict() for chunk in self.server.store.list_document_chunks(document_id)],
+                "chunks": [{**chunk.as_dict(), "text_revision": hashlib.sha256(chunk.text.encode('utf-8')).hexdigest()}
+                           for chunk in self.server.store.list_document_chunks(document_id)],
                 "adjustment_count": self.server.store.document_chunk_adjustment_count(document_id),
             })
         elif parsed.path.startswith("/api/documents/") and parsed.path.endswith("/file"):
@@ -623,6 +629,9 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self._file(self.static_dir / relative, root=self.static_dir)
 
     def _handle_post(self) -> None:
+        from pocket_memory.report_exports import handle_report_export_api
+        if handle_report_export_api(self, 'POST'):
+            return
         from pocket_memory.office_api import handle_office_api
         if handle_office_api(self, 'POST'):
             return
@@ -1087,6 +1096,11 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             # 优雅退出：仅接受本机请求，先响应再异步关闭
             self._json({"ok": True, "message": "shutting down"})
             threading.Thread(target=self._async_shutdown, name="pocket-memory-shutdown", daemon=True).start()
+        elif parsed.path == "/api/intelligence/retry":
+            self._read_json()
+            started = self.server.intelligence_service.retry_model()
+            self._json({"ok": True, "started": started,
+                        "warming": self.server.intelligence_service.warming_up}, HTTPStatus.ACCEPTED)
         elif parsed.path == "/api/intelligence/unload":
             # 手动卸载 LLM 模型，释放内存（不影响 server 运行）
             self.server.intelligence_service.unload_model()

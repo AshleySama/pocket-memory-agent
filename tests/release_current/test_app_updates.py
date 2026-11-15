@@ -352,7 +352,11 @@ class AppUpdateTests(unittest.TestCase):
     def test_worker_success_uses_real_transaction_with_fake_process_health(self):
         install, _, path, request = self.installed_fixture()
         process = mock.Mock(pid=123)
-        with mock.patch.object(worker, "wait_for_old_exit"), mock.patch.object(worker, "spawn_application", return_value=process) as spawn, mock.patch.object(worker, "verify_health", return_value={}), mock.patch.object(worker, "stop_owned_probe"):
+        active = []
+        def ready(*args):
+            active.extend([123, 124])
+            return {'pid': 123, 'server_pid': 124}
+        with mock.patch.object(worker, "wait_for_old_exit"), mock.patch.object(worker, "spawn_application", return_value=process) as spawn, mock.patch.object(worker, "verify_health", return_value={}), mock.patch.object(worker, "stop_owned_probe"), mock.patch.object(worker, "verify_desktop", side_effect=ready), mock.patch('pocket_memory.safe_update.running_install_processes', side_effect=lambda *a: list(active)):
             result = worker.run_worker(path)
         self.assertEqual(result["state"], "complete")
         self.assertEqual((install / "PocketMemory.exe").read_bytes(), b"fixture new exe")
@@ -363,7 +367,7 @@ class AppUpdateTests(unittest.TestCase):
 
     def test_worker_failed_health_rolls_back_and_restarts_old_only(self):
         install, _, path, _ = self.installed_fixture()
-        with mock.patch.object(worker, "wait_for_old_exit"), mock.patch.object(worker, "spawn_application", return_value=mock.Mock(pid=123)) as spawn, mock.patch.object(worker, "verify_health", side_effect=UpdateError("wrong new version")), mock.patch.object(worker, "stop_owned_probe"):
+        with mock.patch.object(worker, "wait_for_old_exit"), mock.patch.object(worker, "spawn_application", return_value=mock.Mock(pid=123)) as spawn, mock.patch.object(worker, "verify_health", side_effect=UpdateError("wrong new version")), mock.patch.object(worker, "stop_owned_probe"), mock.patch.object(worker, "verify_restored_desktop", return_value={}):
             result = worker.run_worker(path)
         self.assertEqual(result["state"], "rolled_back")
         self.assertEqual((install / "PocketMemory.exe").read_bytes(), b"fixture old exe")

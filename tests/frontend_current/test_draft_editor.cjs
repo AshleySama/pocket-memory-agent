@@ -1,3 +1,7 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../../frontend/app.js'),'utf8');
 const ui=fs.readFileSync(require('node:path').join(__dirname,'../../frontend/draft-ui.js'),'utf8');

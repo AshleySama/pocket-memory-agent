@@ -12,7 +12,7 @@ SPDX-License-Identifier: Apache-2.0 -->
     <link id="notification-icon" rel="prefetch" href="/brand/pocket-memory-small-logo.png">
     <title>Pocket Memory</title>
   <link rel="stylesheet" href="/styles.css?v=20261111-sidebar-rainbow">
-  <link rel="stylesheet" href="/ui-controls.css?v=20261111-list-sidebar">
+  <link rel="stylesheet" href="/ui-controls.css?v=20261113-search-folder">
   <link rel="stylesheet" href="/app-update.css?v=20261109">
   <link rel="stylesheet" href="/office-tools.css?v=20261111">
   </head>
@@ -49,12 +49,11 @@ SPDX-License-Identifier: Apache-2.0 -->
     <main class="workspace">
       <aside class="sidebar">
         <hr class="sidebar-top-divider">
-        <div id="new-folder-inline" class="folder-inline-slot"></div>
         <details class="sidebar-section recent-section" open>
           <summary>最近编辑</summary>
           <nav id="recent-nav" class="recent-nav"></nav>
         </details>
-        <nav id="category-nav"><button id="new-folder-btn" class="ghost icon-btn" type="button" title="新建顶级分区" aria-label="新建顶级分区">+</button></nav>
+        <nav id="category-nav"><button id="new-folder-btn" class="ghost icon-btn" type="button" title="新建顶级分区" aria-label="新建顶级分区">+</button><div id="new-folder-inline" class="folder-inline-slot"></div></nav>
 
         <details class="sidebar-section favorites-section">
           <summary><span>收藏夹</span><b id="favorite-count">0</b></summary>
@@ -454,15 +453,6 @@ SPDX-License-Identifier: Apache-2.0 -->
       </div>
     </dialog>
 
-  <dialog id="directory-browser" class="directory-browser" aria-labelledby="directory-browser-title">
-    <header class="directory-browser-header"><h2 id="directory-browser-title">选择资料目录</h2><button id="directory-browser-close" class="ghost" type="button" aria-label="关闭目录选择">关闭</button></header>
-    <form id="directory-browser-path-form" class="directory-browser-path"><label for="directory-browser-path">文件夹路径</label><div><input id="directory-browser-path" autocomplete="off" spellcheck="false" placeholder="输入文件夹路径"><button class="ghost" type="submit">前往</button></div></form>
-    <nav class="directory-browser-nav" aria-label="文件夹导航"><button id="directory-browser-roots" type="button" class="ghost">此电脑</button><button id="directory-browser-parent" type="button" class="ghost" disabled>上一级</button></nav>
-    <p id="directory-browser-status" class="directory-browser-status" role="status" aria-live="polite"></p>
-    <div id="directory-browser-list" class="directory-browser-list" aria-label="文件夹列表"></div>
-    <footer class="directory-browser-footer"><span>选择后，再决定切换或迁移资料。</span><button id="directory-browser-cancel" type="button" class="ghost">取消</button><button id="directory-browser-select" type="button" disabled>选择此目录</button></footer>
-  </dialog>
-
   <dialog id="draft-dialog" class="draft-dialog" aria-labelledby="draft-dialog-title" aria-describedby="draft-dialog-description">
     <form method="dialog" class="dialog-header">
       <div class="draft-dialog-heading"><div class="draft-dialog-title-row"><h2 id="draft-dialog-title">草稿箱</h2><span id="draft-dialog-count" hidden></span></div><p id="draft-dialog-description">本机保存 · 仅当前资料库</p></div>
@@ -475,7 +465,7 @@ SPDX-License-Identifier: Apache-2.0 -->
   <script src="/draft-ui.js?v=20261108"></script>
   <script src="/import-cache.js?v=20261108"></script>
   <script src="/imports.js?v=20261108-staging"></script>
-  <script src="/app.js?v=20261111-office-tools"></script>
+  <script src="/app.js?v=20261115-native-directory"></script>
   <script src="/office-tools.js?v=20261111-feedback2"></script>
   <script src="/app-update.js?v=20261111-copy"></script>
   </body>

@@ -24,7 +24,7 @@ _picker_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 
 
-def _windows_directory(initial_dir: Path | None) -> Path | None:
+def _windows_directory(initial_dir: Path | None, owner_hwnd: int | None = None) -> Path | None:
     # Run on a fresh STA thread (the HTTP request/UI caller may already use COM).
     # Method indices follow IUnknown -> IModalWindow -> IFileDialog in shobjidl.h.
     from ctypes import wintypes
@@ -91,7 +91,7 @@ def _windows_directory(initial_dir: Path | None) -> Path | None:
                                                     ctypes.byref(iid_item), ctypes.byref(folder)))
             check(method(dialog, 12, HRESULT, pointer)(dialog, folder))
         logger.info("directory-picker: showing Common Item Dialog")
-        result = method(dialog, 3, HRESULT, wintypes.HWND)(dialog, None)
+        result = method(dialog, 3, HRESULT, wintypes.HWND)(dialog, owner_hwnd)
         logger.info("directory-picker: dialog closed (HRESULT=0x%08X)", result & 0xffffffff)
         if (result & 0xffffffff) == 0x800704C7:  # HRESULT_FROM_WIN32(ERROR_CANCELLED)
             return None
@@ -129,7 +129,7 @@ def _other_directory(initial_dir: Path | None) -> Path | None:
         root.destroy()
 
 
-def choose_directory(initial_dir: Path | None = None) -> Path | None:
+def choose_directory(initial_dir: Path | None = None, *, owner_hwnd: int | None = None) -> Path | None:
     """None means user cancelled; an unavailable dialog raises a visible error."""
     if not _picker_lock.acquire(blocking=False):
         raise DirectoryPickerError("目录选择窗口已打开，请先完成或取消选择")
@@ -139,8 +139,11 @@ def choose_directory(initial_dir: Path | None = None) -> Path | None:
     def show():
         try:
             logger.info("directory-picker: worker started")
-            picker = _windows_directory if sys.platform == "win32" else _other_directory
-            result.append(picker(initial_dir))
+            if sys.platform == "win32" and owner_hwnd is not None:
+                result.append(_windows_directory(initial_dir, owner_hwnd))
+            else:
+                picker = _windows_directory if sys.platform == "win32" else _other_directory
+                result.append(picker(initial_dir))
         except Exception as exc:
             logger.exception("directory-picker: worker failed")
             errors.append(exc)

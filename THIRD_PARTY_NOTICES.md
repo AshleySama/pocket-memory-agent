@@ -43,6 +43,8 @@ The upstream [license overview](https://github.com/nltk/nltk_data/blob/gh-pages/
 
 ## Design attribution
 
+**Tabler Icons v3.31.0.** The six outline SVG icons under `frontend/icons/tabler/` are used locally in the application header. They retain the upstream MIT license and Paweł Kuna's copyright notice in that directory's `LICENSE`. Source: https://github.com/tabler/tabler-icons/tree/v3.31.0. The application stylesheet also embeds these same SVG paths as color-inheriting masks; no icon artwork is claimed as original application artwork.
+
 The request-local source identity registry is an independent Python implementation inspired by Tencent WeKnora's `CitationSources` design. It is not a bundled WeKnora server, dependency, or port. Reference: [WeKnora source at commit 256a3f2966866337f7dc3c5fcc10037f2ae18d52](https://github.com/Tencent/WeKnora/blob/256a3f2966866337f7dc3c5fcc10037f2ae18d52/internal/application/service/chat_pipeline/citation_sources.go). The upstream MIT notice, copyright 2026 Tencent, and its accompanying dependency notices are preserved intact in `licenses/WeKnora-MIT-LICENSE.txt` as attribution reference; those listed WeKnora dependencies are not thereby claimed to be shipped in Pocket Memory.
 
 ## Scope

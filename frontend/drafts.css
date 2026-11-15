@@ -2,8 +2,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-.draft-protection-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--border,#d5e3e3);font-size:12px;color:var(--muted,#64787c)}
-.draft-protection-bar>span{flex:1;min-width:140px}.draft-protection-bar button{min-height:30px;padding:4px 9px;font-size:12px;border-radius:8px}
+.draft-protection-bar{display:flex;flex:0 0 auto;align-items:center;gap:8px;flex-wrap:wrap;padding:2px 4px;border-bottom:1px solid var(--border,#d5e3e3);font-size:12px;color:var(--text-soft,#64787c)}
+.draft-protection-bar>span{flex:1;min-width:140px}.draft-protection-bar button{min-height:26px;padding:2px 8px;font-size:12px;border-radius:6px}
 #draft-protection-status[data-error="true"]{color:#a34522}
 #draft-dialog{box-sizing:border-box;width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 48px);padding:0;border:1px solid var(--border-strong);border-radius:14px;background:var(--surface-solid);color:var(--text);overflow:hidden;box-shadow:var(--shadow-elev)}
 #draft-dialog[open]{display:flex;flex-direction:column}

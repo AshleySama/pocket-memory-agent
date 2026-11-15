@@ -413,6 +413,9 @@ function applyWorkbenchLayout(layout, { persist = false, changedKey = null } = {
   const root = document.body;
   root.style.setProperty("--sidebar-width", `${workbenchLayout.sidebar}px`);
   root.style.setProperty("--content-width", `${workbenchLayout.content}px`);
+  // Keep search aligned with the middle column even when the sidebar is wide.
+  // Only the header wraps; the workspace keeps its existing column widths.
+  root.classList.toggle("header-search-stacked", workbenchWidth() - workbenchLayout.sidebar < 1050);
   for (const key of ['sidebar', 'content']) {
     const resizer = document.querySelector(`.${key}-resizer`);
     resizer?.setAttribute("aria-valuenow", String(workbenchLayout[key]));

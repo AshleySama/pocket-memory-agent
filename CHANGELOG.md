@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.6 - 2026-11-15
+
+- Align the search and Q&A shell with the middle column, including resized sidebars and narrow windows. Preserve the purple Q&A background and animated stars.
+- Unify header button dimensions, borders, centered labels and local MIT-licensed Tabler outline icons; use a clearer soft yellow for New Note.
+- Reduce the draft status row from 47px to 31px while retaining the draft box and retry controls.
+- Preserve all five themes and existing 4B, RAG, storage, desktop and updater behavior. New installs retain AI organization and warmup defaults; upgrades retain saved preferences.
+
+Validated the newly built native EXE and bundled wide/narrow UI; reused unchanged source UI evidence. Models are identical to 1.0.5. No new RAG generation, target-machine upgrade/rollback run, or performance claim. See [release notes](docs/RELEASE_1.0.6.md).
+
 ## 1.0.5 - 2026-11-15
 
 - Improve PDF citation display and original-text highlighting while retaining source identities and full evidence for verification.

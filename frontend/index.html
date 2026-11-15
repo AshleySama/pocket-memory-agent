@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0 -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="/brand/pocket-memory-small-logo.png">
-    <link rel="stylesheet" href="/drafts.css?v=20261108">
+    <link rel="stylesheet" href="/drafts.css?v=20261115-compact">
     <link rel="stylesheet" href="/imports.css?v=20261108">
     <link id="notification-icon" rel="prefetch" href="/brand/pocket-memory-small-logo.png">
     <title>Pocket Memory</title>
@@ -15,6 +15,7 @@ SPDX-License-Identifier: Apache-2.0 -->
   <link rel="stylesheet" href="/ui-controls.css?v=20261113-search-folder">
   <link rel="stylesheet" href="/app-update.css?v=20261109">
   <link rel="stylesheet" href="/office-tools.css?v=20261111">
+  <link rel="stylesheet" href="/header-controls.css?v=20261115-new-note">
   </head>
   <body class="knowledge-workbench">
     <header class="app-header">
@@ -27,21 +28,24 @@ SPDX-License-Identifier: Apache-2.0 -->
       </div>
       <section class="search-panel global-search" aria-label="搜索与智能问答">
         <input type="hidden" id="search-mode" value="hybrid">
+        <div class="search-command-bar">
         <div class="search-input-wrap">
+          <span class="header-icon header-icon-search" aria-hidden="true"></span>
           <input id="search" placeholder="搜索笔记，或直接提问你的知识库" aria-keyshortcuts="Enter" aria-description="输入问题后按 Enter 进行智能问答">
           <span class="search-shortcut" aria-hidden="true"><svg viewBox="0 0 14 14" fill="none"><path d="M11 3v4a2 2 0 0 1-2 2H3m0 0 3-3M3 9l3 3"/></svg><span>Enter</span></span>
           <button id="search-clear" class="search-clear hidden" type="button" aria-label="清空搜索">✕</button>
         </div>
+        <button id="ask-button" type="button"><span class="ask-button-star" aria-hidden="true">&#10022;</span><span>智能问答</span></button>
+        </div>
         <span id="result-count"></span>
         <button id="clear-filter" class="ghost hidden">清除筛选</button>
-        <button id="ask-button" type="button"><span class="ask-button-star" aria-hidden="true">&#10022;</span><span>智能问答</span></button>
       </section>
       <div class="header-actions">
-        <button id="new-note-btn" class="header-new-note" type="button">+ 新建笔记</button>
-        <button id="import-document-btn" class="ghost" type="button">导入文件</button>
-        <button id="graph-button" class="ghost" type="button">知识图谱</button>
-        <button id="report-button" class="ghost" type="button">专题报告</button>
-        <button id="settings-button" class="ghost" type="button">设置</button>
+        <button id="new-note-btn" class="header-new-note" type="button"><span class="header-icon header-icon-plus" aria-hidden="true"></span><span>新建笔记</span></button>
+        <button id="import-document-btn" class="ghost" type="button"><span class="header-icon header-icon-upload" aria-hidden="true"></span><span>导入文件</span></button>
+        <button id="graph-button" class="ghost" type="button"><span class="header-icon header-icon-graph" aria-hidden="true"></span><span>知识图谱</span></button>
+        <button id="report-button" class="ghost" type="button"><span class="header-icon header-icon-report" aria-hidden="true"></span><span>专题报告</span></button>
+        <button id="settings-button" class="ghost" type="button"><span class="header-icon header-icon-settings" aria-hidden="true"></span><span>设置</span></button>
         <span id="app-update-notice" class="app-update-notice" hidden><button id="update-badge" class="update-badge" type="button" title="打开软件更新">有新版本</button><button id="app-update-dismiss" class="app-update-dismiss" type="button" aria-label="关闭更新通知" title="稍后提醒">×</button></span>
       </div>
     </header>
@@ -465,7 +469,7 @@ SPDX-License-Identifier: Apache-2.0 -->
   <script src="/draft-ui.js?v=20261108"></script>
   <script src="/import-cache.js?v=20261108"></script>
   <script src="/imports.js?v=20261108-staging"></script>
-  <script src="/app.js?v=20261115-native-directory"></script>
+  <script src="/app.js?v=20261115-header-align"></script>
   <script src="/office-tools.js?v=20261111-feedback2"></script>
   <script src="/app-update.js?v=20261111-copy"></script>
   </body>

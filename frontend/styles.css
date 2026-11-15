@@ -2846,6 +2846,8 @@ body.knowledge-workbench .reference-note .note-tabs-bar { align-items: center; g
 body.knowledge-workbench .reference-note .note-tab-content { min-height: 0; }
 body.knowledge-workbench .reference-note-content { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--wb-ink); user-select: text; -webkit-user-select: text; }
 body.knowledge-workbench .reference-note-content:focus { outline: 0; }
+html[data-theme="midnight-focus"] body.knowledge-workbench #doc-preview .doc-preview-body { background: var(--surface-soft); }
+html[data-theme="midnight-focus"] .reference-note-content mark { color: #22212a; background: #d9ca83; }
 body.knowledge-workbench .reference-ocr { margin-top: 22px; padding: 14px; border-left: 3px solid var(--wb-teal); background: rgba(235, 248, 243, .8); }
 body.knowledge-workbench .reference-ocr strong { display: block; margin-bottom: 8px; color: var(--wb-teal); font-size: 12px; }
 body.knowledge-workbench .reference-ocr pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; color: var(--wb-ink); }

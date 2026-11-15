@@ -39,7 +39,9 @@ class CitationDisplayTests(unittest.TestCase):
 
     def test_partial_matching_claim_preserves_context_without_false_focus(self):
         out=presentation(source('培训材料由培训负责人整理。'),'培训材料由培训负责人整理[1]。项目预算为九万元[1]。')
-        self.assertEqual(out['display_evidence'],'')
+        self.assertEqual(out['display_evidence'],'培训材料由培训负责人整理。')
+        self.assertEqual(out['display_context'],'培训材料由培训负责人整理。')
+        self.assertTrue(out['display_partial_focus'])
 
     def test_do_not_borrow_from_another_citation(self):
         out=presentation(source('培训材料由培训负责人整理。',2),'培训材料由培训负责人整理[1]。')

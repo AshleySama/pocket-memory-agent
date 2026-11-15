@@ -46,12 +46,16 @@ class DesktopTrayPolicyTests(unittest.TestCase):
         controller, window, tray = self.make(shutdown=shutdown)
         self.assertFalse(controller.on_closing())
         window.hide.assert_called_once()
-        tray.hidden_hint.assert_called_once()
+        tray.hidden_hint.assert_not_called()
         window.destroy.assert_not_called()
         shutdown.assert_not_called()
         controller.restore()
         window.show.assert_called_once()
         window.restore.assert_not_called()  # Preserve an already maximized window.
+        self.assertFalse(controller.on_closing())
+        self.assertEqual(window.hide.call_count, 2)
+        tray.hidden_hint.assert_not_called()
+        tray.stop.assert_not_called()
 
     def test_restore_unminimizes_an_actually_minimized_window(self):
         controller, window, tray = self.make()

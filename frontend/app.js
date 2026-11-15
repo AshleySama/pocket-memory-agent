@@ -723,7 +723,20 @@ function renderInlineNoteContent(text, terms = []) {
   return html + renderText(source.slice(cursor));
 }
 
-function renderNoteContent(content, terms = [], { citationEvidence = "" } = {}) {
+function renderCitationNoteSlice(text, start, spans) {
+  const chars = Array.from(text);
+  let cursor = 0, html = '';
+  for (const span of spans) {
+    const a = Math.max(0, span.char_start - start), b = Math.min(chars.length, span.char_end_exclusive - start);
+    if (a >= b || a < cursor) continue;
+    html += renderInlineNoteContent(chars.slice(cursor, a).join(''), []);
+    html += '<mark>' + renderInlineNoteContent(chars.slice(a, b).join(''), []) + '</mark>';
+    cursor = b;
+  }
+  return html + renderInlineNoteContent(chars.slice(cursor).join(''), []);
+}
+
+function renderNoteContent(content, terms = [], { citationEvidence = "", citationSpans = null } = {}) {
   // 渲染笔记正文：将表格块渲染为 HTML <table>，其余文本走高亮+双链。
   // 支持两种表格格式：
   //   1. Markdown 表格：每行以 | 开头并以 | 结尾
@@ -765,10 +778,11 @@ function renderNoteContent(content, terms = [], { citationEvidence = "" } = {}) 
     tableType = null;
   };
 
-  let textBuffer = [];
+  let textBuffer = [], textStart = 0, lineStart = 0;
   const flushText = () => {
     if (textBuffer.length === 0) return;
-    html += `<p>${renderInlineNoteContent(textBuffer.join("\n"), terms)}</p>`;
+    const text = textBuffer.join("\n");
+    html += `<p>${Array.isArray(citationSpans) ? renderCitationNoteSlice(text, textStart, citationSpans) : renderInlineNoteContent(text, terms)}</p>`;
     textBuffer = [];
   };
 
@@ -791,8 +805,10 @@ function renderNoteContent(content, terms = [], { citationEvidence = "" } = {}) 
       tableLines.push(line);
     } else {
       flushTable();
+      if (!textBuffer.length) textStart = lineStart;
       textBuffer.push(line);
     }
+    lineStart += Array.from(line).length + 1;
   }
   flushTable();
   flushText();
@@ -1096,14 +1112,19 @@ function answerSourceLink(source, label, className) {
   // Keep the backend's citation identity and opening target together. Titles
   // and evidence are user content, so every inserted value stays escaped.
   return source.url
-    ? `<a class="${className}" href="#" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title || "")}" data-doc-exact="${Object.hasOwn(source, 'display_evidence')}" data-doc-ranges="${escapeHtml(JSON.stringify(source.display_document_spans ?? []))}" data-doc-evidence="${escapeHtml(source.display_evidence ?? source.evidence ?? "")}">${escapeHtml(label)}</a>`
+    ? `<a class="${className}" href="#" data-doc-url="${escapeHtml(source.url)}" data-doc-title="${escapeHtml(source.title || "")}" data-doc-exact="${Object.hasOwn(source, 'display_evidence')}" data-doc-ranges="${escapeHtml(JSON.stringify(source.display_document_spans ?? []))}"${source.source_type === 'note' && Object.hasOwn(source, 'display_spans') ? ` data-doc-note-ranges="${escapeHtml(JSON.stringify(source.display_spans))}"` : ''} data-doc-evidence="${escapeHtml(source.display_evidence ?? source.evidence ?? "")}">${escapeHtml(label)}</a>`
     : `<span class="${className}">${escapeHtml(label)}</span>`;
 }
 
 function documentLinkOptions(link) {
   let spans = [];
   try { const value = JSON.parse(link.dataset.docRanges || '[]'); if (Array.isArray(value)) spans = value; } catch (_) { /* no guessed highlight */ }
-  return { exactEvidence: link.dataset.docExact === 'true', documentSpans: spans };
+  let noteSpans = null;
+  if (Object.hasOwn(link.dataset, 'docNoteRanges')) {
+    noteSpans = [];
+    try { const value = JSON.parse(link.dataset.docNoteRanges); if (Array.isArray(value)) noteSpans = value; } catch (_) { /* stale or invalid references never use a text fallback */ }
+  }
+  return { exactEvidence: link.dataset.docExact === 'true', documentSpans: spans, noteSpans };
 }
 
 function renderAnswerText(answer, sources = []) {
@@ -1206,6 +1227,7 @@ function renderAnswerSource(source) {
     ${meta ? `<div class="source-reference-meta">${meta}</div>` : ""}
     ${source.url ? answerSourceLink(source, "打开参考文档", "source-link") : ""}
     ${evidence ? `<div class="evidence-box"><strong>证据句</strong>${highlightText(evidence, matchedTerms)}</div>` : ""}
+    ${source.display_partial_focus ? '<p class="muted">已定位部分原文，其余内容可在完整上下文中核对。</p>' : ''}
     ${hasExtraContext ? `<details class="source-context"><summary>${source.display_evidence_kind === 'context_only' ? '查看引用上下文（未定位到具体句）' : '查看完整上下文'}</summary><div class="source-excerpt">${highlightText(excerpt, evidenceTerms)}</div></details>` : ""}
   </div>`;
 }
@@ -1465,7 +1487,7 @@ function renderNoteHtml(note, terms) {
     </article>`;
 }
 
-function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "" } = {}) {
+function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "", citationSpans = null } = {}) {
   const tags = (note.tags || []).slice(0, 2).map((tag) => (
     `<span class="tag-chip"><span>#${highlightText(tag, terms)}</span></span>`
   )).join("");
@@ -1482,7 +1504,7 @@ function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "" } = {
       ${note.attachment_path ? `<img class="note-image" src="/data/${escapeHtml(note.attachment_path)}" alt="笔记图片">` : ""}
       <div class="note-tabs-bar" data-note-id="${note.id}" data-active-tab="${note.id}"></div>
       <div class="note-tab-content" data-note-id="${note.id}">
-        <div class="note-content reference-note-content">${note.content ? renderNoteContent(note.content, terms, { citationEvidence }) : "<p class='muted'>此页签暂无正文。</p>"}</div>
+        <div class="note-content reference-note-content">${note.content ? renderNoteContent(note.content, terms, { citationEvidence, citationSpans }) : "<p class='muted'>此页签暂无正文。</p>"}</div>
       </div>
       ${ocr}
     </article>`;
@@ -4182,7 +4204,7 @@ function renderTabsBar(tabsBar, tabs, activeId) {
   tabsBar.innerHTML = `${chips}${addButton}`;
 }
 
-async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = [], citationEvidence = "", tabsBar: scopedTabsBar = null } = {}) {
+async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = [], citationEvidence = "", noteSpans = null, tabsBar: scopedTabsBar = null } = {}) {
   const tabsBar = scopedTabsBar || document.querySelector(`.note-tabs-bar[data-note-id="${noteId}"]`);
   const noteEl = tabsBar?.closest(".note");
   if (!noteEl) return;
@@ -4192,12 +4214,13 @@ async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = 
   tabsBar.dataset.loadToken = loadToken;
   try {
     const tabNote = await request(`/api/notes/${tabId}`);
+    const citationSpans = Array.isArray(noteSpans) ? await validatedNoteCitationSpans(tabNote, noteSpans) : null;
     if (!tabsBar.isConnected || tabsBar.dataset.loadToken !== loadToken) return false;
     const contentEl = noteEl.querySelector(".note-tab-content");
     tabsBar.dataset.activeTab = tabId;
     contentEl.dataset.activeTab = tabId;
     contentEl.innerHTML = isReference
-      ? `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, highlightTerms, { citationEvidence }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`
+      ? `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, Array.isArray(citationSpans) ? [] : highlightTerms, { citationEvidence, citationSpans }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`
       : renderNoteBody(tabNote, highlightTerms);
     if (!isReference) {
       state.draftNoteSources.set(Number(tabId), tabNote);
@@ -4231,7 +4254,7 @@ async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = 
     if (focusEditor && !isReference) {
       requestAnimationFrame(() => contentEl.querySelector(".note-content.editable")?.focus());
     }
-    if (highlightTerms.length) scrollToCitation(contentEl);
+    if (highlightTerms.length || citationSpans?.length) scrollToCitation(contentEl);
     return true;
   } catch (e) {
     showToast("切换失败", e.message);
@@ -4992,6 +5015,30 @@ function renderMarkdown(text) {
   return html || "<p class='muted'>文档为空</p>";
 }
 
+async function validatedNoteCitationSpans(note, spans) {
+  // Python offsets count Unicode code points; JS UTF-16 indices must not be used.
+  if (!spans.length || !spans.every(span => span && typeof span === 'object') || !globalThis.crypto?.subtle) return [];
+  const body = String(note.content || ''), chars = Array.from(body);
+  const hash = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(body));
+  const revision = [...new Uint8Array(hash)].map(x => x.toString(16).padStart(2, '0')).join('');
+  const result = [], seen = new Set();
+  let cursor = 0;
+  for (const span of spans.slice().sort((a,b) => a.char_start - b.char_start)) {
+    if (!span || span.field !== 'content' || span.source_id !== note.id ||
+        (span.parent_note_id ?? null) !== (note.parent_note_id ?? null) ||
+        (span.tab_name ?? '') !== (note.tab_name ?? '') || span.source_revision !== revision ||
+        !Number.isSafeInteger(span.char_start) || !Number.isSafeInteger(span.char_end_exclusive) ||
+        span.char_start < 0 || span.char_end_exclusive <= span.char_start || span.char_end_exclusive > chars.length ||
+        chars.slice(span.char_start, span.char_end_exclusive).join('') !== span.quote) return [];
+    const key = `${span.char_start}:${span.char_end_exclusive}`;
+    if (seen.has(key)) continue;
+    // Structured tables keep their existing row renderer; do not split HTML tags.
+    if (span.char_start < cursor || /<\/?[a-z][^>]*>/i.test(span.quote)) return [];
+    seen.add(key); result.push(span); cursor = span.char_end_exclusive;
+  }
+  return result;
+}
+
 async function openDoc(url, title, evidence = "", options = {}) {
   const documentMatch = url.match(/^\/api\/documents\/(\d+)\/file(?:\?.*)?$/);
   if (documentMatch) {
@@ -5020,10 +5067,11 @@ async function openDoc(url, title, evidence = "", options = {}) {
     window.scrollTo({ top: 0 });
     try {
       const note = await request(`/api/notes/${noteId}`);
+      const citationSpans = Array.isArray(options.noteSpans) ? await validatedNoteCitationSpans(note, options.noteSpans) : null;
       // 引用视图只展示可核对原文，不能携带编辑、删除或整理操作。
       const citationTerms = citationHighlightTerms(evidence);
-      const terms = citationTerms.length || options.exactEvidence ? citationTerms : searchHighlightTerms();
-      $("#doc-preview-body").innerHTML = `<div class="timeline reference-timeline">${renderReferenceNoteHtml(note, terms, { citationEvidence: evidence })}</div>`;
+      const terms = Array.isArray(citationSpans) ? [] : citationTerms.length || options.exactEvidence ? citationTerms : searchHighlightTerms();
+      $("#doc-preview-body").innerHTML = `<div class="timeline reference-timeline">${renderReferenceNoteHtml(note, terms, { citationEvidence: evidence, citationSpans })}</div>`;
       const tabsBar = $("#doc-preview-body .note-tabs-bar");
       if (tabsBar) {
         if (tabId && tabId !== noteId) {
@@ -5031,7 +5079,7 @@ async function openDoc(url, title, evidence = "", options = {}) {
         }
         await loadTabsBar(Number(tabsBar.dataset.noteId), tabsBar);
         if (tabId && tabId !== noteId) {
-          await switchTab(noteId, tabId, { highlightTerms: terms, citationEvidence: evidence, tabsBar });
+          await switchTab(noteId, tabId, { highlightTerms: terms, citationEvidence: evidence, noteSpans: options.noteSpans, tabsBar });
         }
       }
       if (!tabId || tabId === noteId) scrollToCitation($("#doc-preview-body"));

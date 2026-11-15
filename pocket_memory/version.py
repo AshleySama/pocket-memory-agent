@@ -3,6 +3,6 @@
 
 """Application version. App update feed is defined in app_updates.py."""
 from __future__ import annotations
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 # Retained compatibility setting for the older version-check API.
 UPDATE_CHECK_URL = ""

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.7 - 2026-11-16
+
+- Extend deterministic answers to complete, source-bounded lists and explicitly requested source sections, while retaining conditions, source identity and the existing 4B fallback.
+- Restore original-sentence highlighting for supported inline/suffix citations and conservative, lightly rewritten multi-clause answers. Preserve full context, existing citation numbers and original source coordinates.
+- Remove the repeated tray notification on closing the window; tray restore and exit remain available.
+- Keep models, saved notes, preferences, accepted themes and the updater unchanged. New installations retain AI organization and warmup defaults; updates keep saved settings.
+
+Reuse the validated isolated-candidate checks and historical admission/display replays; these are not a new 100-question accuracy evaluation or a target-machine speed claim. See [release notes](docs/RELEASE_1.0.7.md) for scope and verification limits.
+
 ## 1.0.6 - 2026-11-15
 
 - Align the search and Q&A shell with the middle column, including resized sidebars and narrow windows. Preserve the purple Q&A background and animated stars.

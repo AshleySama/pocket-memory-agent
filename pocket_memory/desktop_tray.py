@@ -60,7 +60,6 @@ class WinFormsTray:
         self.icon = None
         self.menu = None
         self.image = None
-        self._hint_shown = False
 
     def _invoke(self, callback):
         # pywebview's shown event runs on a worker. NotifyIcon belongs to the
@@ -108,21 +107,6 @@ class WinFormsTray:
 
     def _quit(self, *_):
         self.quit_application()
-
-    def hidden_hint(self):
-        if self._hint_shown:
-            return
-        self._hint_shown = True
-        def show():
-            if self.icon is not None:
-                from System.Windows.Forms import ToolTipIcon
-                self.icon.ShowBalloonTip(4000, 'Pocket Memory 仍在运行',
-                                        '双击此图标重新打开；右键选择“退出 Pocket Memory”可完全退出。',
-                                        ToolTipIcon.Info)
-        try:
-            self._invoke(show)
-        except Exception:
-            logger.debug('通知提示未显示；通知区域图标仍可使用。', exc_info=True)
 
     def show_error(self, message):
         def show():
@@ -218,7 +202,6 @@ class DesktopSession:
         if self.active:
             try:
                 self.window.hide()
-                self.tray.hidden_hint()
                 logger.info('窗口已收起到通知区域；后台会话保持运行。')
                 return False
             except Exception:

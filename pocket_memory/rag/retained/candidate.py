@@ -16,6 +16,8 @@ from .source_scope import ScopedRetrieval
 from .request_cache import retrieval_request
 from .question_plan import QuestionPlan
 from .field_projection import FieldProjection
+from .enumerated_list import EnumeratedList
+from .section_projection import SectionProjection
 
 
 class Candidate(RetainedCandidate):
@@ -33,6 +35,8 @@ class Candidate(RetainedCandidate):
         self.bound_facts = BoundFacts(self.notes)
         self.question_plan = QuestionPlan(self.notes, self.bridge.ocr, self.app_scope)
         self.field_projection = FieldProjection(self.notes, self.bridge.ocr)
+        self.enumerated_list = EnumeratedList(self.notes, self.bridge.ocr)
+        self.section_projection = SectionProjection(self.notes, self.bridge.ocr)
         self.stable.legacy.coverage_ocr_originals = self.bridge.ocr
 
     @timed('evidence.direct_plan')
@@ -44,6 +48,10 @@ class Candidate(RetainedCandidate):
             direct = self.bound_facts.prepare(question)
         if direct is None:
             direct = self.question_plan.prepare(question)
+        if direct is None:
+            direct = self.enumerated_list.prepare(question)
+        if direct is None:
+            direct = self.section_projection.prepare(question)
         if direct:
             self.bound_prepared = (question, direct)
         return direct

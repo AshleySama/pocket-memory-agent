@@ -90,6 +90,9 @@ function renderDraftList() {
 async function restoreLocalDraft(record,asCopy=false) {
   if(record.library_id!==draftVault.library)throw Error('资料库已经改变，请重新打开草稿箱。');
   if(state.newNoteSaving || state.renameSaving || state.pendingContentSaves.size || state.pendingAttachmentReads){showToast('正在保存或读取图片','请等待当前操作完成。');return;}
+  const previousEditor=currentNoteEditor(),previousSession=state.noteEditorSessions.get(Number(previousEditor?.dataset.noteId));
+  clearEditorAutosave(previousSession);
+  try {
   let note=null;
   if(record.kind==='note'&&!asCopy) {
     try{note=await request(`/api/notes/${record.note_id}`);}catch(e){if(e.status!==404)throw e;}
@@ -106,7 +109,7 @@ async function restoreLocalDraft(record,asCopy=false) {
   if(!await draftVault.flushAll()) {showToast('先保留当前草稿','本机写入尚未成功，请重试后再切换草稿。');return;}
   if(state.newNoteDraft && !await draftVault.park('new')) {showToast('先保留当前草稿','草稿尚未保存完成，请重试后再切换。');return;}
   // Stash the current editing session without silently committing it to notes.
-  const old=currentNoteEditor();if(old){old.setAttribute('contenteditable','false');state.noteEditorSessions.delete(Number(old.dataset.noteId));}
+  const old=currentNoteEditor();if(old){clearEditorAutosave(state.noteEditorSessions.get(Number(old.dataset.noteId)));old.setAttribute('contenteditable','false');state.noteEditorSessions.delete(Number(old.dataset.noteId));}
   $('#editor-dock-content').replaceChildren();
   state.newNoteDraft=null;state.imageDataUrl=null;state.imageName=null;
   state.filter={};$('#search').value='';$('#search-clear').classList.add('hidden');++state.refreshRevision;
@@ -129,8 +132,9 @@ async function restoreLocalDraft(record,asCopy=false) {
     if(field==='content') {
       const content=currentNoteEditor(),session=noteEditorSession(content);
       content.innerHTML=renderNoteContent(record.content,[]);
-      Object.assign(session,{draft:record.content,baseContent:note.content,saved:editableContentToMarkdownForOriginal(note.content),editing:true,status:'dirty',error:''});
+      Object.assign(session,{draft:record.content,baseContent:note.content,saved:editableContentToMarkdownForOriginal(note.content),editing:true,status:'dirty',error:'',conflict:false,writeUncertain:false,composing:false});
       paintEditorState(content);
+      scheduleEditorAutosave(content,session);
     }else if(field==='title')makeTitleEditable($('#editor-dock .editable-note-title'),record.content);
     else {
       const label=$(`#editor-dock .tab-chip[data-tab-id="${note.id}"] .tab-label`);
@@ -138,7 +142,11 @@ async function restoreLocalDraft(record,asCopy=false) {
     }
   }
   $('#draft-dialog').close();switchPane('editor-pane');paintDraftProtection();
-  showToast('草稿已恢复到编辑器','确认后保存笔记；原有笔记不会被自动覆盖。');
+  showToast('草稿已恢复到编辑器',state.newNoteDraft?'新笔记请点击「保存笔记」首次保存。':'已有笔记会在停笔后自动保存；点击「阅读」结束编辑。');
+  } finally {
+    // Cancelling recovery must not leave the current editor's timer suspended.
+    if(previousEditor && currentNoteEditor()===previousEditor && state.noteEditorSessions.get(Number(previousEditor.dataset.noteId))===previousSession && previousSession?.status!=='error')scheduleEditorAutosave(previousEditor,previousSession);
+  }
 }
 function editableContentToMarkdownForOriginal(text) {
   const div=document.createElement('div');div.innerHTML=renderNoteContent(text,[]);return editableContentToMarkdown(div);
@@ -151,5 +159,5 @@ function installDraftEvents() {
   const checkpoint=()=>{syncNewNoteDraftFromDom();captureEditorDraft();};
   window.addEventListener('beforeunload',event=>{checkpoint();if(draftVault.unsafe()){event.preventDefault();event.returnValue='';}});
   window.addEventListener('pagehide',()=>{checkpoint();draftVault.pagehide();});
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){checkpoint();void draftVault.flushAll();}});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){checkpoint();void flushPendingContentSaves();void draftVault.flushAll();}});
 }

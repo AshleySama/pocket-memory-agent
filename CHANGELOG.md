@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.8 - 2026-11-16
+
+- Save edits to existing notes and tabs automatically after an idle pause; replace the editor's Done action with Read. Keep explicit first save for new notes and local drafts for recovery.
+- Serialize saves, protect IME input and navigation, reject stale content from another window, and preserve a pre-edit history checkpoint. Failed saves remain recoverable.
+- Coalesce background AI organization after editing settles; do not apply results computed from an outdated note group. Keep edited content searchable.
+- Recover explicitly dated actions from empty to-do extraction results, and bind complete copied lists to a uniquely supported original source without dropping their conditions.
+- Preserve the current 4B model, data, settings, accepted themes and update mechanism.
+
+See [release notes](docs/RELEASE_1.0.8.md) for verification scope and limits.
+
 ## 1.0.7 - 2026-11-16
 
 - Extend deterministic answers to complete, source-bounded lists and explicitly requested source sections, while retaining conditions, source identity and the existing 4B fallback.

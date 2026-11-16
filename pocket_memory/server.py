@@ -38,7 +38,7 @@ from pocket_memory.ocr import OcrService
 from pocket_memory.rag import IntentRouter, QueryResolver, RagPipeline
 from pocket_memory.rag.development import DeferredModelUnavailable, LiveRagPipeline
 from pocket_memory.reporting import ReportService
-from pocket_memory.storage import NoteStore
+from pocket_memory.storage import NoteStore, NoteContentConflict
 from pocket_memory.tools import ToolRegistry
 from pocket_memory.request_cancel import (
     CancellationRegistry, RequestCancelled, cancellable_lock,
@@ -157,8 +157,13 @@ class PocketMemoryServer(ThreadingHTTPServer):
         """Move all server-owned state to a new data directory as one operation."""
         self._prepare_library_change()
         old_data_dir = self.store.data_dir
-        migrated = self.store.migrate_data_dir(new_data_dir)
+        try:
+            migrated = self.store.migrate_data_dir(new_data_dir)
+        except Exception:
+            self._recover_ai_after_cancelled_library_change()
+            raise
         if migrated == old_data_dir:
+            self.intelligence_service.recover()
             return migrated
         self.tool_registry.close()
         self.tool_registry = ToolRegistry(migrated)
@@ -169,14 +174,20 @@ class PocketMemoryServer(ThreadingHTTPServer):
         logger.info("数据目录已迁移: %s -> %s", old_data_dir, migrated)
         self.document_service.recover()
         self.embedding_service.rebuild()
+        self.intelligence_service.recover()
         return migrated
 
     def switch_data_dir(self, new_data_dir: Path) -> Path:
         """Switch active storage without copying the current user's data."""
         self._prepare_library_change()
         old_data_dir = self.store.data_dir
-        selected = self.store.switch_data_dir(new_data_dir)
+        try:
+            selected = self.store.switch_data_dir(new_data_dir)
+        except Exception:
+            self._recover_ai_after_cancelled_library_change()
+            raise
         if selected == old_data_dir:
+            self.intelligence_service.recover()
             return selected
         self.tool_registry.close()
         self.tool_registry = ToolRegistry(selected)
@@ -196,6 +207,7 @@ class PocketMemoryServer(ThreadingHTTPServer):
     def _prepare_library_change(self):
         if self.office_tools.busy:
             raise ValueError('文字工具仍在处理当前资料，请完成后再切换资料库。')
+        self.intelligence_service.cancel_pending_autosaves()
         # HTTP mutations are serialized. Drain producers before their downstream
         # consumers, so a task cannot commit an old library's IDs into the new one.
         for service in (self.document_service, self.ocr_service, self.intelligence_service,
@@ -205,10 +217,19 @@ class PocketMemoryServer(ThreadingHTTPServer):
                 try:
                     executor.submit(lambda: None).result(timeout=30)
                 except TimeoutError as exc:
+                    self._recover_ai_after_cancelled_library_change()
                     raise ValueError('后台任务仍在处理当前资料库，请稍后再切换。') from exc
         invalidate = getattr(self.rag_pipeline, 'invalidate', None)
         if callable(invalidate):
             invalidate()
+
+    def _recover_ai_after_cancelled_library_change(self):
+        # A failed directory change must not strand the old library's saved
+        # notes after its delayed organization jobs have been cancelled.
+        try:
+            self.intelligence_service.recover()
+        except Exception:
+            logger.exception('资料目录未切换，待整理任务将于下次启动恢复')
 
     def update_blocks_writes(self):
         service = getattr(self, 'app_updates', None)
@@ -1179,14 +1200,34 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                 kwargs["folder_id"] = body["folder_id"]
             if "tab_name" in body:
                 kwargs["tab_name"] = body["tab_name"]
+            autosave = body.get("autosave", False)
+            if not isinstance(autosave, bool):
+                self._json({"error": "自动保存参数无效"}, HTTPStatus.BAD_REQUEST)
+                return
+            if "expected_content" in body:
+                kwargs["expected_content"] = body["expected_content"]
+            if autosave:
+                if "expected_content" not in body or "content" not in body:
+                    self._json({"error": "自动保存缺少正文或保存基线"}, HTTPStatus.BAD_REQUEST)
+                    return
+                kwargs["autosave"] = True
+            previous = self.server.store.get_note(note_id)
             try:
                 note = self.server.store.update_note(note_id, **kwargs)
+            except NoteContentConflict as exc:
+                self._json({"error": str(exc), "code": "content_conflict"}, HTTPStatus.CONFLICT)
+                return
             except ValueError as exc:
                 self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
-            self.server.embedding_service.enqueue(note.id)
-            if self.server.config.ai_auto_apply:
-                self.server.intelligence_service.enqueue(note.id)
+            if not autosave or previous.content != note.content:
+                # Make current text searchable; coalesce expensive 4B work.
+                self.server.embedding_service.enqueue(note.id)
+                if self.server.config.ai_auto_apply:
+                    if autosave:
+                        self.server.intelligence_service.enqueue(note.id, delay=15)
+                    else:
+                        self.server.intelligence_service.enqueue(note.id)
             self._json(self._note_with_tabs(note))
         elif parsed.path.startswith("/api/folders/"):
             folder_id = int(parsed.path.rsplit("/", 1)[1])

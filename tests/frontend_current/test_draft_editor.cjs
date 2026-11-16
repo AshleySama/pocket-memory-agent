@@ -1,20 +1,19 @@
-/* Copyright 2026 AshleySama
- * SPDX-License-Identifier: Apache-2.0
- */
+// Copyright 2026 AshleySama
+// SPDX-License-Identifier: Apache-2.0
 
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../../frontend/app.js'),'utf8');
 const ui=fs.readFileSync(require('node:path').join(__dirname,'../../frontend/draft-ui.js'),'utf8');
 const extract=(s,a,b)=>s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
-const funcs=extract(source,'function saveEditorContent(', 'async function toggleNoteEditing(')+extract(ui,'function draftKey(', 'function capturePersistentNew(');
+const funcs=extract(source,'function clearEditorAutosave(', 'async function toggleNoteEditing(')+extract(ui,'function draftKey(', 'function capturePersistentNew(');
 const events=[],session={saved:'O',draft:'A',status:'dirty',baseContent:'O'};
 const node={dataset:{noteId:'1'}};
-const c={state:{pendingContentSaves:new Map(),draftNoteSources:new Map([[1,{id:1,content:'O'}]]),allNotes:[]},
+const c={clearTimeout,state:{noteEditorSessions:new Map([[1,session]]),pendingContentSaves:new Map(),draftNoteSources:new Map([[1,{id:1,content:'O'}]]),allNotes:[]},
  captureEditorDraft:()=>session,noteEditorSession:()=>session,refreshEditorSaveState(){},syncCachedNote(){},showToast(){},draftVault:{close:k=>events.push(['close',k]),capture:(k,p)=>events.push(['capture',p.content])}};
 vm.createContext(c);vm.runInContext(funcs,c);
 (async()=>{
  let resolve;const wait=new Promise(r=>resolve=r);let remote='O', calls=0;
- c.request=async(u,o)=>{remote=JSON.parse(o.body).content;calls++;if(calls===1){await wait;throw Error('response lost')}return{content:remote}};
+ c.request=async(u,o)=>{if(!o.method)return{content:remote};const body=JSON.parse(o.body);assert.equal(body.expected_content,remote);assert.equal(body.autosave,true);remote=body.content;calls++;if(calls===1){await wait;throw Error('response lost')}return{content:remote}};
  const pending=c.saveEditorContent(node); session.draft='O';c.capturePersistentEditor(node,session);
  assert.equal(events.at(-1)[0],'capture');assert.equal(events.at(-1)[1],'O');resolve();assert.equal(await pending,false);
  assert.equal(remote,'A');assert.equal(session.writeUncertain,true);

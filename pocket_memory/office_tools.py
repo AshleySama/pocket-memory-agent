@@ -93,6 +93,68 @@ def _protected_tokens(text):
     return list(dict.fromkeys(match.group(0).strip() for match in re.finditer(pattern, text)))
 
 
+_SCHEDULE_DATE = re.compile(
+    r"(?P<due>(?:(?:20\d{2}年)?(?:1[0-2]|0?[1-9])月(?:3[01]|[12]\d|0?[1-9])(?:日|号)?"
+    r"|20\d{2}[-/](?:1[0-2]|0?[1-9])[-/](?:3[01]|[12]\d|0?[1-9])"
+    r"|(?:本|这|下)周[一二三四五六日天]|今天|明天|后天)"
+    r"(?:之前|以前|前|当天)?(?:上午|下午|晚上)?(?:\d{1,2}(?:点|时)(?:\d{1,2}分)?)?)"
+)
+# A deliberately bounded grammar for an explicit dated work instruction. These
+# are action heads, not topic/entity terms or question-specific templates.
+_SCHEDULE_ACTION = re.compile(
+    r"^(?:请|需要|需|要|必须|应当|应|将|计划|安排)?\s*"
+    r"(?P<verb>发送|提交|交付|提供|确认|检查|核对|整理|更新|发布|通知|联系|回复|"
+    r"完成|处理|修复|准备|汇总|上传|下载|导入|导出|备份|召开|参加|讨论|评审|测试)"
+    r"(?P<object>.+)$"
+)
+
+
+def _explicit_dated_todos(text):
+    """Recover a clear dated instruction only when generation returned none.
+
+    This is not a second semantic extractor. Keep the complete original suffix
+    (including its conditions) and never infer a person, year or completion.
+    Retrospective/conditional context is left to the existing model path.
+    """
+    recovered = []
+    for match in re.finditer(r"[^。！？!?\n；;]+(?:[。！？!?；;]|$)", text):
+        sentence = match.group(0).strip()
+        if not sentence:
+            continue
+        # A dated phrase inside a retrospective/conditional frame is not an
+        # independently established future instruction. Do not split it out.
+        if re.match(r"^(?:回顾|复盘|记录显示|日志记载|历史记录|此前|当时|昨天|昨日|上周|上月|去年|曾经)", sentence):
+            continue
+        if len(list(_SCHEDULE_DATE.finditer(sentence))) != 1:
+            continue
+        clauses = list(re.finditer(r"(?:^|[，,])\s*(?P<body>[^，,]+)", sentence))
+        for clause in clauses:
+            body = clause.group("body")
+            leading = sentence[:clause.start("body")]
+            if re.search(r"(?:如果|假如|若|只要|除非|待|等到)|(?:后|时)[，,]\s*$", leading):
+                continue
+            # Dates must introduce a clause, not merely occur in background
+            # text such as '介绍了11月18日的会议安排'.
+            prefix = re.match(r"^(?:请于|定于|计划于|于|在)?\s*", body)
+            dated = _SCHEDULE_DATE.match(body, prefix.end())
+            if dated is None:
+                continue
+            action = _SCHEDULE_ACTION.match(body[dated.end():].lstrip(" ：:"))
+            if action is None or len(action.group("object").strip(" ~～。！？!?")) < 2:
+                continue
+            tail = action.group("object")
+            if re.match(r"^(?:了|过|完毕|完成)", tail):
+                continue
+            task = sentence[clause.start("body"):].strip()
+            if (len(task) > 240 or re.search(r"(?:已|已经)(?:完成|发送|提交|取消|结束)|"
+                                             r"(?:现已|现|已)?(?:取消|撤销|不再执行)|已完成|已结束", task)):
+                continue
+            recovered.append({"task": task, "owner": "", "due_text": dated.group("due"),
+                              "evidence": sentence})
+            break
+    return recovered if len(recovered) <= MAX_ITEMS else []
+
+
 def _checked_result(kind, payload, raw):
     text = payload["text"]
     warnings = []
@@ -111,6 +173,8 @@ def _checked_result(kind, payload, raw):
         items = raw.get("items")
         if not isinstance(items, list) or len(items) > MAX_ITEMS:
             raise ValueError("待办结果数量或格式有误，请缩小选取范围后重试")
+        if not items:
+            items = _explicit_dated_todos(text)
         cleaned = []
         if len(items) == MAX_ITEMS:
             warnings.append(f"结果达到本次 {MAX_ITEMS} 项上限，请核对是否还有遗漏，必要时分段提取。")

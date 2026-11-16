@@ -220,14 +220,14 @@ function paintEditorState(content) {
   // Saving can repaint between pointerdown and click. Keep the button's child
   // nodes stable until its mode changes so a blur-save cannot swallow click.
   if (toggle && toggle.dataset.editorMode !== editable) {
-    toggle.innerHTML = `${tablerIcon(session.editing ? "check" : "edit", "editor-control-icon")}<span>${session.editing ? "完成" : "编辑"}</span>`;
-    toggle.setAttribute("aria-label", session.editing ? "保存并完成编辑" : "编辑当前页签");
+    toggle.innerHTML = `${tablerIcon(session.editing ? "check" : "edit", "editor-control-icon")}<span>${session.editing ? "阅读" : "编辑"}</span>`;
+    toggle.setAttribute("aria-label", session.editing ? "结束编辑，返回阅读" : "编辑当前页签");
     toggle.dataset.editorMode = editable;
   }
   const status = note.querySelector(".note-save-status");
   if (status) {
     status.dataset.state = session.status;
-    status.textContent = { dirty: "未保存", saving: "保存中…", error: "保存失败，草稿已保留", saved: "已保存" }[session.status];
+    status.textContent = session.conflict ? "原笔记已更新，草稿已保留" : { dirty: "等待自动保存", saving: "保存中…", error: "保存失败，草稿已保留", saved: "已保存" }[session.status];
     status.title = session.error || (session.updatedAt ? `最后保存：${session.updatedAt}` : "");
   }
   const retry = note.querySelector('[data-action="retry-note-save"]');
@@ -240,43 +240,108 @@ function refreshEditorSaveState(noteId) {
   if (Number(content?.dataset.noteId) === noteId) paintEditorState(content);
 }
 
-function saveEditorContent(content = currentNoteEditor()) {
+function clearEditorAutosave(session) {
+  if (!session) return;
+  clearTimeout(session.autosaveTimer);
+  session.autosaveTimer = null;
+}
+
+function scheduleEditorAutosave(content, session = noteEditorSession(content)) {
+  if (!session || content?.dataset.draft === "1") return;
+  clearEditorAutosave(session);
+  if (session.composing || session.conflict || (session.draft === session.saved && !session.writeUncertain)) return;
+  const noteId = Number(content.dataset.noteId), library = draftVault.library;
+  session.autosaveTimer = setTimeout(() => {
+    session.autosaveTimer = null;
+    if (state.noteEditorSessions.get(noteId) !== session || library !== draftVault.library || session.composing) return;
+    const visible = currentNoteEditor();
+    const target = Number(visible?.dataset.noteId) === noteId ? visible : content;
+    if (target.isConnected) void saveEditorContent(target, { automatic: true });
+  }, 1500);
+}
+
+function saveEditorContent(content = currentNoteEditor(), { automatic = false } = {}) {
   const session = captureEditorDraft(content) || (content ? noteEditorSession(content) : null);
   if (!session) return Promise.resolve(true);
   const noteId = Number(content.dataset.noteId);
+  clearEditorAutosave(session);
+  if (!automatic) session.flushRequested = true;
+  if (session.composing) {
+    if (!state.pendingContentSaves.has(noteId)) session.flushRequested = false;
+    return Promise.resolve(false);
+  }
   if (state.pendingContentSaves.has(noteId)) return state.pendingContentSaves.get(noteId);
-  if (session.draft === session.saved && !session.writeUncertain) {
+  if (session.draft === session.saved && !session.writeUncertain && !session.conflict) {
     session.status = "saved";
     session.error = "";
+    session.flushRequested = false;
     refreshEditorSaveState(noteId);
     return Promise.resolve(true);
   }
   // A single queue per real note/tab ID prevents an earlier response from
   // overwriting newer typing. The saved baseline advances only after success.
+  const library = draftVault.library;
+  const isCurrent = () => state.noteEditorSessions.get(noteId) === session && library === draftVault.library;
+  const acceptSaved = (updated, submitted) => {
+    session.saved = submitted;
+    session.writeUncertain = false;
+    session.uncertainContent = null;
+    session.baseContent = updated.content ?? submitted;
+    session.conflict = false;
+    state.draftNoteSources.set(noteId, {...state.draftNoteSources.get(noteId), ...updated});
+    session.updatedAt = updated.updated_at || "";
+    syncCachedNote(noteId, { content: updated.content ?? submitted, updated_at: updated.updated_at });
+    if (session.draft !== session.saved) capturePersistentEditor(content, session);
+  };
   const save = (async () => {
-    while (session.draft !== session.saved || session.writeUncertain) {
-      const submitted = session.draft;
+    while (session.draft !== session.saved || session.writeUncertain || session.conflict) {
+      if (session.composing || (!session.flushRequested && session.autosaveTimer != null)) break;
+      let submitted = session.draft;
       session.status = "saving";
       session.error = "";
       refreshEditorSaveState(noteId);
       try {
-        const updated = await request(`/api/notes/${noteId}`, { method: "PUT", body: JSON.stringify({ content: submitted }) });
-        session.saved = submitted;
-        session.writeUncertain = false;
-        session.baseContent = updated.content ?? submitted;
-        state.draftNoteSources.set(noteId, {...state.draftNoteSources.get(noteId), ...updated});
-        session.updatedAt = updated.updated_at || "";
-        syncCachedNote(noteId, { content: updated.content ?? submitted, updated_at: updated.updated_at });
-        if (session.draft !== session.saved) capturePersistentEditor(content, session);
+        if (session.writeUncertain) {
+          // A lost response can follow a successful write. Reconcile that
+          // snapshot without adopting unrelated edits made by another window.
+          const current = await request(`/api/notes/${noteId}`, { headers: { "X-PocketMemory-Library": library } });
+          if (!isCurrent()) return false;
+          if (current.content === session.uncertainContent) acceptSaved(current, session.uncertainContent);
+          else if (current.content !== session.baseContent) {
+            const conflict = new Error("原笔记已被其他窗口更新，请从草稿箱另存一份，保留两份内容。");
+            conflict.status = 409;
+            throw conflict;
+          } else {
+            session.writeUncertain = false;
+            session.uncertainContent = null;
+          }
+          if (session.draft === session.saved) continue;
+          if (session.composing || (!session.flushRequested && session.autosaveTimer != null)) break;
+          submitted = session.draft;
+        }
+        session.uncertainContent = submitted;
+        const updated = await request(`/api/notes/${noteId}`, { method: "PUT", body: JSON.stringify({ content: submitted, expected_content: session.baseContent, autosave: true }) });
+        if (!isCurrent()) return false;
+        acceptSaved(updated, submitted);
       } catch (error) {
-        session.writeUncertain = true;
+        if (!isCurrent()) return false;
+        session.conflict = error.status === 409;
+        session.writeUncertain = !session.conflict;
+        clearEditorAutosave(session);
         session.status = "error";
         session.error = error.message;
+        capturePersistentEditor(content, session);
         refreshEditorSaveState(noteId);
-        showToast("保存失败，草稿已保留", `${error.message}；可点击重试或按 Ctrl+S。`);
+        showToast(session.conflict ? "原笔记已更新，草稿已保留" : "保存失败，草稿已保留", session.conflict ? "可从草稿箱另存一份，保留两份内容。" : `${error.message}；可点击重试或按 Ctrl+S。`);
         return false;
       }
     }
+    if (session.composing || session.draft !== session.saved || session.writeUncertain || session.conflict) {
+      session.status = "dirty";
+      refreshEditorSaveState(noteId);
+      return false;
+    }
+    clearEditorAutosave(session);
     session.status = "saved";
     void draftVault.close(draftKey(noteId));
     refreshEditorSaveState(noteId);
@@ -284,6 +349,7 @@ function saveEditorContent(content = currentNoteEditor()) {
   })();
   state.pendingContentSaves.set(noteId, save);
   save.finally(() => {
+    session.flushRequested = false;
     if (state.pendingContentSaves.get(noteId) === save) state.pendingContentSaves.delete(noteId);
   });
   return save;
@@ -370,6 +436,7 @@ function resetEditorForLibraryChange() {
   // reuse them, so refreshing cannot recapture an old body as a new draft.
   currentNoteEditor()?.setAttribute("contenteditable", "false");
   $("#editor-dock-content")?.replaceChildren();
+  for (const session of state.noteEditorSessions.values()) clearEditorAutosave(session);
   state.noteEditorSessions.clear();
   state.editorActiveTabs.clear();
   state.pendingContentSaves.clear();
@@ -1659,7 +1726,7 @@ function renderEditorDock(terms = []) {
   if (!dock) return;
   const previous = currentNoteEditor();
   const previousSession = captureEditorDraft(previous);
-  if (previousSession && (previousSession.draft !== previousSession.saved || previousSession.status === "saving")) {
+  if (previousSession && (previousSession.draft !== previousSession.saved || previousSession.composing || previousSession.writeUncertain || ["saving", "error"].includes(previousSession.status))) {
     // Background refresh/filter results may change; a failed draft stays on its
     // original note/tab until a successful save permits navigation.
     state.selectedNoteId = Number(previous.closest(".note")?.dataset.noteId);
@@ -4402,6 +4469,22 @@ function makeTabLabelEditable(label, tabId, oldName, restoredName = null) {
 }
 
 // Focus changes never end explicit editing or reset the saved baseline.
+document.addEventListener("compositionstart", (event) => {
+  const content = event.target.closest(".note-content.editable[data-note-id]");
+  if (!content || content.getAttribute("contenteditable") !== "true") return;
+  const session = noteEditorSession(content);
+  session.composing = true;
+  clearEditorAutosave(session);
+});
+document.addEventListener("compositionend", (event) => {
+  const content = event.target.closest(".note-content.editable[data-note-id]");
+  if (!content || content.getAttribute("contenteditable") !== "true") return;
+  const session = noteEditorSession(content);
+  session.composing = false;
+  captureEditorDraft(content);
+  scheduleEditorAutosave(content, session);
+  paintEditorState(content);
+});
 document.addEventListener("input", (event) => {
   const content = event.target.closest(".note-content.editable");
   if (!content || content.getAttribute("contenteditable") !== "true") return;
@@ -4409,7 +4492,11 @@ document.addEventListener("input", (event) => {
     syncNewNoteDraftFromDom();
     return;
   }
-  captureEditorDraft(content);
+  const session = captureEditorDraft(content);
+  if (event.isComposing) {
+    session.composing = true;
+    clearEditorAutosave(session);
+  } else scheduleEditorAutosave(content, session);
   paintEditorState(content);
 });
 document.addEventListener("blur", (event) => {

@@ -12,6 +12,7 @@ import threading
 import time
 from contextlib import contextmanager
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -1113,6 +1114,16 @@ class LlamaCppTextEngine:
             result["reason"] = reason
         return result
 
+@dataclass
+class _AutosaveOrganisation:
+    note_id: int
+    apply: bool | None
+    due: float
+    generation: int = 0
+    timer: threading.Timer | None = None
+    submitted: bool = False
+
+
 class IntelligenceService:
     # 空闲卸载配置
     IDLE_UNLOAD_SECONDS = 0  # 默认常驻；手动释放/切换模型仍有效
@@ -1124,6 +1135,9 @@ class IntelligenceService:
         self.on_complete = on_complete
         self.auto_apply = auto_apply
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pocket-memory-ai")
+        self._autosave_lock = threading.RLock()
+        self._autosave_jobs: dict[int, _AutosaveOrganisation] = {}
+        self._closed = False
         self._warmup_lock = threading.Lock()
         self._warmup_future: Future | None = None
         self._idle_stop = threading.Event()
@@ -1186,14 +1200,82 @@ class IntelligenceService:
         status["warming"] = self.warming_up
         return status
 
-    def enqueue(self, note_id: int, *, apply: bool | None = None) -> None:
-        """Queue every organisation request for the configured LLM.
+    def enqueue(self, note_id: int, *, apply: bool | None = None, delay: float = 0) -> None:
+        """Queue explicit requests immediately; coalesce delayed autosaves by group.
 
         Model loading happens inside the serial worker rather than the HTTP request,
         so creating a note stays responsive while the first 4B inference starts.
         """
-        self.store.update_ai_status(note_id, "pending", "")
-        self.executor.submit(self._process, note_id, apply)
+        with self._autosave_lock:
+            if self._closed:
+                return
+            note = self.store.update_ai_status(note_id, "pending", "")
+            if delay <= 0:
+                self.executor.submit(self._process, note_id, apply)
+                return
+            group_id = note.parent_note_id or note.id
+            job = self._autosave_jobs.get(group_id)
+            if job is None:
+                job = _AutosaveOrganisation(note_id, apply, time.monotonic() + delay)
+                self._autosave_jobs[group_id] = job
+            else:
+                job.note_id = note_id
+                job.apply = apply
+                job.due = time.monotonic() + delay
+                job.generation += 1
+            if job.timer is not None:
+                job.timer.cancel()
+                job.timer = None
+            # A queued worker checks the latest due time before doing inference.
+            # A running worker schedules only the newest edit when it finishes.
+            if not job.submitted:
+                self._schedule_autosave(group_id, job)
+
+    def _schedule_autosave(self, group_id: int, job: _AutosaveOrganisation) -> None:
+        timer = threading.Timer(
+            max(0, job.due - time.monotonic()), self._queue_autosave, (group_id, job),
+        )
+        timer.daemon = True
+        job.timer = timer
+        timer.start()
+
+    def _queue_autosave(self, group_id: int, job: _AutosaveOrganisation) -> None:
+        with self._autosave_lock:
+            if self._closed or self._autosave_jobs.get(group_id) is not job or job.submitted:
+                return
+            # A cancelled timer may already have entered its callback. It must
+            # not shorten the quiet period of a later edit.
+            if job.due > time.monotonic():
+                return
+            job.timer = None
+            job.submitted = True
+            self.executor.submit(self._run_autosave, group_id, job)
+
+    def _run_autosave(self, group_id: int, job: _AutosaveOrganisation) -> None:
+        with self._autosave_lock:
+            if self._closed or self._autosave_jobs.get(group_id) is not job:
+                return
+            if job.due > time.monotonic():
+                job.submitted = False
+                self._schedule_autosave(group_id, job)
+                return
+            generation = job.generation
+            note_id, apply = job.note_id, job.apply
+        try:
+            self._process(note_id, apply)
+        finally:
+            with self._autosave_lock:
+                if not self._closed and self._autosave_jobs.get(group_id) is job:
+                    job.submitted = False
+                    if generation != job.generation:
+                        try:
+                            self.store.update_ai_status(job.note_id, "pending", "")
+                        except KeyError:
+                            del self._autosave_jobs[group_id]
+                        else:
+                            self._schedule_autosave(group_id, job)
+                    else:
+                        del self._autosave_jobs[group_id]
 
     def recover(self) -> None:
         if not self.auto_apply:
@@ -1224,9 +1306,24 @@ class IntelligenceService:
             logger.debug("rewrite_query failed", exc_info=True)
             return []
 
+    def cancel_pending_autosaves(self) -> None:
+        """Invalidate delayed and queued work before changing the active library.
+
+        Pending status stays in the old library for recovery. A running worker
+        is completed by the caller's existing executor drain before switching.
+        """
+        with self._autosave_lock:
+            for job in self._autosave_jobs.values():
+                if job.timer is not None:
+                    job.timer.cancel()
+            self._autosave_jobs.clear()
+
     def shutdown(self) -> None:
         self._idle_stop.set()
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        with self._autosave_lock:
+            self._closed = True
+            self.cancel_pending_autosaves()
+            self.executor.shutdown(wait=False, cancel_futures=True)
 
     def _idle_watch_loop(self) -> None:
         """后台线程：定期检查 LLM 是否空闲超时，超时则卸载释放内存。"""
@@ -1240,6 +1337,10 @@ class IntelligenceService:
         try:
             note = self.store.update_ai_status(note_id, "processing")
             group = self.store.get_note_group(note_id)
+            expected_group_content = {
+                member.id: (member.title, member.content, member.ocr_text, member.tab_name)
+                for member in group
+            }
             text = self._group_classification_text(group)
             if not text.strip():
                 self.store.update_ai_status(note_id, "failed", "笔记没有可分析的文字")
@@ -1260,7 +1361,14 @@ class IntelligenceService:
                 suggestions = self.engine.classify(text, existing_tags=self.store.tag_vocabulary())
             should_apply = self.auto_apply if apply is None else apply
             if should_apply:
-                self.store.apply_ai_suggestions(note_id, **suggestions)
+                applied = self.store.apply_ai_suggestions(
+                    note_id, **suggestions, expected_group_content=expected_group_content,
+                )
+                if applied is None:
+                    # The next coalesced autosave owns the latest text. Keep this
+                    # recoverable without another immediate model generation.
+                    self.store.update_ai_status(note_id, "pending", "")
+                    return
             else:
                 self.store.update_ai_status(note_id, "not_requested")
             if self.on_complete:

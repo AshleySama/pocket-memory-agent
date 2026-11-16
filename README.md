@@ -1,6 +1,6 @@
 # Pocket Memory
 
-Windows 本地资料工作台：把笔记、文件、问答、待办和报告放在同一个工作空间。当前源代码版本为 **1.0.7**。
+Windows 本地资料工作台：把笔记、文件、问答、待办和报告放在同一个工作空间。当前源代码版本为 **1.0.8**。已有笔记停笔后自动保存，保存状态可见，草稿用于异常恢复；新笔记仍需首次保存。
 
 ## 产品展示
 
@@ -45,7 +45,7 @@ cd pocket-memory-agent
 
 ## 构建与验证
 
-见 [1.0.7发布说明与验证边界](docs/RELEASE_1.0.7.md) 和 [离线交付流程](docs/OFFLINE_BUILD.md)。功能代码和当前保护测试在同一仓库；`scripts/release_policy.py`统一剔除视频FFmpeg DLL、未用的下载加速/推理后端、第三方测试样例和废弃设计素材。
+见 [1.0.8发布说明与验证边界](docs/RELEASE_1.0.8.md) 和 [离线交付流程](docs/OFFLINE_BUILD.md)。功能代码和当前保护测试在同一仓库；`scripts/release_policy.py`统一剔除视频FFmpeg DLL、未用的下载加速/推理后端、第三方测试样例和废弃设计素材。
 
 ```powershell
 .venv\Scripts\python.exe -m unittest discover -s tests -v

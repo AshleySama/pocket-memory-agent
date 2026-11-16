@@ -15,6 +15,7 @@ import shutil
 import sqlite3
 import tempfile
 import threading
+import time
 import zipfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -25,6 +26,12 @@ import numpy as np
 
 WELCOME_SOURCE_TYPE = "welcome"
 MAX_TABS_PER_NOTE = 20
+
+
+class NoteContentConflict(ValueError):
+    """An editor is attempting to overwrite a different saved revision."""
+
+
 MAX_NOTE_CONTENT_CHARS = 200_000
 MAX_TAGS_PER_NOTE = 2
 TAG_VOCABULARY_LIMIT = 40
@@ -144,6 +151,7 @@ class NoteChunk:
 class NoteStore:
     def __init__(self, data_dir: Path):
         self._lock = threading.RLock()
+        self._autosave_checkpoints = {}
         self._source_epoch = 0
         self._connection: sqlite3.Connection | None = None
         self.data_dir = Path()
@@ -704,10 +712,24 @@ class NoteStore:
         tags: list[str] | None = ...,
         folder_id: int | None = ...,
         tab_name: str | None = None,
+        expected_content: str = ...,
+        autosave: bool = False,
     ) -> Note:
         with self._lock:
             existing = self.get_note(note_id)
+            if expected_content is not ...:
+                if not isinstance(expected_content, str):
+                    raise ValueError("保存基线必须为文字")
+                if expected_content != existing.content and content != existing.content:
+                    raise NoteContentConflict("原笔记已更新，草稿已保留。请核对当前原文或从草稿箱另存副本。")
+            if autosave and (any(x is not ... for x in (title, category, subcategory, tags, folder_id)) or tab_name is not None):
+                raise ValueError("自动保存仅用于笔记正文")
+            if autosave and (content is ... or content == existing.content):
+                return existing  # Idempotent acknowledgement, no timestamp/job churn.
             now = self._now()
+            checkpoint_key = (str(self.data_dir), note_id)
+            checkpoint = self._autosave_checkpoints.get(checkpoint_key)
+            checkpoint_now = time.monotonic()
             category_was_supplied = category is not ...
             subcategory_was_supplied = subcategory is not ...
             tags_were_supplied = tags is not ...
@@ -754,7 +776,13 @@ class NoteStore:
                 or old_tags_str != new_tags_str
             )
             if content_changed:
-                self._save_version(existing, old_tags_str)
+                # Keep the beginning of an editing interval, not 50 keystroke
+                # pauses. Current text is still committed on every PUT.
+                if (not autosave or checkpoint is None
+                        or checkpoint_now - checkpoint[0] >= 60
+                        or checkpoint[1] != existing.content):
+                    self._save_version(existing, old_tags_str)
+                    checkpoint = (checkpoint_now, content)
             markdown = self._render_markdown(
                 clean_title,
                 content,
@@ -833,6 +861,10 @@ class NoteStore:
                     self._rewrite_markdown(member)
             note = self.get_note(note_id)
             self._refresh_links(note.id, note.content)
+            if autosave:
+                self._autosave_checkpoints[checkpoint_key] = (checkpoint[0], content)
+            else:
+                self._autosave_checkpoints.pop(checkpoint_key, None)
             return note
 
     def delete_note(self, note_id: int) -> None:
@@ -2388,7 +2420,7 @@ class NoteStore:
                 tab_name=version["tab_name"] or None,
             )
 
-    def apply_ai_suggestions(self, note_id: int, category: str, subcategory: str, tags: list[str], reason: str = "") -> Note:
+    def apply_ai_suggestions(self, note_id: int, category: str, subcategory: str, tags: list[str], reason: str = "", *, expected_group_content=None) -> Note | None:
         """Apply one organisation result to the main note and all its tabs.
 
         Automatic values refresh on every run. Values explicitly set by a user
@@ -2398,6 +2430,10 @@ class NoteStore:
             requested = self.get_note(note_id)
             group_id = requested.parent_note_id or requested.id
             members = self.get_note_group(group_id)
+            if expected_group_content is not None:
+                actual = {n.id: (n.title, n.content, n.ocr_text, n.tab_name) for n in members}
+                if actual != expected_group_content:
+                    return None  # Classification was produced from older text.
             group_note = next(note for note in members if note.id == group_id)
             next_category = group_note.category if group_note.category_source == "manual" else self._clean_category(category)
             next_subcategory = (

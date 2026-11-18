@@ -10,15 +10,14 @@ import re
 
 from .enumerated_list import (MAX_CONTEXT_CHARS, digest, original_span,
                               outside_records, scoped_question, source_record)
-from .field_projection import strip_scopes
-from .source_scope import norm
+from .projection_context import VERSION as CONTEXT_VERSION, context_is_referenced, context_parts
+from .request_contract import original_label_request
 
-VERSION = 'original-heading-sections-v1'
+VERSION = 'original-heading-sections-v2-request-context'
 MAX_SECTION_CHARS = 2500
 MAX_HEADINGS = 16
 COLON = re.compile(r'([^\r\n：:]+)[：:][ \t]*')
 MARKDOWN = re.compile(r'(#{1,6})[ \t]+([^\r\n]+?)[ \t]*')
-CONNECTORS = ('以及', '和', '与', '及', '、')
 
 
 def valid_label(label):
@@ -81,32 +80,9 @@ def section_rows(note):
 
 
 def request_labels(question, labels, notes):
-    """Consume every asked field; reject ambiguous connector/label partitions."""
-    names = {norm(label): label for label in labels}
-    if len(names) != len(labels): return None
-    q = norm(strip_scopes(question, notes)).rstrip('？?。！!')
-    prefix = r'(?:(?:请问|请|帮我)?(?:只根据|只依据|根据|依据|参考|只看|只读)?[，,:：]*的?)'
-    forms = [r'(?P<fields>.+?)(?:分别)?(?:是什么|有哪些|是谁|是哪些|有什么内容)',
-             r'(?:有哪些|有什么)(?P<fields>.+)',
-             r'(?:列出|列举)的?(?:全部|所有)?(?P<fields>.+)']
-    candidates = set()
-
-    def parse_fields(text, selected=()):
-        if len(selected) >= 8: return
-        for key in names:
-            if not text.startswith(key) or key in selected: continue
-            rest = text[len(key):]; found = selected + (key,)
-            if not rest:
-                candidates.add(found)
-            else:
-                for connector in CONNECTORS:
-                    if rest.startswith(connector): parse_fields(rest[len(connector):], found)
-
-    for form in forms:
-        match = re.fullmatch(prefix + form + r'[？?。！!]*', q)
-        if match: parse_fields(match['fields'])
-    if len(candidates) != 1: return None
-    return [names[key] for key in next(iter(candidates))]
+    """Compatibility probe backed by the shared full-request contract."""
+    request = original_label_request(question, labels, notes)
+    return request['labels'] if request else None
 
 
 def _guard_rows(note):
@@ -164,11 +140,15 @@ def validate_sections(question, plan, notes, ocr=None, response=None):
         if local is None: return ['unproved_section_format']
         available.extend(local)
     if not available or len(available) > MAX_HEADINGS: return ['unbounded_sections']
-    labels = request_labels(canonical, [r['label'] for r in available], notes)
+    request = original_label_request(canonical, [r['label'] for r in available], notes)
+    labels = request['labels'] if request else None
     if not labels or plan.get('labels') != labels: return ['request_not_fully_bound']
+    if plan.get('request_contract') != request: return ['request_contract_mismatch']
+    if plan.get('context_policy') != CONTEXT_VERSION: return ['context_policy_mismatch']
     expected = [next(r for r in available if r['label'] == label) for label in labels]
     if plan.get('sections') != expected: return ['section_identity_or_boundary_mismatch']
-    contexts = []
+    contexts = []; background = []
+    protect_background = context_is_referenced(notes[sid]['content'] for sid in scope.pairs)
     for sid in sorted(scope.pairs):
         body = notes[sid]['content']; covered = bytearray(len(body))
         for row in expected:
@@ -178,18 +158,28 @@ def validate_sections(question, plan, notes, ocr=None, response=None):
             a, b = match.span()
             while a < b and body[a].isspace(): a += 1
             while b > a and body[b-1].isspace(): b -= 1
-            if a < b: contexts.append(original_span(body, a, b, notes[sid]))
+            for start,end,_,relation in context_parts(body, a, b, labels, protect_background):
+                raw = original_span(body, start, end, notes[sid])
+                if relation == 'independent_progress':
+                    background.append(dict(span=raw, relation=relation))
+                contexts.append(raw)
     if sum(len(c['quote']) for c in contexts) > MAX_CONTEXT_CHARS: return ['context_over_budget']
     if plan.get('context') != contexts: return ['missing_or_changed_original_context']
+    if plan.get('background') != background: return ['background_identity_or_relation_mismatch']
     if response is not None:
         originals = [original_span(notes[r['source_id']]['content'], r['start'], r['end'], notes[r['source_id']])
                      for r in expected]
-        pieces = []; sources = []
+        pieces = []; sources = []; context_passages = []; main_context_started = False
         for i, raw in enumerate(originals + contexts, 1):
-            if i == len(originals)+1: pieces.append('原文说明：')
-            pieces.append(raw['quote'] + f' [{i}]')
             sources.append(source_record(notes[raw['source_id']], i, raw, [raw]))
+            if i > len(originals) and any(item['span'] == raw for item in background):
+                context_passages.append(dict(kind='background', source_index=i, quote=raw['quote']))
+                continue
+            if i > len(originals) and not main_context_started:
+                pieces.append('原文说明：'); main_context_started = True
+            pieces.append(raw['quote'] + f' [{i}]')
         if response.get('answer') != '\n\n'.join(pieces): return ['rendered_answer_not_original']
+        if response.get('context_passages') != context_passages: return ['rendered_background_mismatch']
         if response.get('sources') != sources or response.get('provided_sources') != sources:
             return ['rendered_source_identity_mismatch']
     return []
@@ -211,28 +201,40 @@ class SectionProjection:
                 self.audit['reason'] = 'unproved_section_format'; return None
             available.extend(rows)
         if not available or len(available) > MAX_HEADINGS: return None
-        labels = request_labels(canonical, [r['label'] for r in available], self.notes)
+        request = original_label_request(canonical, [r['label'] for r in available], self.notes)
+        labels = request['labels'] if request else None
         if not labels: return None
         selected = [next(r for r in available if r['label'] == label) for label in labels]
-        context = []
+        context = []; background = []
+        protect_background = context_is_referenced(self.notes[sid]['content'] for sid in scope.pairs)
         for sid in sorted(scope.pairs):
             note = self.notes[sid]
             local = sorted((r for r in selected if r['source_id']==sid), key=lambda r: r['start'])
             for a,b,_ in outside_records(note['content'], local):
-                context.append(original_span(note['content'], a, b, note))
+                for start,end,_,relation in context_parts(note['content'], a, b, labels, protect_background):
+                    raw = original_span(note['content'], start, end, note)
+                    if relation == 'independent_progress':
+                        background.append(dict(span=raw, relation=relation))
+                    context.append(raw)
         if sum(len(c['quote']) for c in context) > MAX_CONTEXT_CHARS:
             self.audit['reason'] = 'context_over_budget'; return None
-        plan = dict(labels=labels, sections=selected, context=context,
+        plan = dict(labels=labels, sections=selected, context=context, background=background,
+            request_contract=request, context_policy=CONTEXT_VERSION,
             scope_note_ids=sorted(scope.pairs),
             scope_revisions={str(sid):digest(self.notes[sid]['content']) for sid in scope.pairs})
-        sources = []; lines = []
+        sources = []; lines = []; context_passages = []; main_context_started = False
         originals = [original_span(self.notes[r['source_id']]['content'], r['start'], r['end'], self.notes[r['source_id']])
                      for r in selected]
         for i, raw in enumerate(originals + context, 1):
-            if i == len(originals)+1: lines.append('原文说明：')
             sources.append(source_record(self.notes[raw['source_id']], i, raw, [copy.deepcopy(raw)]))
+            if i > len(originals) and any(item['span'] == raw for item in background):
+                context_passages.append(dict(kind='background', source_index=i, quote=raw['quote']))
+                continue
+            if i > len(originals) and not main_context_started:
+                lines.append('原文说明：'); main_context_started = True
             lines.append(raw['quote'] + f' [{i}]')
         response = dict(answer='\n\n'.join(lines), answer_status='answered', sources=sources,
+            context_passages=context_passages,
             provided_sources=copy.deepcopy(sources),
             trace=dict(section_projection=dict(version=VERSION, active=True, plan=copy.deepcopy(plan)),
                        generation_calls=0, messages=[], rendering='complete-original-sections'))
@@ -241,6 +243,6 @@ class SectionProjection:
             self.audit.update(reason='projection_guard_failed', errors=errors); return None
         response['citation_validation'] = dict(passed=not errors, errors=errors)
         self.audit = dict(version=VERSION, active=True, plan=copy.deepcopy(plan),
-                          guard='original identity and full-coverage verification; not semantic inference')
+                          guard='original identity and conservative context verification; not semantic inference')
         response['trace']['section_projection'] = copy.deepcopy(self.audit)
         return dict(mode='single_free_text', sources=sources, direct_record_response=response)

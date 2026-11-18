@@ -775,13 +775,14 @@ class NoteStore:
                 or existing.subcategory != subcategory
                 or old_tags_str != new_tags_str
             )
+            save_version = False
             if content_changed:
                 # Keep the beginning of an editing interval, not 50 keystroke
                 # pauses. Current text is still committed on every PUT.
                 if (not autosave or checkpoint is None
                         or checkpoint_now - checkpoint[0] >= 60
                         or checkpoint[1] != existing.content):
-                    self._save_version(existing, old_tags_str)
+                    save_version = True
                     checkpoint = (checkpoint_now, content)
             markdown = self._render_markdown(
                 clean_title,
@@ -797,8 +798,13 @@ class NoteStore:
                 existing.ai_status,
                 updated_at=now,
             )
-            (self.data_dir / existing.markdown_path).write_text(markdown, encoding="utf-8")
+            self._write_note_markdown(existing.markdown_path, markdown)
             with self.connection:
+                if save_version:
+                    # A failed file save must not create duplicate snapshots or
+                    # prune old history on every retry. Commit history with the
+                    # successful database update, without a nested transaction.
+                    self._insert_version(existing, old_tags_str)
                 if tab_name is not None:
                     self.connection.execute(
                         """
@@ -2343,26 +2349,30 @@ class NoteStore:
     def _save_version(self, note: Note, tags_str: str) -> None:
         """将当前笔记状态保存为历史版本快照。保留最近 50 个版本，超出自动清理。"""
         with self.connection:
-            self.connection.execute(
-                """
-                INSERT INTO note_versions(note_id, title, content, category, subcategory, tags, ocr_text, tab_name, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    note.id, note.title, note.content, note.category, note.subcategory,
-                    tags_str, note.ocr_text, note.tab_name, note.updated_at,
-                ),
+            self._insert_version(note, tags_str)
+
+    def _insert_version(self, note: Note, tags_str: str) -> None:
+        """Insert/prune in the caller's transaction; do not commit it here."""
+        self.connection.execute(
+            """
+            INSERT INTO note_versions(note_id, title, content, category, subcategory, tags, ocr_text, tab_name, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                note.id, note.title, note.content, note.category, note.subcategory,
+                tags_str, note.ocr_text, note.tab_name, note.updated_at,
+            ),
+        )
+        # 清理超出上限的旧版本
+        self.connection.execute(
+            """
+            DELETE FROM note_versions
+            WHERE note_id = ? AND id NOT IN (
+                SELECT id FROM note_versions WHERE note_id = ? ORDER BY id DESC LIMIT 50
             )
-            # 清理超出上限的旧版本
-            self.connection.execute(
-                """
-                DELETE FROM note_versions
-                WHERE note_id = ? AND id NOT IN (
-                    SELECT id FROM note_versions WHERE note_id = ? ORDER BY id DESC LIMIT 50
-                )
-                """,
-                (note.id, note.id),
-            )
+            """,
+            (note.id, note.id),
+        )
 
     def list_versions(self, note_id: int) -> list[dict]:
         """返回某笔记的历史版本列表（最新在前）。包含页签：note_id 为主笔记时聚合所有子页签的版本。"""
@@ -2675,6 +2685,17 @@ class NoteStore:
                 (note_id, source, tag),
             )
 
+    def _write_note_markdown(self, relative_path: str, markdown: str) -> None:
+        """Recover a missing month folder and never truncate the old file on failure."""
+        target = self.data_dir / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging = target.with_name(f'.{target.name}.{uuid4().hex}.tmp')
+        try:
+            staging.write_text(markdown, encoding="utf-8")
+            staging.replace(target)
+        finally:
+            staging.unlink(missing_ok=True)
+
     def _rewrite_markdown(self, note: Note) -> None:
         markdown = self._render_markdown(
             note.title,
@@ -2690,7 +2711,7 @@ class NoteStore:
             ai_status=note.ai_status,
             updated_at=note.updated_at,
         )
-        (self.data_dir / note.markdown_path).write_text(markdown, encoding="utf-8")
+        self._write_note_markdown(note.markdown_path, markdown)
 
     def _get_tags(self, note_id: int) -> list[str]:
         return [

@@ -5,10 +5,12 @@
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 CANDIDATE = ROOT / '.'
@@ -23,6 +25,13 @@ class DeliveryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='delivery-fixture-', dir=Path(__file__).parent)
         self.root = Path(self.temp.name)
+        # SafeUpdater also protects the current user's configured library.
+        # These fake deliveries must inspect only their own isolated profile.
+        profile = self.root / 'local-profile'
+        profile.mkdir()
+        environment = mock.patch.dict(os.environ, {'LOCALAPPDATA': str(profile)})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.build = self.root / 'fake-build'
         self.models = self.root / 'fake-models'
         for relative, data in {

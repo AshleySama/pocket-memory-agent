@@ -7,10 +7,27 @@ Uses the pinned LlamaIndex RRF + FlashRank retrieval. There are no case names,
 business constants, expected answers, numeric corrections or generated plans.
 """
 import copy,hashlib,re
+from collections.abc import Mapping
 from .context_contract import Original
+
+MIN_NOTE_CHARS=2400
 
 class OriginalUnits:
     def __init__(self,owner):self.owner=owner
+    def may_apply_to_current_notes(self):
+        """A necessary-condition check over the complete current note snapshot.
+
+        Unknown content keeps the original preparation path. This does not
+        predict which note retrieval will select or assert that a long note
+        will satisfy the adapter's remaining conditions.
+        """
+        notes=getattr(self.owner,'notes',None)
+        if not isinstance(notes,Mapping):return True
+        for note in notes.values():
+            if not isinstance(note,Mapping):return True
+            body=note.get('content')
+            if not isinstance(body,str) or len(body)>=MIN_NOTE_CHARS:return True
+        return False
     def block(self,prior,ranges,kind):
         s=copy.deepcopy(prior);sid=s['source_id'];body=self.owner.notes[sid]['content']
         # These describe the old bundle, not the newly restored original unit.
@@ -34,7 +51,7 @@ class OriginalUnits:
         if not old or len({s['source_key'] for s in old})!=1:return None
         if any(s.get('source_type')!='note' or s.get('kind')!='content' for s in old):return None
         sid=old[0]['source_id'];body=self.owner.notes[sid]['content'];original=Original(body)
-        if len(body)<2400:return None
+        if len(body)<MIN_NOTE_CHARS:return None
         hits=trace['retrieved']
         if not hits:return None
         # Parent-document retrieval: score the short anchor, then recover its

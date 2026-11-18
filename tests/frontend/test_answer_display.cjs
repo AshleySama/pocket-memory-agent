@@ -102,7 +102,7 @@ check('Duplicate or contained context is absent from the rendered card', () => {
 });
 check('Additional context remains complete and collapsed by default', () => {
   const html = call('renderAnswerSource', { ...first, excerpt: '前文。甲证据。后文。' });
-  assert.match(html, /<details class="source-context"><summary>查看上下文<\/summary>/);
+  assert.match(html, /<details class="source-context"><summary>查看完整上下文<\/summary>/);
   assert(!html.includes('<details class="source-context" open'));
   assert.match(plainText(html), /前文。甲证据。后文。/);
 });
@@ -118,6 +118,132 @@ check('Rendering escapes untrusted text and preserves source metadata without mu
   assert(card.includes('&lt;b&gt;原文&lt;/b&gt;'));
   assert(answer.includes('&lt;img src=x&gt;'));
   assert.equal(JSON.stringify(record), before);
+});
+check('Background remains complete and collapsed with its exact source link', () => {
+  const quote = '本周完成：<img src=x onerror=alert(1)>\n**原文标记**与完整背景。';
+  const record = { ...first, source_type: 'note', display_evidence: quote,
+    display_spans: [{ source_id: 42, parent_note_id: 41, tab_name: '复盘', field: 'content',
+      char_start: 10, char_end_exclusive: 80, source_revision: 'saved-revision', quote }] };
+  const passage = { kind: 'background', source_index: 3, quote };
+  const before = JSON.stringify({ record, passage });
+  const html = call('renderAnswerContextPassages', [passage], [record]);
+  assert.match(html, /<details class="source-context answer-context-passages"><summary>原文背景与限制<\/summary>/);
+  assert(!html.includes(' open'));
+  assert(!html.includes('<img'));
+  assert(!html.includes('<strong>原文标记</strong>'));
+  assert(plainText(html).includes(quote));
+  assert.match(html, /data-doc-url="\/api\/notes\/41\?tab_id=42"/);
+  assert.match(html, /data-doc-exact="true"/);
+  assert.match(html, /data-doc-note-ranges=/);
+  assert.match(html, /saved-revision/);
+  assert.equal(JSON.stringify({ record, passage }), before);
+});
+check('Missing background or source identity never invents a reference', () => {
+  for (const passages of [null, {}, [], [null], [{ kind: 'background', quote: '' }]]) {
+    assert.equal(call('renderAnswerContextPassages', passages, [first]), '');
+  }
+  const html = call('renderAnswerContextPassages', [{ kind: 'background', source_index: 99, quote: '保留背景。' }], [first]);
+  assert.match(html, /保留背景。/);
+  assert.match(html, /来源未定位/);
+  assert(!html.includes('data-doc-url'));
+});
+
+const exactSource = (index, text, start, identity = {}) => {
+  const { id = 27, parent = null, tab = '复盘', revision = 'a'.repeat(64) } = identity;
+  const span = { source_id: id, parent_note_id: parent, tab_name: tab, field: 'content',
+    char_start: start, char_end_exclusive: start + Array.from(text).length, quote: text, source_revision: revision };
+  return { index, title: '相同标题', source_type: 'note', source_id: id, parent_note_id: parent, tab_name: tab,
+    source_key: `note:${id}`, source_revision: revision, source_field: 'content',
+    url: parent === null ? `/api/notes/${id}` : `/api/notes/${parent}?tab_id=${id}`,
+    evidence: text, display_evidence: text, display_context: `完整上下文：${text}`,
+    display_spans: [span], raw_evidence: [span],
+    citation_members: [{ id: `original:${id}:${start}`, source_type: 'note', source_id: id,
+      parent_note_id: parent, tab_name: tab, verification: 'exact_saved_original', spans: [span] }] };
+};
+const groupedRecords = [
+  '风险一：资料过杂。处理动作：按主题整理；负责人：演示人；完成时间：录制前一天。',
+  '风险二：确认延迟。仅在验收通过后发布；负责人：演示人；完成时间：周五。',
+  '风险三：交接遗漏。处理动作：复核清单；负责人：演示人；完成时间：演示之前。',
+];
+const groupedSources = groupedRecords.map((text, index) => exactSource(index + 1, text, index * 100));
+const groupedAnswer = groupedRecords.map((text, index) => `${text} [${index + 1}]`).join('\n\n');
+check('Same exact note becomes one list, one source, and one reference identity without shortening facts', () => {
+  const before = JSON.stringify({ answer: groupedAnswer, sources: groupedSources });
+  const view = call('deriveAnswerPresentation', groupedAnswer, groupedSources, []);
+  assert.equal(view.grouped, true);
+  assert.equal(view.sources.length, 1);
+  assert.equal(view.sources[0].index, 1);
+  assert.equal(view.sources[0].display_spans.length, 3);
+  assert.equal(view.sources[0].display_evidence_count, 3);
+  assert.match(call('renderAnswerSource', view.sources[0]), /含 3 处证据/);
+  const html = call('renderAnswerText', view.answer, view.sources, { sharedSource: view.grouped });
+  assert.equal((html.match(/<ul class="answer-record-list">/g) || []).length, 1);
+  assert.equal((html.match(/<li>/g) || []).length, 3);
+  assert.equal((html.match(/class="answer-source-label"/g) || []).length, 1);
+  assert(!html.includes('class="answer-source-group"'));
+  assert(!html.includes('class="answer-citation"'));
+  for (const text of groupedRecords) {
+    assert(plainText(html).includes(text));
+    assert(view.sources[0].display_context.includes(`完整上下文：${text}`));
+  }
+  assert.equal(JSON.stringify({ answer: groupedAnswer, sources: groupedSources }), before);
+});
+check('Duplicate verified ranges count once and conflicting overlap disables grouping', () => {
+  const source = exactSource(1, '共同条件：验收通过。', 0);
+  const duplicate = { ...source, index: 2, display_spans: [{ extra: 'unchanged proof', ...source.display_spans[0] }] };
+  const view = call('deriveAnswerPresentation', '甲[1]。\n\n乙[2]。', [source, duplicate], []);
+  assert.equal(view.sources.length, 1);
+  assert.equal(view.sources[0].display_evidence_count, 1);
+  const overlap = exactSource(2, '条件：验收通过。', 2);
+  assert.equal(call('deriveAnswerPresentation', '甲[1]。\n\n乙[2]。', [source, overlap], []).grouped, false);
+});
+check('Titles never merge different notes, tabs, revisions, fields, or unverifiable sources', () => {
+  const base = exactSource(1, '第一处事实。', 0);
+  const second = exactSource(2, '第二处事实。', 100);
+  const variants = [
+    exactSource(2, '第二处事实。', 100, { id: 28 }),
+    exactSource(2, '第二处事实。', 100, { id: 28, parent: 27, tab: '另一页' }),
+    exactSource(2, '第二处事实。', 100, { tab: '另一页' }),
+    exactSource(2, '第二处事实。', 100, { revision: 'b'.repeat(64) }),
+    { ...second, source_type: 'document' },
+    { ...second, source_field: 'ocr_text' },
+    { ...second, url: '/api/notes/99' },
+    { ...second, display_spans: [] },
+    { ...second, citation_members: [] },
+    { ...second, citation_members: [{ ...second.citation_members[0], verification: 'unverified' }] },
+  ];
+  for (const other of variants) {
+    const view = call('deriveAnswerPresentation', '事实甲[1]。\n\n事实乙[2]。', [base, other], []);
+    assert.equal(view.grouped, false);
+    assert.equal(view.sources.length, 2);
+    assert.equal(view.answer, '事实甲[1]。\n\n事实乙[2]。');
+  }
+});
+check('Background and other document types keep separate consistent view references', () => {
+  const background = exactSource(4, '本周完成资料整理。', 400);
+  const document = { index: 9, source_type: 'document', source_id: 5, title: '相同标题', url: '/api/documents/5/file', evidence: '外部事实。' };
+  const passages = [{ kind: 'background', source_index: 4, quote: background.evidence }];
+  const view = call('deriveAnswerPresentation', groupedAnswer + '\n\n外部事实[9]。', [...groupedSources, background, document], passages);
+  assert.equal(view.sources.length, 2);
+  assert.equal(view.sources[0].display_evidence_count, 3);
+  assert.equal(view.sources[1].source_type, 'document');
+  assert.equal(view.sources[1].index, 2);
+  assert.match(view.answer, /外部事实\[2\]/);
+  assert.equal(view.contextPassages[0].source_index, 3);
+  assert.equal(view.contextSources.find(source => source.index === 3).evidence, background.evidence);
+  assert(!view.sources[0].display_evidence.includes(background.evidence));
+  assert.equal(passages[0].source_index, 4);
+});
+check('Unknown references and an unrelated list are not reassigned invented support', () => {
+  const shifted = groupedSources.map((source, index) => ({ ...source, index: index + 3 }));
+  const view = call('deriveAnswerPresentation', '未知[1]。\n\n甲[3]。\n\n乙[4]。\n\n丙[5]。', shifted, []);
+  assert.equal(view.sources[0].index, 2);
+  assert.match(view.answer, /未知\[1\]/);
+  assert.match(view.answer, /甲\[2\]/);
+  const plain = '4. 甲风险[3]。\n5. 乙风险[7]。';
+  const unchanged = call('deriveAnswerPresentation', plain, [first, second], []);
+  assert.equal(unchanged.grouped, false);
+  assert.equal(unchanged.answer, plain);
 });
 
 const result = { passed: cases.filter((item) => item.passed).length, total: cases.length, cases };

@@ -1,6 +1,5 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-
 import copy
 import json
 import unittest
@@ -111,6 +110,11 @@ class WholeReportTests(unittest.TestCase):
                            sections=[dict(title='使用边界',batch_ids=[1])],
                            coverage=dict(total_units=1,read_units=1,processed_units=1,total_batches=1,completed_batches=1)))
         before=copy.deepcopy(r);out=export_html(r)
+        for rendered in (render_report(r), out):
+            self.assertIn('<ul class="report-toc">',rendered)
+            self.assertIn('<details class="panel full-source">',rendered)
+            self.assertNotIn('<details class="panel full-source" open>',rendered)
+            self.assertIn('<blockquote style="white-space:pre-wrap">'+u['body']+'</blockquote>',rendered)
         self.assertIn(point['text'],out)
         self.assertEqual(r,before)
         self.assertEqual(len(re.findall('id="source-1"',out)),1)
@@ -119,6 +123,29 @@ class WholeReportTests(unittest.TestCase):
         self.assertNotIn('src="http',out)
         r['refs'][0]['quote']='篡改'
         with self.assertRaises(ValueError):render_report(r)
+
+    def test_long_digest_directory_and_folded_sources_keep_every_point_and_citation(self):
+        from pocket_memory.report_workspace import make_ref,digest,render_report,export_html
+        u=self.unit('同一原文的条件和依据必须保留。');u['revision']=digest(u['body']);u['note_id']=None
+        ref=make_ref(u,0,len(u['body']));ref['id']=1
+        batches=[dict(id=i,heading=f'知识主题{i}',points=[dict(text=f'第{i}条原有归纳条件。',refs=[1])],status='complete') for i in range(1,14)]
+        r=dict(title='长报告',template='learning',template_label='学习总结',created='2026-11-17',version=1,
+               selected=[{}],units=[u],refs=[ref],notes={},limitations=[],generation={'seconds':0},
+               digest=dict(protocol='whole-document-v1',batches=batches,map_batches=batches,
+                           sections=[dict(title=b['heading'],batch_ids=[b['id']]) for b in batches],
+                           coverage=dict(total_units=1,read_units=1,processed_units=1,total_batches=13,completed_batches=13)))
+        before=copy.deepcopy(r)
+        for rendered in (render_report(r), export_html(r)):
+            self.assertIn('<ul class="report-toc">',rendered)
+            for chapter in range(1,14):
+                self.assertEqual(rendered.count(f'href="#section-digest-{chapter}"'),1)
+            self.assertIn('<details class="panel full-source">',rendered)
+            self.assertNotIn('<details class="panel full-source" open>',rendered)
+            self.assertEqual(rendered.count('data-ref="1"'),13)
+            self.assertEqual(rendered.count('id="source-1"'),1)
+            for b in batches:
+                self.assertEqual(rendered.count(b['points'][0]['text']),1)
+        self.assertEqual(r,before)
 
 
 if __name__=='__main__':unittest.main()

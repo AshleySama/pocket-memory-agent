@@ -57,6 +57,11 @@ def snapshot():
     current = _current.get()
     return current.snapshot() if current is not None else None
 
+def started_at():
+    """Monotonic HTTP handler entry, including validation and operation queue."""
+    current = _current.get()
+    return current.started if current is not None else time.perf_counter()
+
 def metric(name, value=1):
     current = _current.get()
     if current is not None:

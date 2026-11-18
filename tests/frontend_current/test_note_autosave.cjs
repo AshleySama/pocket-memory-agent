@@ -3,29 +3,47 @@
 
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const app = fs.readFileSync(path.join(__dirname, '../../frontend/app.js'), 'utf8');
 const ui = fs.readFileSync(path.join(__dirname, '../../frontend/draft-ui.js'), 'utf8');
+const vault = fs.readFileSync(path.join(__dirname, '../../frontend/drafts.js'), 'utf8');
 const take = (s, a, b) => s.slice(s.indexOf(a), s.indexOf(b, s.indexOf(a)));
-const functions = take(app, 'function syncCachedNote(', 'async function prepareLibraryChange(') +
+const functions = take(app, 'function syncCachedNote(', 'function resetEditorForLibraryChange(') +
   take(ui, 'function draftKey(', 'function capturePersistentNew(') +
+  take(app, 'function renderNoteBody(', 'function renderNoteHtml(') +
+  take(app, 'function renderEditorDock(', 'function folderOptionsHtml(') +
   take(app, '// Focus changes never end explicit editing', 'document.addEventListener("focus",');
 const settle = () => new Promise(setImmediate);
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return {promise, resolve}; };
 
 function setup() {
-  const timers = new Map(), listeners = new Map(), calls = [], drafts = new Map(), closed = [], notices = [];
+  const timers = new Map(), listeners = new Map(), calls = [], closed = [], notices = [], journal = new Map(), local = new Map();
+  const dock = {innerHTML:'', querySelector:() => null};
   const remote = new Map([[1, {id:1, content:'原文', updated_at:'initial'}], [2, {id:2, content:'页签原文', updated_at:'initial'}]]);
-  let now = 0, nextTimer = 0, current = null, hook = null, newSaves = 0;
+  let now = 0, nextTimer = 0, current = null, hook = null, draftHook = null, newSaves = 0;
+  const storage = {get length() { return local.size; }, key:i => [...local.keys()][i], getItem:k => local.get(k),
+    setItem:(k,v) => local.set(k,v), removeItem:k => local.delete(k)};
+  const draftApi = async (url, options = {}) => {
+    if (!options.method) return {library_id:'library-a', drafts:[...journal.values()], closed_ids:[]};
+    const body = JSON.parse(options.body);
+    if (options.method === 'POST') {
+      if (draftHook) await draftHook(body);
+      journal.set(body.draft_id, {...body}); return {draft:{...body}};
+    }
+    journal.delete(url.split('/').at(-1)); return {};
+  };
   const c = {
+    window:{}, crypto:crypto.webcrypto,
     setTimeout(fn, delay) { const id = ++nextTimer; timers.set(id, {fn, at:now + delay}); return id; },
     clearTimeout(id) { timers.delete(id); },
-    document: {addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }},
-    $: selector => selector.includes('.note-content[data-note-id]') ? current : null,
+    document: {querySelector:() => null, addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }},
+    $: selector => selector.includes('.note-content[data-note-id]') ? current : selector === '#editor-dock-content' ? dock : null,
+    importQueue:{busy:false,rows:[]},
     tablerIcon: name => `<svg data-icon="${name}"></svg>`,
+    renderNoteContent: text => text,
+    renderNoteHtml: note => c.renderNoteBody(note),
     editableContentToMarkdown: node => node.text,
     showToast: (...args) => notices.push(args),
-    draftVault: {library:'library-a', close(key) { closed.push(key); drafts.delete(key); return Promise.resolve(true); },
-      capture(key, payload) { drafts.set(key, payload); }},
     syncNewNoteDraftFromDom() { c.s.newNoteDraft.content = current.text; },
     saveNewNote() { newSaves++; return Promise.resolve(true); },
     async request(url, options = {}) {
@@ -41,15 +59,19 @@ function setup() {
     },
   };
   vm.createContext(c);
-  vm.runInContext(app.slice(0, app.indexOf('/* ---- 风格定义')) + '\nglobalThis.s=state;\n' + functions, c);
+  vm.runInContext(vault + '\n' + app.slice(0, app.indexOf('/* ---- 风格定义')) + '\nglobalThis.s=state;\n' + functions, c);
+  c.draftVault = new c.window.PocketDraftVault({api:draftApi, storage});
+  c.draftVault.library = 'library-a';
+  const close = c.draftVault.close.bind(c.draftVault);
+  c.draftVault.close = key => { closed.push(key); return close(key); };
   c.s.notes = [...remote.values()].map(n => ({...n})); c.s.allNotes = c.s.notes;
   for (const note of c.s.notes) c.s.draftNoteSources.set(note.id, note);
   function editor(id = 1) {
     const status = {dataset:{}}, toggle = {dataset:{}, setAttribute(name, value) { this[name] = value; }, focus() {}}, retry = {};
-    const note = {classList:{toggle() {}}, querySelectorAll:() => [], querySelector(selector) {
+    const note = {dataset:{noteId:String(id)}, classList:{toggle() {}}, querySelectorAll:() => [], querySelector(selector) {
       return selector === '.note-save-status' ? status : selector.includes('retry-note-save') ? retry : selector === '.editor-toolbar' ? {} : toggle;
     }};
-    const node = {dataset:id ? {noteId:String(id)} : {draft:'1'}, text:id ? remote.get(id).content : '新建内容', isConnected:true,
+    const node = {dataset:id ? {noteId:String(id)} : {draft:'1'}, text:id ? c.s.noteEditorSessions.get(id)?.draft ?? remote.get(id).content : '新建内容', isConnected:true,
       attributes:{contenteditable:'true'}, classList:{toggle() {}}, status, toggle, retry,
       getAttribute(name) { return this.attributes[name]; }, setAttribute(name,value) { this.attributes[name] = value; },
       querySelector:() => null, focus() {}, closest(selector) { return selector === '.note' ? note : !id && selector.includes('[data-note-id]') ? null : this; }};
@@ -65,7 +87,9 @@ function setup() {
     for (const [id, timer] of [...timers]) if (timer.at <= now && timers.has(id)) { timers.delete(id); timer.fn(); }
     await settle();
   }
-  return {c, calls, remote, drafts, closed, notices, editor, event, input, tick, timers,
+  return {c, calls, remote, closed, notices, editor, event, input, tick, timers, dock, journal, storage, draftApi,
+    get drafts() { return new Map([...c.draftVault.active].map(([key, entry]) => [key, entry.record])); },
+    draftHook:fn => { draftHook = fn; },
     session:id => c.s.noteEditorSessions.get(id || 1), hook:fn => { hook = fn; }, puts:() => calls.filter(x => x.method === 'PUT'),
     get newSaves() { return newSaves; }};
 }
@@ -118,6 +142,65 @@ async function test(name, run) {
     s.input('失败草稿'); await s.tick(1500); assert.equal(node.status.dataset.state, 'error'); assert.equal(node.retry.hidden, false);
     assert.equal(s.drafts.get('note:1:content').content, '失败草稿'); assert.equal(s.session().baseContent, '原文');
     fail = false; assert.equal(await s.c.saveCurrentEditor(), true); assert.equal(s.calls[1].method, 'GET'); assert.equal(s.remote.get(1).content, '失败草稿'); assert.equal(s.drafts.size, 0);
+  });
+  await test('失败版本不因失焦或导航重复提交，离开和返回保留正文及错误状态', async s => {
+    s.editor(); let fail = true;
+    s.hook(({body}) => { if (body && fail) throw Error('disk unavailable'); });
+    s.input('必须保留的失败正文'); await s.tick(1500);
+    const session = s.session(); s.event('blur'); await settle();
+    assert.equal(await s.c.prepareEditorNavigation(), true);
+    assert.equal(await s.c.prepareEditorNavigation(), true);
+    assert.equal(s.calls.length, 1); assert.equal(s.notices.length, 1); assert.equal(session.status, 'error');
+    assert.equal([...s.journal.values()][0].content, '必须保留的失败正文');
+    s.c.s.selectedNoteId = 2; s.c.renderEditorDock(); assert.match(s.dock.innerHTML, /data-note-id="2"/);
+    s.editor(2); assert.equal(await s.c.prepareEditorNavigation(), true);
+    s.c.s.selectedNoteId = 1; s.c.renderEditorDock(); assert.match(s.dock.innerHTML, /必须保留的失败正文/);
+    s.editor(1); assert.equal(s.session(), session); s.event('blur'); await settle(); assert.equal(s.calls.length, 1);
+    // A fresh page can recover the disk journal even without browser storage.
+    const recovered = new s.c.window.PocketDraftVault({api:s.draftApi, storage:null});
+    assert.equal(await recovered.init(), true);
+    assert.equal([...recovered.records.values()][0].content, '必须保留的失败正文'); recovered.detach();
+    fail = false; assert.equal(await s.c.saveCurrentEditor(), true);
+    assert.equal(s.calls[1].method, 'GET'); assert.equal(s.remote.get(1).content, '必须保留的失败正文');
+  });
+  await test('浏览器暂存不能代替本机落盘，失败草稿仍禁止切库', async s => {
+    s.editor(); s.hook(({body}) => { if (body) throw Error('note unavailable'); });
+    s.draftHook(() => { throw Error('journal unavailable'); });
+    s.input('仅浏览器暂存'); await s.tick(1500);
+    assert.equal(s.c.draftVault.active.get('note:1:content').local, true);
+    assert.equal(await s.c.prepareEditorNavigation(), false); assert.equal(s.journal.size, 0);
+    assert.equal(s.session().navigationDraft, undefined); assert.equal(s.puts().length, 1);
+    s.draftHook(null); assert.equal(await s.c.prepareEditorNavigation(), true);
+    assert.equal(await s.c.prepareLibraryChange(), false); assert.equal(await s.c.flushPendingContentSaves(), false);
+    assert.equal(s.puts().length, 1); assert.equal(s.c.draftVault.library, 'library-a');
+    s.editor(2); assert.equal(await s.c.prepareLibraryChange(), false);
+    assert.equal(s.c.draftVault.library, 'library-a'); assert.equal(s.drafts.get('note:1:content').content, '仅浏览器暂存');
+  });
+  await test('导航等待草稿落盘，等待期间的新输入也必须写入才能离开', async s => {
+    s.editor(); s.hook(({body}) => { if (body) throw Error('note unavailable'); });
+    s.input('第一版失败正文'); assert.equal(await s.c.saveCurrentEditor(), false);
+    const gate = deferred(); s.draftHook(() => gate.promise);
+    let completed = false; const navigation = s.c.prepareEditorNavigation().then(result => { completed = true; return result; });
+    await settle(); assert.equal(completed, false); assert.equal(s.journal.size, 0);
+    s.input('等待落盘时的最后输入'); gate.resolve(); assert.equal(await navigation, true);
+    assert.equal([...s.journal.values()][0].content, '等待落盘时的最后输入');
+    assert.equal(s.session().navigationDraft, '等待落盘时的最后输入'); assert.equal(s.puts().length, 1);
+  });
+  await test('落盘等待中库身份变化不能放行旧编辑器', async s => {
+    s.editor(); s.hook(({body}) => { if (body) throw Error('note unavailable'); });
+    s.input('原库草稿'); assert.equal(await s.c.saveCurrentEditor(), false);
+    const gate = deferred(); s.draftHook(() => gate.promise);
+    const navigation = s.c.prepareEditorNavigation(); await settle();
+    s.c.draftVault.detach(); s.c.draftVault.library = 'library-b'; gate.resolve();
+    assert.equal(await navigation, false); assert.equal(s.session().navigationDraft, undefined);
+    assert.equal([...s.journal.values()][0].library_id, 'library-a');
+  });
+  await test('失败后的新编辑恢复自动保存且撤销旧版本导航许可', async s => {
+    s.editor(); let fail = true; s.hook(({body}) => { if (body && fail) throw Error('disk unavailable'); });
+    s.input('失败版本'); await s.tick(1500); assert.equal(await s.c.prepareEditorNavigation(), true);
+    fail = false; s.input('新编辑版本'); assert.equal(s.session().navigationDraft, undefined);
+    await s.tick(1500); assert.equal(s.puts().length, 2); assert.equal(s.remote.get(1).content, '新编辑版本');
+    assert.equal(s.session().status, 'saved'); assert.equal(s.drafts.size, 0);
   });
   await test('已提交但响应丢失后回到旧正文，重试从已提交正文继续而不丢最后输入', async s => {
     s.editor(); let first = true; s.hook(({id, body}) => { if (body && first) { first = false; s.remote.set(id, {...s.remote.get(id), content:body.content}); throw Error('response lost'); } });

@@ -11,7 +11,7 @@ from pocket_memory.rag.performance import completion
 import time
 from . import pilot
 from .prepared_pipeline import PreparedStable
-from .preserved_units import OriginalUnits
+from .preserved_units import OriginalUnits,MIN_NOTE_CHARS
 from .coverage_contract import CoverageContract
 from .evidence_contract import assemble, guard, locations
 from . import evidence_bridge as canonical
@@ -38,7 +38,13 @@ class Candidate:
         families={self.stable.notes.get(h.node.metadata.get('source_id'),{}).get('parent_note_id') or h.node.metadata['source_key']
             for h in p.get('retrieved',[]) if hasattr(h,'node')}
         ordinary=p.get('ordinary_context_contract',False)
-        if ordinary:
+        affected=p['route']=='standard_retrieval' or (ordinary and len(families)>1 and len(canonical.facets(question))>1)
+        # On the bridge route only OriginalUnits could consume this preparation.
+        # Skip its full retrieval/reranking only when every possible note is
+        # known to fail that adapter's shared minimum-length requirement.
+        skip_ordinary=ordinary and affected and not self.original_units.may_apply_to_current_notes()
+        ordinary_prepared=None
+        if ordinary and not skip_ordinary:
             ordinary_prepared=self.stable.contract.prepare(question,p['retrieved'])
             revised=self.original_units.prepare(question,p['retrieved'],ordinary_prepared)
             if revised is not None:
@@ -46,7 +52,6 @@ class Candidate:
                 tokens=self.stable.contract.count(messages)
                 return dict(mode='single_free_text',sources=sources,messages=messages,baseline_route=p['route'],
                     evidence_bridge=trace,assembly=[],input_tokens=tokens,context_fits=tokens+512+128<=3072)
-        affected=p['route']=='standard_retrieval' or (ordinary and len(families)>1 and len(canonical.facets(question))>1)
         if not affected and ordinary:
             replacement=self.coverage.prepare(question,ordinary_prepared)
             if replacement is not None:
@@ -58,8 +63,14 @@ class Candidate:
         sources,audit=assemble(bridged['sources'])
         messages=self.stable.contract.messages(question,sources)
         tokens=self.stable.contract.count(messages)
+        bridge_trace=bridged.get('evidence_bridge')
+        if skip_ordinary:
+            bridge_trace=dict(bridge_trace or {})
+            bridge_trace['ordinary_preparation']=dict(skipped=True,
+                reason='affected_bridge_route_and_no_eligible_long_note',
+                consumer='OriginalUnits.prepare',minimum_note_chars=MIN_NOTE_CHARS)
         return dict(mode='single_free_text',sources=sources,messages=messages,
-            baseline_route=p['route'],evidence_bridge=bridged.get('evidence_bridge'),
+            baseline_route=p['route'],evidence_bridge=bridge_trace,
             assembly=audit,input_tokens=tokens,context_fits=tokens+512+128<=3072)
     def ask(self,question):
         start=time.perf_counter();p=self.prepare(question)

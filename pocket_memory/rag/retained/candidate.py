@@ -43,6 +43,32 @@ class Candidate(RetainedCandidate):
     def prepare_direct(self, question):
         self.bound_prepared = None
         self._staged = None
+        from .field_projection import request_fields, resolve_scope, strip_scopes
+        from .table_contract import find_entities
+        from ..clarification import _missing_subject_fields, _NAME_HEADERS, _compact
+        # Ambiguity belongs to the actual saved schema, not a leading noun in
+        # the question. Apply the same proof in all-data and selected scopes.
+        field_scope = resolve_scope(question, self.notes)
+        ambiguous = []
+        if not field_scope.unresolved and not field_scope.strict:
+            for sid, fields in field_scope.pairs.items():
+                if 'content' not in fields: continue
+                for table in self.field_projection.tables[sid]:
+                    header = table['headers'][table['key']]
+                    bare_fields = (request_fields(question, table, [], self.notes) is not None or
+                        ((_compact(header) in _NAME_HEADERS or _compact(header).endswith('名称')) and
+                         bool(_missing_subject_fields(strip_scopes(question, self.notes), header,
+                                                      dict.fromkeys(table['headers'])))))
+                    if len(table['rows']) > 1 and bare_fields and not find_entities(question, table)[0]:
+                        ambiguous.append(self.notes[sid]['title'])
+            if ambiguous:
+                names = '、'.join('《'+name+'》' for name in dict.fromkeys(ambiguous))
+                response = dict(answer=f'资料{names}包含多个对象，请明确对象的完整名称后再查询这些字段。',
+                                sources=[], provided_sources=[], answer_status='subject_unconfirmed',
+                                trace={'generation_calls': 0, 'messages': []})
+                direct = dict(mode='single_free_text', sources=[], direct_record_response=response)
+                self.bound_prepared = (question, direct)
+                return direct
         direct = self.field_projection.prepare(question)
         if direct is None:
             direct = self.bound_facts.prepare(question)

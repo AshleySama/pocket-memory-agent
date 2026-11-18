@@ -1,6 +1,5 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-
 import copy
 import hashlib
 from types import SimpleNamespace
@@ -67,3 +66,4 @@ class DocumentCitationDisplayTests(unittest.TestCase):
     def test_structured_and_complete_ranges_remain_unchanged(self):
         for extra in ({'coverage_complete': True}, {'table_headers': ['名称', '值']}, {'evidence': '| 名称 | 值 |'}):
             self.assertEqual(presentation({**self.source, **extra}, '答案[1]', store=self.store), {})
+

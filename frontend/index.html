@@ -8,14 +8,15 @@ SPDX-License-Identifier: Apache-2.0 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/png" href="/brand/pocket-memory-small-logo.png">
     <link rel="stylesheet" href="/drafts.css?v=20261115-compact">
-    <link rel="stylesheet" href="/imports.css?v=20261108">
+    <link rel="stylesheet" href="/imports.css?v=20261117-feedback">
     <link id="notification-icon" rel="prefetch" href="/brand/pocket-memory-small-logo.png">
     <title>Pocket Memory</title>
-  <link rel="stylesheet" href="/styles.css?v=20261111-sidebar-rainbow">
+  <link rel="stylesheet" href="/styles.css?v=20261116-graph-light">
   <link rel="stylesheet" href="/ui-controls.css?v=20261113-search-folder">
   <link rel="stylesheet" href="/app-update.css?v=20261109">
   <link rel="stylesheet" href="/office-tools.css?v=20261111">
-  <link rel="stylesheet" href="/header-controls.css?v=20261115-new-note">
+  <link rel="stylesheet" href="/header-controls.css?v=20261118-header-tint">
+  <link rel="stylesheet" href="/editor-color-palette.css?v=20261118-office-compact-3">
   </head>
   <body class="knowledge-workbench">
     <header class="app-header">
@@ -44,7 +45,7 @@ SPDX-License-Identifier: Apache-2.0 -->
         <button id="new-note-btn" class="header-new-note" type="button"><span class="header-icon header-icon-plus" aria-hidden="true"></span><span>新建笔记</span></button>
         <button id="import-document-btn" class="ghost" type="button"><span class="header-icon header-icon-upload" aria-hidden="true"></span><span>导入文件</span></button>
         <button id="graph-button" class="ghost" type="button"><span class="header-icon header-icon-graph" aria-hidden="true"></span><span>知识图谱</span></button>
-        <button id="report-button" class="ghost" type="button"><span class="header-icon header-icon-report" aria-hidden="true"></span><span>专题报告</span></button>
+        <button id="report-button" class="ghost" type="button"><span class="header-icon header-icon-report" aria-hidden="true"></span><span>资料汇编</span></button>
         <button id="settings-button" class="ghost" type="button"><span class="header-icon header-icon-settings" aria-hidden="true"></span><span>设置</span></button>
         <span id="app-update-notice" class="app-update-notice" hidden><button id="update-badge" class="update-badge" type="button" title="打开软件更新">有新版本</button><button id="app-update-dismiss" class="app-update-dismiss" type="button" aria-label="关闭更新通知" title="稍后提醒">×</button></span>
       </div>
@@ -178,7 +179,7 @@ SPDX-License-Identifier: Apache-2.0 -->
                 </div>
               </div>
               <div class="tool-input-row">
-                <input id="tool-input" placeholder="5分钟后提醒我开会 / 开始番茄钟 / 明天3点提醒我交报告">
+                <input id="tool-input" placeholder="5分钟后提醒我开会 / 开始番茄钟 / 明天3点提醒我交文稿">
                 <button id="tool-run" type="button">执行</button>
               </div>
               <div id="tool-result"></div>
@@ -203,15 +204,14 @@ SPDX-License-Identifier: Apache-2.0 -->
           <p>选择单个文件，或一次导入一个文件夹中的资料。</p>
         </div>
         <div class="document-import-actions">
-          <label class="document-file-picker is-primary" for="document-file-input"><strong>选择文件</strong><small>支持一次选择多个资料</small></label>
-          <label class="document-file-picker" for="document-folder-input"><strong>选择文件夹</strong><small>自动读取其中的支持格式</small></label>
+          <label class="document-file-picker is-primary" role="button" tabindex="0" for="document-file-input"><strong>选择文件</strong><small>支持一次选择多个资料</small></label>
+          <label class="document-file-picker" role="button" tabindex="0" for="document-folder-input"><strong>选择文件夹</strong><small>自动读取其中的支持格式</small></label>
         </div>
         <input id="document-file-input" type="file" multiple accept=".txt,.docx,.xlsx,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
         <input id="document-folder-input" type="file" multiple webkitdirectory directory hidden>
         <input id="document-replace-input" type="file" accept=".txt,.docx,.xlsx,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
         <p id="document-import-hint" class="muted">支持 TXT、Word、Excel、PDF。导入后会按标准策略建立本地切片索引，单个文件最大 10MB。</p>
-        <p class="muted">文件先暂存在本机当前浏览器中，显示“已暂存”后可关闭页面。重新打开可继续导入；清理网站数据会移除尚未入库的暂存。待导入暂存上限 200MB。</p>
-        <div class="import-status-header"><h3>导入进度与待处理文件</h3><div class="import-status-actions"><button id="import-resume" type="button" class="ghost" disabled>继续待导入文件</button><button id="import-refresh" type="button" class="ghost">刷新状态</button><button id="import-clear" type="button" class="ghost">清除已完成记录</button></div></div>
+        <div class="import-status-header"><h3>导入进度与待处理文件</h3><div class="import-status-actions"><button id="import-resume" type="button" class="ghost" disabled>继续待导入文件</button><button id="import-refresh" type="button" class="ghost">刷新状态</button><button id="import-clear" type="button" class="ghost">清除已结束记录</button></div></div>
         <p id="import-summary" class="import-summary" role="status" aria-live="polite"></p>
         <ul id="import-status-list" class="import-status-list"></ul>
       </div>
@@ -219,12 +219,12 @@ SPDX-License-Identifier: Apache-2.0 -->
 
     <dialog id="report-dialog" class="report-dialog">
       <form method="dialog" class="dialog-header">
-        <div><p class="eyebrow">专题报告</p><h2>将已选资料编成一份可分享成果</h2></div>
+        <div><p class="eyebrow">资料汇编</p><h2>将已选资料编成一份可分享成果</h2></div>
         <button class="ghost" type="submit" aria-label="关闭">关闭</button>
       </form>
       <div class="report-dialog-grid">
         <section class="report-config-panel">
-          <label for="report-title">专题名称</label>
+          <label for="report-title">汇编标题</label>
           <input id="report-title" placeholder="例如：Pocket Memory 项目介绍">
           <label for="report-template">写作方式</label>
           <select id="report-template"></select>
@@ -234,11 +234,11 @@ SPDX-License-Identifier: Apache-2.0 -->
             <div id="report-selected-list" class="report-selected-list"></div>
           </div>
           <p class="muted">AI 先核验资料事实，再按写作方式组织摘要与章节；模板不会强制资料套入固定栏目。</p>
-          <button id="report-generate" type="button">生成报告草稿</button>
+          <button id="report-generate" type="button">生成文稿</button>
         </section>
         <section class="report-preview-panel">
           <div class="report-preview-toolbar">
-            <span>报告预览</span>
+            <span>文稿预览</span>
             <button id="report-export" class="ghost" type="button" disabled>导出 HTML</button>
           </div>
           <div id="report-preview" class="report-preview" contenteditable="false"><p class="muted">选择 1 至 8 项资料后生成草稿。生成后可直接编辑正文，并导出为单文件 HTML。</p></div>
@@ -373,26 +373,38 @@ SPDX-License-Identifier: Apache-2.0 -->
       <div id="tag-governance-content" class="tag-governance-content"></div>
     </dialog>
 
-    <dialog id="graph-dialog" class="graph-dialog">
+    <dialog id="graph-dialog" class="graph-dialog" aria-labelledby="graph-title">
       <div class="graph-dialog-content">
         <header class="graph-header">
-          <div>
-            <p class="eyebrow">LOCAL RELATION MAP</p>
-            <h2>知识图谱</h2>
-          </div>
-          <div class="graph-toolbar">
-            <input id="graph-search" type="text" placeholder="查找笔记或标签" aria-label="查找图谱节点">
-            <label class="graph-toggle"><input id="graph-show-isolated" type="checkbox" checked> 显示孤立笔记</label>
+          <h2 id="graph-title">知识图谱</h2>
+          <span id="graph-count" class="graph-count"></span>
+          <input id="graph-search" type="search" placeholder="查找笔记或标签" aria-label="查找图谱节点" autocomplete="off">
+          <button id="graph-close" class="ghost" type="button" aria-label="关闭知识图谱">关闭</button>
+        </header>
+        <div class="graph-toolbar">
+          <div id="graph-categories" class="graph-categories" role="group" aria-label="按笔记分类筛选"></div>
+          <div class="graph-filters" role="group" aria-label="图谱显示选项">
+            <label class="graph-toggle"><input id="graph-show-isolated" type="checkbox" checked> 孤立笔记</label>
             <label class="graph-toggle"><input id="graph-show-tags" type="checkbox" checked> 标签关系</label>
             <label class="graph-toggle"><input id="graph-show-broken" type="checkbox"> 失效双链</label>
             <button id="graph-relayout" class="ghost" type="button">重新布局</button>
-            <button id="graph-close" class="ghost" type="button">关闭</button>
           </div>
-        </header>
-        <div class="graph-legend"><span>圆点：笔记</span><span>方点：标签</span><span>实线：双链</span><span>虚线：标签关联</span></div>
-        <canvas id="graph-canvas" aria-label="笔记关联图谱"></canvas>
-        <p id="graph-empty" class="graph-hint hidden"></p>
-        <p class="graph-hint muted">点击笔记节点可直接打开；图谱只呈现已有标签和双链，不生成或修改任何内容。</p>
+        </div>
+        <div class="graph-stage">
+          <canvas id="graph-canvas" aria-label="笔记关系图：彩色圆点为笔记，绿色圆点为标签，连线表示已有双链或标签关系"></canvas>
+          <p id="graph-empty" class="graph-empty hidden" role="status"></p>
+        </div>
+        <footer class="graph-footer">
+          <div class="graph-legend" aria-label="图例"><span><i class="graph-symbol-note" aria-hidden="true"></i>笔记</span><span><i class="graph-symbol-tag" aria-hidden="true"></i>标签</span><span><i class="graph-symbol-link" aria-hidden="true"></i>双链</span><span><i class="graph-symbol-edge" aria-hidden="true"></i>标签关系</span><span><i class="graph-symbol-broken" aria-hidden="true"></i>失效</span></div>
+          <div class="graph-zoom" role="group" aria-label="图谱缩放">
+            <button id="graph-zoom-out" class="ghost" type="button" aria-label="缩小图谱">−</button>
+            <output id="graph-zoom-value" aria-label="当前缩放">100%</output>
+            <button id="graph-zoom-in" class="ghost" type="button" aria-label="放大图谱">+</button>
+            <button id="graph-reset-view" class="ghost" type="button" title="恢复默认大小和位置">复位</button>
+          </div>
+          <p id="graph-node-status" class="graph-node-status" aria-live="polite">拖动节点 · 滚轮缩放 · 点击笔记打开原文</p>
+          <span class="graph-readonly">仅呈现已有标签和双链</span>
+        </footer>
       </div>
     </dialog>
 
@@ -465,11 +477,23 @@ SPDX-License-Identifier: Apache-2.0 -->
     <div id="draft-list" class="draft-list"></div>
     <p class="draft-dialog-footer">已有笔记停笔后自动保存；新笔记请点击「保存笔记」首次保存。</p>
   </dialog>
+  <dialog id="ask-source-picker" class="ask-source-picker" aria-labelledby="ask-source-title" aria-describedby="ask-source-description">
+    <h2 id="ask-source-title">指定问答资料</h2>
+    <p id="ask-source-description" class="muted">选择笔记会包含它的全部页签。</p>
+    <label class="sr-only" for="ask-source-search">搜索资料名称</label>
+    <input id="ask-source-search" type="search" placeholder="搜索笔记或文档名称" autocomplete="off">
+    <div id="ask-source-options" class="ask-source-options"></div>
+    <p id="ask-source-count" class="muted" role="status"></p>
+    <div class="ask-source-actions"><button id="ask-source-cancel" class="ghost" type="button">取消</button><button id="ask-source-apply" type="button" disabled>应用范围</button></div>
+  </dialog>
+  <script src="/ask-scope.js?v=20261118-default-all"></script>
   <script src="/drafts.js?v=20261108"></script>
   <script src="/draft-ui.js?v=20261116-autosave"></script>
   <script src="/import-cache.js?v=20261108"></script>
-  <script src="/imports.js?v=20261108-staging"></script>
-  <script src="/app.js?v=20261116-autosave"></script>
+  <script src="/imports.js?v=20261117-feedback"></script>
+  <script src="/editor-color-palette.js?v=20261118-office-compact-3"></script>
+  <script src="/app.js?v=compilation-20261118-color-palette"></script>
+  <script src="/graph-light.js?v=20261117-graph-140"></script>
   <script src="/office-tools.js?v=20261111-feedback2"></script>
   <script src="/app-update.js?v=20261111-copy"></script>
   </body>

@@ -99,6 +99,7 @@ async function checkChildTab() {
     flushPendingContentSaves: async () => {},
     request: async (url) => url.endsWith('/tabs') ? [{ id: 1 }, { id: 2 }] : { id: 2, content: table },
     renderTabsBar: () => {},
+    rememberAskCurrentNote: () => {},
     scrollToCitation: () => {},
     showToast: (_, error) => { throw new Error(error); },
     tabsBar,

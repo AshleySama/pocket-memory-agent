@@ -12,10 +12,12 @@ import copy
 import logging
 import threading
 import time
+from collections import OrderedDict
 from contextlib import nullcontext
 
 from .clarification import clarification_sources
 from .intent import IntentResult
+from .ask_scope import AskScope, resolve_ask_scope
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,9 @@ class LiveRagPipeline:
         self.embedding_service = formal.embedding_service
         self.local = threading.local()
         self._candidate = None
+        self._candidates = OrderedDict()
+        self._resource_context = None
+        self.ask_scope = AskScope()
         self._revision = None
         self._model_identity = None
         self._factory = candidate_factory
@@ -63,16 +68,23 @@ class LiveRagPipeline:
 
     def invalidate(self, reason='explicit'):
         metric('snapshot.invalidate.' + reason)
-        if self._candidate is not None:
+        for candidate in self._candidates.values():
+            candidate.close()
+        if self._candidate is not None and self._candidate not in self._candidates.values():
             self._candidate.close()
+        self._candidates.clear()
         self._candidate = None
         self._revision = None
         self._model_identity = None
 
-    close = invalidate
+    def close(self):
+        self.invalidate('close')
+        if self._resource_context is not None:
+            self._resource_context.close()
+            self._resource_context = None
 
     @timed('snapshot.refresh')
-    def _refresh(self):
+    def _refresh(self, ask_scope=None):
         if self.before_refresh is not None:
             with span("snapshot.extraction_wait"):
                 self.before_refresh()
@@ -86,23 +98,44 @@ class LiveRagPipeline:
             raise ValueError('部分资料索引未完成，请重试整理或重新启动后再提问，避免引用旧内容。')
         with span("snapshot.revision_sql"):
             revision = self.store.source_revision()
+        # Refresh family membership after pending extraction/indexing writes.
+        # A deleted selection fails closed rather than turning into all-data QA.
+        requested = ask_scope or AskScope()
+        self.ask_scope = resolve_ask_scope(self.store, dict(mode=requested.mode,
+            note_ids=list(requested.note_ids), document_ids=list(requested.document_ids)))
+        scope_key = self.ask_scope.key
         model_identity = (str(getattr(self.native, 'model_path', '')),
                           getattr(self.native, 'n_ctx', None))
-        if (self._candidate is None or revision != self._revision
-                or model_identity != self._model_identity):
-            reason = ('empty' if self._candidate is None else
+        if revision != self._revision or model_identity != self._model_identity:
+            reason = ('empty' if self._revision is None else
                       'revision' if revision != self._revision else 'model')
             metric('snapshot.rebuild.' + reason)
             if self._revision is not None:
                 for position, label in enumerate(('library_epoch', 'connection_writes', 'external_commit')):
                     if revision[position] != self._revision[position]:
                         metric('snapshot.revision_changed.' + label)
+            old_model_identity = self._model_identity
             self.invalidate(reason)
+            if (self._resource_context is not None and
+                    (self._resource_context.cache_dir.parent != self.store.data_dir.resolve()
+                     or model_identity != old_model_identity)):
+                self._resource_context.close()
+                self._resource_context = None
+            self._revision = revision
+            self._model_identity = model_identity
+        if scope_key not in self._candidates:
             if self._factory is None:
                 from .retained.context import RuntimeContext
                 from .retained.candidate import Candidate
                 factory = Candidate
-                context = RuntimeContext(self.store, self.embedding_service, self.native)
+                if self._resource_context is None:
+                    self._resource_context = RuntimeContext(self.store, self.embedding_service, self.native)
+                cache_dir = self._resource_context.cache_dir
+                if self.ask_scope.restricted:
+                    cache_dir = cache_dir / 'scopes' / scope_key
+                context = RuntimeContext(self.store, self.embedding_service, self.native,
+                    cache_dir=cache_dir, ask_scope=self.ask_scope,
+                    reranker_owner=self._resource_context.reranker)
             else:
                 factory, context = self._factory, self
             # Background OCR/AI may still write while the snapshot is built.
@@ -111,9 +144,15 @@ class LiveRagPipeline:
             if revision != self.store.source_revision():
                 self.invalidate('changed_during_build')
                 raise ValueError('资料刚刚更新，请重新提问以使用最新内容。')
-            self._revision = revision
-            self._model_identity = model_identity
+            self._candidates[scope_key] = self._candidate
+            # At most three immutable snapshots. Candidate eviction releases
+            # local caches; the shared 4B engine and reranker model stay loaded.
+            while len(self._candidates) > 3:
+                _, expired = self._candidates.popitem(last=False)
+                expired.close()
         else:
+            self._candidate = self._candidates[scope_key]
+            self._candidates.move_to_end(scope_key)
             metric('snapshot.reused')
         return self._candidate
 
@@ -121,11 +160,15 @@ class LiveRagPipeline:
     def route(self, question, engine=None, **kwargs):
         self.local.response = None
         intent = kwargs.get('intent')
+        ask_scope = kwargs.get('ask_scope') or AskScope()
         if intent and intent.type == 'stats':
+            if ask_scope.restricted:
+                return IntentResult(kind='clarification', empty_answer='当前所选范围暂不支持统计，请切换到全部资料后再统计。')
+            kwargs.pop('ask_scope', None)
             return self.formal.route(question, engine, **kwargs)
         question = kwargs.get('evidence_question') or question
         refresh_started = time.perf_counter()
-        candidate = self._refresh()
+        candidate = self._refresh(ask_scope)
         refresh_seconds = time.perf_counter() - refresh_started
         if hasattr(candidate, 'nodes') and not candidate.nodes:
             return IntentResult(kind='qa', empty_answer='当前资料库没有可检索的文字，请添加笔记或导入资料后再提问。',
@@ -143,6 +186,7 @@ class LiveRagPipeline:
             with session() if callable(session) else nullcontext():
                 prepared = candidate.stage(question)
         sources = candidate.evidence_registry.stage(prepared)
+        self._check_scope_sources(sources)
         self.local.question, self.local.prepared = question, prepared
         self.local.sources, self.local.revision = sources, self._revision
         self.last = dict(question=question, prepared_mode=prepared['mode'],
@@ -154,6 +198,12 @@ class LiveRagPipeline:
         return IntentResult(kind='qa', chunks=[{'candidate': True}], prompt_override=question,
                             diagnostics={'schema_version': 1, 'integration': 'retained-development',
                                          'candidate': self.last})
+
+    def _check_scope_sources(self, sources):
+        """Defense in depth; retrieval and original units are already scoped."""
+        if self.ask_scope.restricted and any(not self.ask_scope.permits(
+                source.get('source_type', 'note'), source.get('source_id')) for source in sources):
+            raise RuntimeError('Evidence escaped the selected request scope')
 
     def source_payloads(self, question, chunks):
         if not chunks or not chunks[0].get('candidate'):
@@ -180,6 +230,8 @@ class LiveRagPipeline:
             response = {'answer': '资料在回答期间发生了更新，请重新提问以使用最新内容。', 'sources': []}
             self.invalidate('changed_during_answer')
         response['clarification_sources'] = clarification_sources(question, response)
+        self._check_scope_sources(response.get('sources', []))
+        self._check_scope_sources(response.get('clarification_sources', []))
         performance = dict(getattr(self.local, 'performance', {}),
                            answer_seconds=time.perf_counter() - started)
         performance['detail'] = performance_snapshot()
@@ -197,6 +249,10 @@ class LiveRagPipeline:
                 public['url'] = f'/api/notes/{public["parent_note_id"]}?tab_id={public["source_id"]}'
             references.append(public)
         return references
+
+    def context_passage_payloads(self):
+        response = getattr(self.local, 'response', None) or {}
+        return copy.deepcopy(response.get('context_passages', []))
 
     def enforce_answer_contract(self, question, answer, sources):
         response = getattr(self.local, 'response', None)

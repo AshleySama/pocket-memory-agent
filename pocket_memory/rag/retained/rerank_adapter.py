@@ -46,7 +46,7 @@ class _LocalRanker(Ranker):
 class Reranker:
     """Runtime-owned scorer and writable cache; no cross-store mutable handles."""
 
-    def __init__(self, model_dir, manifest, cache_dir):
+    def __init__(self, model_dir, manifest, cache_dir, model_owner=None):
         self.model_dir = Path(model_dir)
         self.manifest = Path(manifest)
         self.cache_dir = Path(cache_dir)
@@ -54,9 +54,12 @@ class Reranker:
         self._tokenizer = None
         self._cache = None
         self._lock = threading.RLock()
+        self._model_owner = model_owner
 
     def get_tokenizer(self):
         """Allow evidence token counting without loading the ONNX scorer."""
+        if self._model_owner is not None:
+            return self._model_owner.get_tokenizer()
         with self._lock:
             if self._tokenizer is None:
                 with span('rerank.tokenizer_load'):
@@ -80,6 +83,8 @@ class Reranker:
             return self._tokenizer
 
     def get_ranker(self):
+        if self._model_owner is not None:
+            return self._model_owner.get_ranker()
         with self._lock:
             if self._ranker is None:
                 with span('rerank.model_load'):

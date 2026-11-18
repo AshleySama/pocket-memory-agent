@@ -318,6 +318,35 @@ def presentation(source, answer, *, direct=False, store=None):
                     char_end_exclusive=start+len(text), quote=text,
                     source_revision=span['source_revision']))
     focused, matched, methods = [], 0, Counter()
+    # A complete-list request has an original, numbered evidence group. Its
+    # navigation range is structural, not a guess about paraphrased wording.
+    # Validate every member against the live revision AND the cited registry;
+    # never upgrade unrelated retrieval hits or OCR into answer support.
+    requested = source.get('requested_list_spans') or []
+    if body is not None and len(requested) >= 2:
+        verified = [span for member in source.get('citation_members', [])
+                    if member.get('verification') == 'exact_saved_original'
+                    and member.get('source_id') == source.get('source_id')
+                    for span in member.get('spans', []) if span.get('field') == 'content']
+        def current_member(span):
+            a,b = span.get('char_start'),span.get('char_end_exclusive')
+            return (span.get('field') == 'content' and span.get('source_id') == note.id
+                    and span.get('parent_note_id') == note.parent_note_id
+                    and span.get('tab_name') == note.tab_name
+                    and span.get('source_revision') == revision
+                    and isinstance(a,int) and isinstance(b,int) and 0<=a<b<=len(body)
+                    and body[a:b] == span.get('quote')
+                    and any(s.get('source_revision')==revision and
+                            s['char_start']<=a<b<=s['char_end_exclusive']
+                            and body[s['char_start']:s['char_end_exclusive']]==s.get('quote')
+                            for s in verified))
+        if all(current_member(s) for s in requested):
+            ordered = sorted(requested,key=lambda s:s['char_start'])
+            base.update(display_evidence='\n'.join(s['quote'] for s in ordered),
+                        display_spans=ordered,display_evidence_count=len(ordered),
+                        display_evidence_kind='requested_list_evidence',
+                        display_alignment_semantics='requested_original_group_not_semantic_entailment')
+            return base
     for claim in claims:
         matches, method = focused_matches(claim, candidates)
         if matches:

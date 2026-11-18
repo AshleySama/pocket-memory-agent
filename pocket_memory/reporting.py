@@ -86,7 +86,7 @@ class ReportService:
         if not clean_title:
             raise ValueError("请输入专题名称")
         if template not in REPORT_TEMPLATES:
-            raise ValueError("不支持的报告模板")
+            raise ValueError("不支持的文稿模板")
         sources, evidence = self._collect_sources(source_refs, clean_title)
         if not sources:
             raise ValueError("请至少选择 1 项资料")

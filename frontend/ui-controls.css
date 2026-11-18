@@ -542,3 +542,4 @@ body.knowledge-workbench .sidebar .stat-item.clickable.active { background: var(
 #category-nav .all-notes-row { position: relative; margin-bottom: 6px; }
 #category-nav .all-notes-row > .nav-item { width: 100%; min-width: 0; margin-bottom: 0; padding-left: 9px; padding-right: 9px; }
 #category-nav #new-folder-btn { position: absolute; left: 64px; top: 5px; width: 22px; min-width: 22px; height: 28px; min-height: 28px; margin: 0; padding: 0; border-color: transparent; border-radius: 5px; font-size: 19px; line-height: 1; color: var(--text-soft); box-shadow: none; }
+

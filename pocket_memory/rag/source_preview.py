@@ -36,7 +36,10 @@ def source_preview(server, sources):
             parent = member.get('parent_note_id')
             url = f'/api/notes/{parent}?tab_id={sid}' if parent is not None else f'/api/notes/{sid}'
             items.append(dict(id=ident, title=source.get('title') or '未命名资料',
+                              source_type='note', source_id=sid, parent_note_id=parent,
                               url=url, tab_name=member.get('tab_name') or '',
+                              display_spans=[dict(span) for span in spans],
+                              display_evidence='\n'.join(s['quote'] for s in spans),
                               location='图片识别文字（请核对原图）' if any(
                                   s.get('field') == 'ocr_text' for s in spans) else '正文',
                               quotes=[s['quote'] for s in spans]))

@@ -182,6 +182,18 @@ class EvidenceRegistry:
         result['provided_sources'] = [self.decorate(s) for s in provided]
         result['sources'] = [self.decorate(s) for s in response.get('sources', [])]
         issues = [dict(index=s['index'], **e) for s in result['provided_sources'] for e in s['citation_provenance']['issues']]
+        # Context-only presentation must retain the registered exact original,
+        # without promoting background to answer support or guessing a label.
+        final_sources = {source['index']: source for source in result['sources']}
+        for passage in result.get('context_passages', []):
+            source = final_sources.get(passage.get('source_index'))
+            quote = passage.get('quote')
+            if (passage.get('kind') != 'background' or not source or not isinstance(quote, str)
+                    or not quote or not any(
+                        member.get('verification') == 'exact_saved_original'
+                        and any(span.get('quote') == quote for span in member.get('spans', []))
+                        for member in source.get('citation_members', []))):
+                raise ValueError('background passage does not bind an exact registered original')
         result.setdefault('trace', {})['evidence_registry'] = dict(
             version=VERSION, preview=self.preview_audit, final_to_supplied=final_map,
             supplied_to_identity={str(s['index']): s['citation_source_id'] for s in result['provided_sources']},

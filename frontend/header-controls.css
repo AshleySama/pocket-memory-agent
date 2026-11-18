@@ -5,7 +5,9 @@
 body.knowledge-workbench .app-header {
   --header-control-height: 40px;
   --header-radius: 10px;
+  --header-action-highlight: rgba(255, 255, 255, .78);
 }
+html[data-theme="midnight-focus"] .app-header { --header-action-highlight: rgba(255, 255, 255, .14); }
 body.knowledge-workbench .app-header .header-icon {
   display: inline-block;
   flex: 0 0 17px;
@@ -110,6 +112,20 @@ body.knowledge-workbench .app-header .global-search #ask-button:disabled {
   box-shadow: none;
   transform: none;
 }
+/* These decorations are explicitly always-on by user choice. Limit the
+   reduced-motion exception to the ask stars/aurora, never the whole app. */
+body.knowledge-workbench .app-header #ask-button:not(:disabled) .ask-button-star {
+  animation: ask-star-drift 4.8s ease-in-out infinite !important;
+}
+body.knowledge-workbench .app-header #ask-button:not(:disabled) .ask-button-star::before {
+  animation: ask-star-companion 3.8s ease-in-out infinite !important;
+}
+body.knowledge-workbench .app-header #ask-button:not(:disabled)::before {
+  animation: ask-aurora-flow 7s ease-in-out infinite alternate !important;
+}
+body.knowledge-workbench .app-header #ask-button:not(:disabled)::after {
+  animation: ask-aurora-stars 3.8s ease-in-out infinite alternate !important;
+}
 body.knowledge-workbench .app-header #result-count {
   color: var(--text-soft);
   font-size: 11px;
@@ -123,6 +139,16 @@ body.knowledge-workbench .app-header #clear-filter {
 }
 body.knowledge-workbench .app-header .header-actions { gap: 8px; }
 html[data-theme] body.knowledge-workbench .app-header .header-actions > button {
+  --header-action-tint: var(--accent);
+  --header-action-fill: color-mix(in srgb, var(--surface-solid) 88%, var(--header-action-tint));
+  --header-action-face: linear-gradient(128deg,
+    color-mix(in srgb, var(--header-action-fill) 55%, var(--surface-elev)) 0%,
+    color-mix(in srgb, var(--header-action-fill) 84%, var(--surface-solid)) 48%,
+    color-mix(in srgb, var(--header-action-fill) 91%, var(--header-action-tint)) 100%);
+  --header-action-rest-shadow: inset 0 1px 0 var(--header-action-highlight),
+    0 2px 0 color-mix(in srgb, var(--border-strong) 75%, var(--surface-solid)),
+    0 4px 7px rgba(15, 36, 31, .10);
+  position: relative;
   display: inline-flex;
   justify-content: center;
   align-items: center;
@@ -131,34 +157,87 @@ html[data-theme] body.knowledge-workbench .app-header .header-actions > button {
   padding: 0 13px;
   border: 1px solid var(--border-strong);
   border-radius: var(--header-radius);
-  background: color-mix(in srgb, var(--surface-solid) 94%, var(--accent));
+  background: var(--header-action-face);
   color: var(--text);
   font-size: 13px;
   font-weight: 550;
   line-height: 1;
   text-align: center;
-  box-shadow: none;
+  box-shadow: var(--header-action-rest-shadow);
   text-shadow: none;
   transform: none;
-  transition: background-color .18s ease, border-color .18s ease;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+/* Two small, non-interactive sparkles stay in the free corners, clear of the
+   label and icon. No idle animation or extra accessible button text. */
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button::before,
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  width: 9px;
+  height: 9px;
+  top: 3px;
+  right: 6px;
+  background: color-mix(in srgb, var(--accent) 58%, #9d73cf);
+  clip-path: polygon(50% 0, 63% 36%, 100% 50%, 63% 64%, 50% 100%, 37% 64%, 0 50%, 37% 36%);
+  opacity: 0;
+  transform: scale(.4) rotate(-18deg);
+}
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button::after {
+  top: auto;
+  right: auto;
+  bottom: 3px;
+  left: 6px;
+  width: 7px;
+  height: 7px;
+  background: color-mix(in srgb, var(--accent) 48%, #d5a34e);
+}
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button:not(:disabled):hover::before {
+  animation: header-hover-sparkle 1.8s ease-in-out infinite !important;
+}
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button:not(:disabled):hover::after {
+  animation: header-hover-sparkle 2.2s ease-in-out -.8s infinite !important;
+}
+@keyframes header-hover-sparkle {
+  0%, 100% { opacity: .12; transform: translateY(1px) scale(.45) rotate(-18deg); }
+  42% { opacity: .95; transform: translateY(-1px) scale(1.12) rotate(14deg); }
+  72% { opacity: .55; transform: translateY(0) scale(.8) rotate(35deg); }
 }
 html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn {
+  --header-action-tint: #e9c96b;
+  --header-action-fill: color-mix(in srgb, var(--surface-solid) 22%, #efd681);
   border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--surface-solid) 22%, #efd681);
+  background: var(--header-action-face);
+  box-shadow: var(--header-action-rest-shadow);
   color: #38311e;
   font-weight: 650;
-  box-shadow: none;
 }
-html[data-theme] body.knowledge-workbench .app-header .header-actions > button:hover {
-  background: var(--accent-soft);
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button:not(:disabled):hover,
+html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn:not(:disabled):hover {
+  --header-action-fill: var(--surface-solid);
+  background: var(--list-hover-rainbow), var(--header-action-face);
   border-color: var(--accent);
   color: var(--text);
+  box-shadow: inset 0 1px 0 var(--header-action-highlight),
+    0 3px 0 color-mix(in srgb, var(--border-strong) 75%, var(--surface-solid)),
+    0 6px 10px rgba(15, 36, 31, .13);
+  transform: translateY(-1px);
+}
+html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn:not(:disabled):hover {
+  border-color: var(--accent);
+  color: #38311e;
+}
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button:not(:disabled):active,
+html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 3px rgba(15, 36, 31, .14),
+    inset 0 -1px 0 var(--header-action-highlight);
+}
+html[data-theme] body.knowledge-workbench .app-header .header-actions > button:disabled,
+html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn:disabled {
   box-shadow: none;
   transform: none;
-}
-html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn:hover {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--surface-solid) 10%, #efd681);
 }
 html[data-theme] body.knowledge-workbench .app-header .header-actions > button:focus-visible,
 body.knowledge-workbench .app-header .search-clear:focus-visible,
@@ -238,5 +317,33 @@ body.knowledge-workbench .app-header #clear-filter:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   body.knowledge-workbench .app-header .search-command-bar,
-  html[data-theme] body.knowledge-workbench .app-header .header-actions > button { transition: none; }
+  html[data-theme] body.knowledge-workbench .app-header .header-actions > button,
+  html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn { transition: none; }
+  html[data-theme] body.knowledge-workbench .app-header .header-actions > button:not(:disabled):is(:hover, :active),
+  html[data-theme] body.knowledge-workbench .app-header .header-actions #new-note-btn:not(:disabled):is(:hover, :active) { transform: none; }
 }
+
+/* Legacy scoped-answer presentation; the main search now always uses all sources. */
+.ask-scope-controls { display: flex; align-items: center; gap: 7px; min-width: 0; width: 100%; font-size: 11px; color: var(--text-soft); }
+.ask-scope-controls > label { white-space: nowrap; }
+html[data-theme] .ask-scope-controls select { width: auto; flex: 0 0 auto; min-height: 25px; height: 25px; padding: 2px 5px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-solid); color: var(--text); font-size: 11px; }
+#ask-scope-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ask-scope-controls #ask-scope-edit { flex: 0 0 auto; padding: 3px 5px; font-size: 11px; }
+.ask-scope-controls [hidden] { display: none; }
+.ask-source-picker { box-sizing: border-box; width: min(440px, calc(100vw - 32px)); max-height: min(560px, calc(100dvh - 48px)); padding: 20px; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface-solid); color: var(--text); box-shadow: 0 16px 48px rgba(0,0,0,.2); }
+.ask-source-picker::backdrop { background: rgba(0,0,0,.24); }
+.ask-source-picker h2 { margin: 0 0 7px; font-size: 17px; }
+.ask-source-picker .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.ask-source-picker p { font-size: 12px; }
+.ask-source-picker > input { box-sizing: border-box; width: 100%; margin: 4px 0 10px; background: var(--surface); color: var(--text); }
+.ask-source-options { max-height: 280px; overflow-y: auto; border-block: 1px solid var(--border); }
+.ask-source-choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 4px; cursor: pointer; }
+.ask-source-choice + .ask-source-choice { border-top: 1px solid var(--border); }
+.ask-source-choice input { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 3px; accent-color: var(--accent); }
+.ask-source-choice span { min-width: 0; }
+.ask-source-choice strong { display: block; overflow-wrap: anywhere; font-size: 13px; font-weight: 550; }
+.ask-source-choice small { display: block; margin-top: 3px; font-size: 11px; color: var(--text-soft); }
+.ask-source-empty { padding: 20px 5px; }
+.ask-source-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.ask-source-picker :focus-visible, .ask-scope-controls :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.answer-scope { margin: 0 0 14px; color: var(--text-soft); font-size: 12px; overflow-wrap: anywhere; }

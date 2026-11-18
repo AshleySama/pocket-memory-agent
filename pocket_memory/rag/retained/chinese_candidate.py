@@ -6,6 +6,7 @@ from pocket_memory.rag.performance import completion
 import json
 import re
 import sqlite3
+from contextlib import closing
 import unicodedata
 from pathlib import Path
 import time
@@ -28,8 +29,10 @@ class Candidate(prior.Candidate):
 
     def pack(self,retrieved):
         if self.coverage_ocr_originals is None and any(h.node.metadata.get('kind')=='ocr' for h in retrieved):
-            with sqlite3.connect(self.context.store.db_path.resolve().as_uri()+'?mode=ro',uri=True) as con:
-                self.coverage_ocr_originals=dict(con.execute('SELECT id,ocr_text FROM notes WHERE ocr_text IS NOT NULL'))
+            from ..ask_scope import AskScope
+            condition, params = (getattr(self.context, 'ask_scope', None) or AskScope()).sql('note')
+            with closing(sqlite3.connect(self.context.store.db_path.resolve().as_uri()+'?mode=ro',uri=True)) as con:
+                self.coverage_ocr_originals=dict(con.execute('SELECT id,ocr_text FROM notes WHERE ocr_text IS NOT NULL AND ' + condition, params))
         ocr_audit={}
         result=coverage_pack(self.question,retrieved,self.notes,self.schemas,self.current_scope,
                              ocr_originals=self.coverage_ocr_originals,audit=ocr_audit)

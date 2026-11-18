@@ -17,6 +17,8 @@ class RuntimeContext:
     cache_dir: Path | None = None
     reranker_model_dir: Path | None = None
     reranker_manifest: Path | None = None
+    ask_scope: Any = None
+    reranker_owner: Any = None
     _reranker: Any = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
@@ -32,7 +34,8 @@ class RuntimeContext:
     def reranker(self):
         if self._reranker is None:
             from .rerank_adapter import Reranker
-            self._reranker = Reranker(self.reranker_model_dir, self.reranker_manifest, self.cache_dir)
+            self._reranker = Reranker(self.reranker_model_dir, self.reranker_manifest, self.cache_dir,
+                                     model_owner=self.reranker_owner)
         return self._reranker
 
     def close(self):

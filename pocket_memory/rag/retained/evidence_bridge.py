@@ -8,6 +8,7 @@ import copy
 import hashlib
 import re
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from lxml import html as lxml_html
 from llama_index.core.schema import TextNode,NodeWithScore
@@ -16,6 +17,7 @@ from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.indices.vector_store.retrievers import VectorIndexRetriever
 from llama_index.retrievers.bm25 import BM25Retriever
 from .context_contract import compact
+from .weak_tail_filter import filter_weak_tails, VERSION as TAIL_FILTER_VERSION, STRONG_SCORE, TAIL_SCORE, TAIL_RATIO
 
 def display(text):
     if not re.search(r'</?(?:p|div|span|strong|em|b|i|br)\b',text,re.I):return text
@@ -57,8 +59,10 @@ def html_tables(body):
 class Bridge:
     def __init__(self,owner,database):
         self.owner=owner;self.cache={};self.retrievers={}
-        with sqlite3.connect(Path(database).resolve().as_uri()+'?mode=ro',uri=True) as con:
-            self.ocr={i:t or '' for i,t in con.execute('SELECT id,ocr_text FROM notes')}
+        from ..ask_scope import AskScope
+        condition, params = (getattr(owner.context, 'ask_scope', None) or AskScope()).sql('note')
+        with closing(sqlite3.connect(Path(database).resolve().as_uri()+'?mode=ro',uri=True)) as con:
+            self.ocr={i:t or '' for i,t in con.execute('SELECT id,ocr_text FROM notes WHERE ' + condition, params)}
 
     @timed('units.bridge')
     def units(self,key):
@@ -217,7 +221,12 @@ class Bridge:
         for key in sorted(scoped):
             choices=[h for h in row_order+prose if h.node.metadata['source_key']==key]
             if choices:reserve.append(choices[0])
-        prose_order=[];prose_seen=set()
+        prose_order=[];prose_seen=set();tail_roles={}
+        def mark_role(hit,role):
+            tail_roles.setdefault(self.block(hit.node)['evidence_id'],set()).add(role)
+        old_row_ids={self.block(h.node)['evidence_id'] for h in old_rows}
+        for h in row_order:
+            mark_role(h,'old_row' if self.block(h.node)['evidence_id'] in old_row_ids else 'independent_row')
         for h in prose:
             key=h.node.metadata['source_key']
             if key not in prose_seen:
@@ -227,7 +236,7 @@ class Bridge:
                 anchor=next((a for a in groups[0] if a.node.metadata['source_key']==key
                     and a.node.metadata.get('kind')==h.node.metadata.get('kind')
                     and len(self.block(a.node)['evidence'])>=40),h)
-                prose_order.append(anchor);prose_seen.add(key)
+                prose_order.append(anchor);prose_seen.add(key);mark_role(anchor,'primary_prose')
                 # Keep a second independently retrieved parent when full-query
                 # anchors and reranking disagree. Never collapse an entire
                 # document to one introduction or expand it into all paragraphs.
@@ -236,7 +245,7 @@ class Bridge:
                     and a.node.metadata.get('kind')==h.node.metadata.get('kind')
                     and self.block(a.node)['evidence_id']!=eid
                     and len(self.block(a.node)['evidence'])>=40),None)
-                if alternate:prose_order.append(alternate)
+                if alternate:prose_order.append(alternate);mark_role(alternate,'alternate_prose')
             if len(prose_seen)==max(2,len(scoped)):break
         # Scope reservation must use the same parent selection, not reintroduce
         # the rejected introductory paragraph as a second source fragment.
@@ -247,11 +256,21 @@ class Bridge:
         # table fragment with selected verified rows of that same source.
         row_sources={h.node.metadata['source_key'] for h in row_order}
         ordered += [h for h in supplemental if h.node.metadata['source_key'] not in row_sources][:1]
+        # Only optional channel padding is eligible. Keep current ranking,
+        # anchor selection and all existing provenance/budget assembly intact.
+        _,tail_audit=filter_weak_tails(question,[self.block(h.node) for h in ordered],
+            scores={item['id']:item['score'] for item in scores},roles=tail_roles,
+            explicit_sources=scoped,notes=self.owner.notes)
+        dropped_tails={item['evidence_id'] for item in tail_audit if item['action']=='drop'}
         packed=[];seen=set();omitted=[]
         for h in ordered:
             s=self.block(h.node)
             if s['evidence_id'] in seen:continue
             seen.add(s['evidence_id'])
+            if s['evidence_id'] in dropped_tails:
+                omitted.append(dict(evidence_id=s['evidence_id'],source_key=s['source_key'],
+                    reason='verified_optional_extreme_tail',filter_version=TAIL_FILTER_VERSION))
+                continue
             if any(s['source_key']==old['source_key'] and s.get('source_field')==old.get('source_field') and compact(s['evidence']) in compact(old['evidence']) for old in packed):continue
             s['index']=len(packed)+1;s['prompt_block']=f'[{s["index"]}] {s["title"]} · {s["location"]}\n'+s['evidence']
             used=self.owner.contract.count(self.owner.contract.messages(question,packed+[s]))
@@ -266,6 +285,10 @@ class Bridge:
             rankings=rankings,source_keys=sorted(keys),selected=[dict(evidence_id=s['evidence_id'],source_key=s['source_key'],kind=s.get('kind'),field=s.get('source_field'),raw_evidence=s.get('raw_evidence',[])) for s in packed],
             omitted=omitted,coverage_claim='retrieval allocation only, not semantic completeness',
             canonical_reranking=scores,
+            weak_tail_filter=dict(version=TAIL_FILTER_VERSION,
+                score_semantics='FlashRank ranking values, not factual accuracy probabilities',
+                thresholds=dict(primary_min=STRONG_SCORE,tail_max=TAIL_SCORE,relative_max=TAIL_RATIO),
+                decisions=tail_audit,removed=len(dropped_tails)),
             channel_allocation=dict(table_row_ids=[h.node.node_id for h in row_order],prose_ids=[h.node.node_id for h in prose_order],
                 retained_prior_row_ids=[h.node.node_id for h in old_rows]),
             components=['LlamaIndex QueryFusionRetriever RRF','VectorIndexRetriever','BM25Retriever','FlashRank','original-span parent retrieval','lxml HTML table parser'])

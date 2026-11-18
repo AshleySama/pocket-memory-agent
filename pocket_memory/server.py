@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
-from pocket_memory.rag.performance import request_profile, measured_lock, snapshot as performance_snapshot
+from pocket_memory.rag.performance import request_profile, measured_lock, snapshot as performance_snapshot, started_at as performance_started_at
 
 import base64
 import binascii
@@ -37,6 +37,7 @@ from pocket_memory.model_download import ModelDownloadService
 from pocket_memory.ocr import OcrService
 from pocket_memory.rag import IntentRouter, QueryResolver, RagPipeline
 from pocket_memory.rag.development import DeferredModelUnavailable, LiveRagPipeline
+from pocket_memory.rag.ask_scope import resolve_ask_scope, source_catalog, conflicting_source_title
 from pocket_memory.reporting import ReportService
 from pocket_memory.storage import NoteStore, NoteContentConflict
 from pocket_memory.tools import ToolRegistry
@@ -205,6 +206,9 @@ class PocketMemoryServer(ThreadingHTTPServer):
         return selected
 
     def _prepare_library_change(self):
+        reports=getattr(self,'report_workspace',None)
+        if reports and reports.worker and reports.worker.is_alive():
+            raise ValueError('资料汇编正在使用当前资料的快照，请完成后再切换资料库。')
         if self.office_tools.busy:
             raise ValueError('文字工具仍在处理当前资料，请完成后再切换资料库。')
         self.intelligence_service.cancel_pending_autosaves()
@@ -461,6 +465,10 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             parts = parsed.path.strip('/').split('/')
             if len(parts) == 2:
                 self._json({'reports': workspace.list_reports(), 'templates': [{'id':k,'label':v[0],'description':v[1]} for k,v in TEMPLATES.items()]})
+            elif len(parts)==3 and parts[2]=='sources':
+                query=parse_qs(parsed.query)
+                self._json(workspace.discover_sources(query.get('q',[''])[0],query.get('kind',['all'])[0],
+                                                     query.get('page',[1])[0],query.get('page_size',[30])[0]))
             elif len(parts) == 4 and parts[2] == 'jobs':
                 self._json(workspace.job(parts[3]))
             elif len(parts) == 5 and parts[3] == 'sources':
@@ -471,11 +479,11 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                     payload = export_html(report).encode('utf-8')
                     self.send_response(200)
                     self.send_header('Content-Type','text/html; charset=utf-8')
-                    self.send_header('Content-Disposition', "attachment; filename=PocketMemory_Report.html; filename*=UTF-8''"+quote(report['title']+'.html'))
+                    self.send_header('Content-Disposition', "attachment; filename=PocketMemory_Compilation.html; filename*=UTF-8''"+quote(report['title']+'.html'))
                     self.send_header('Content-Length',str(len(payload)))
                     self.end_headers(); self.wfile.write(payload)
                 elif len(parts) == 3:
-                    self._json({'report':report,'html':render_report(report)})
+                    self._json({'report':report,'html':render_report(report),'active_job':workspace.active_job(report['id'])})
                 else: raise KeyError('report route')
             else: raise KeyError('report route')
             return
@@ -506,6 +514,8 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         elif parsed.path == "/api/ask/source-revision":
             from pocket_memory.rag.source_preview import revision_token
             self._json({"revision": revision_token(self.server)})
+        elif parsed.path == "/api/ask/sources":
+            self._json(source_catalog(self.server.store))
         elif parsed.path == "/api/notes":
             filters = self._filters(parsed.query)
             notes = self.server.store.list_notes(
@@ -673,9 +683,26 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             elif parsed.path == '/api/report-workspace/restore':
                 report=self.server.report_workspace.restore(self._read_json().get('undo_token'))
                 self._json({'report':report,'html':render_report(report)})
+            elif parsed.path == '/api/report-workspace/delete-batch':
+                body = self._read_json()
+                if not isinstance(body, dict) or set(body) != {'reports', 'all_reports'}:
+                    raise ValueError('无效的批量删除请求')
+                self._json(self.server.report_workspace.delete_many(body['reports'], body['all_reports']))
+            elif parsed.path == '/api/report-workspace/restore-batch':
+                body = self._read_json()
+                if not isinstance(body, dict) or set(body) != {'undo_token'}:
+                    raise ValueError('无效的批量撤销请求')
+                self._json(self.server.report_workspace.restore_many(body['undo_token']))
             elif len(parts) == 4 and parts[3] == 'save':
                 report=self.server.report_workspace.save_edit(parts[2],self._read_json())
                 self._json({'report':report,'html':render_report(report)})
+            elif len(parts)==4 and parts[3]=='outline':
+                report=self.server.report_workspace.save_outline(parts[2],self._read_json())
+                self._json({'report':report,'html':render_report(report)})
+            elif len(parts)==4 and parts[3]=='compose':
+                self._json(self.server.report_workspace.compose(parts[2],self._read_json()),HTTPStatus.ACCEPTED)
+            elif len(parts)==4 and parts[3]=='resume-reading':
+                self._json(self.server.report_workspace.resume_reading(parts[2],self._read_json()),HTTPStatus.ACCEPTED)
             else: raise KeyError('report route')
             return
         if parsed.path == '/api/qa-feedback':
@@ -765,14 +792,25 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             self.server.embedding_service.rebuild()
             self._json(self.server.embedding_service.status(), HTTPStatus.ACCEPTED)
         elif parsed.path == "/api/ask":
-            request_started = time.perf_counter()
+            request_started = performance_started_at()
+            self._current_ask_scope_payload = None
             body = self._read_json()
             question = str(body.get("question", "")).strip()
             if not question:
                 self._json({"error": "问题不能为空"}, HTTPStatus.BAD_REQUEST)
                 return
+            try:
+                if 'scope' in body and body['scope'] is None:
+                    raise ValueError('问答范围不能为空，请重新选择资料。')
+                ask_scope = resolve_ask_scope(self.server.store, body.get('scope'))
+            except ValueError as exc:
+                self._json({'error': str(exc), 'code': 'invalid_ask_scope'}, HTTPStatus.BAD_REQUEST)
+                return
+            self._current_ask_scope_payload = ask_scope.payload()
             diagnostics_requested = body.get("diagnostics") is True
-            understanding = QueryResolver.resolve(question, body.get("history"))
+            # History without a scope identity cannot supply a subject after a
+            # selection change. Explicit selections resolve this turn locally.
+            understanding = QueryResolver.resolve(question, None if ask_scope.restricted else body.get("history"))
             # History is used only by the deterministic subject resolver. The
             # model never receives a prior answer as factual evidence.
             history: list[dict] = []
@@ -783,6 +821,21 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             # be able to count their own notes while a model is downloading or
             # temporarily unavailable.
             current_intent = IntentRouter.detect(question, store=self.server.store)
+            scope_message = None
+            if ask_scope.restricted and current_intent.type in {'stats', 'taxonomy'}:
+                scope_message = '当前所选范围暂不支持笔记统计或分类汇总，请切换到全部资料后再查询。'
+            elif conflicting_source_title(self.server.store, question, ask_scope):
+                scope_message = '问题中指定的资料不在本次问答范围内，请调整所选资料后重新提问。'
+            elif ask_scope.restricted and not isinstance(self.server.rag_pipeline, LiveRagPipeline):
+                scope_message = '当前问答引擎暂不支持所选资料范围，请启用当前问答引擎后重试。'
+            if scope_message:
+                timing = self._ask_timing(request_started, retrieval_seconds=0.0)
+                if body.get('stream'):
+                    self._send_simple_stream(scope_message, 'clarification', {}, timing=timing, conversation=conversation)
+                else:
+                    self._json(dict(answer=scope_message, sources=[], kind='clarification', data={},
+                                    expanded_terms=[], timing=timing, conversation=conversation))
+                return
             if current_intent.type == "stats":
                 result = self.server.rag_pipeline.route(question, intent=current_intent)
                 timing = self._ask_timing(request_started, retrieval_seconds=0.0)
@@ -803,11 +856,20 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             # also avoids paying model-startup cost for a question that cannot
             # be retrieved safely until the user names its subject.
             clarification_question = understanding.evidence_question
-            if needs_action_target_clarification or self.server.rag_pipeline.requires_clarification(clarification_question):
+            # A single saved notebook resolves a notebook/project referent; it
+            # does not identify one Agent/contract/record inside a table.
+            scoped_reference = ask_scope.single_note_family and bool(re.search(
+                r'(?:这个|那个|该|此|这份|那份|这项|那项)(?:项目|笔记|报告|资料|文档|文件)', clarification_question))
+            # Entity-class words can start a named entity or a library-wide
+            # topic search. They do not prove that a referent is missing.
+            # Keep the existing explicit-entity/deictic check; field/record
+            # ambiguity is resolved against evidence inside the normal route.
+            if (needs_action_target_clarification or
+                    (not scoped_reference and self.server.rag_pipeline.requires_clarification(clarification_question))):
                 answer = (
                     self._action_target_clarification_answer(question)
                     if needs_action_target_clarification
-                    else "请明确要咨询的对象名称，例如具体的 Agent、合同或项目名称。"
+                    else "请明确要咨询的对象名称，或选择当前笔记／指定资料范围后再提问。例如具体的 Agent、合同或项目名称。"
                 )
                 timing = self._ask_timing(request_started, retrieval_seconds=0.0)
                 if body.get("stream"):
@@ -854,11 +916,14 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                     extra_terms=list(understanding.aliases),
                     intent=current_intent,
                     evidence_question=understanding.evidence_question,
+                    **({'ask_scope': ask_scope} if isinstance(self.server.rag_pipeline, LiveRagPipeline) else {}),
                 )
             except DeferredModelUnavailable as exc:
                 self._send_model_unavailable(engine, reason=str(exc))
                 return
             retrieval_seconds = time.perf_counter() - retrieval_started
+            if isinstance(self.server.rag_pipeline, LiveRagPipeline):
+                self._current_ask_scope_payload = self.server.rag_pipeline.ask_scope.payload()
             timing = self._ask_timing(request_started, retrieval_seconds=retrieval_seconds)
             expanded_terms = result.expanded_terms
             diagnostics = result.diagnostics if diagnostics_requested else None
@@ -936,11 +1001,18 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                 clarification_sources = self._clarification_source_payloads()
                 if clarification_sources:
                     payload["clarification_sources"] = clarification_sources
+                context_passages = self._context_passage_payloads()
+                if context_passages:
+                    payload["context_passages"] = context_passages
                 if diagnostics is not None:
                     payload["diagnostics"] = diagnostics
                 self._json(payload)
         elif parsed.path == "/api/ask/llama-index":
             body = self._read_json()
+            if 'scope' in body:
+                self._json({'error': '实验问答入口不支持资料范围，请使用 /api/ask。',
+                            'code': 'unsupported_ask_scope'}, HTTPStatus.BAD_REQUEST)
+                return
             question = str(body.get("question", "")).strip()
             if not question:
                 self._json({"error": "问题不能为空"}, HTTPStatus.BAD_REQUEST)
@@ -1280,7 +1352,7 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             return False
         # Keep historical files intact; even stale pages cannot create or save analyses.
         self._json({
-            'error': '独立 Excel 分析功能已下线。可返回专题报告，或在笔记中继续导入 Excel 资料。',
+            'error': '独立 Excel 分析功能已下线。可返回资料汇编，或在笔记中继续导入 Excel 资料。',
             'code': 'table_analysis_retired',
             'return_url': '/reports.html',
         }, HTTPStatus.GONE)
@@ -1413,6 +1485,10 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         return result
 
     def _json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
+        if isinstance(payload, dict) and urlparse(self.path).path == '/api/ask':
+            scope_payload = getattr(self, '_current_ask_scope_payload', None)
+            if scope_payload is not None:
+                payload = dict(payload, data=dict(payload.get('data') or {}, ask_scope=scope_payload))
         if isinstance(payload, dict) and isinstance(payload.get('answer'), str) and 'sources' in payload:
             from pocket_memory.qa_feedback import scope_key
             payload = dict(payload, feedback_scope=scope_key(self.server.store.data_dir, self.server.preview_epoch))
@@ -1672,6 +1748,13 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         details = performance_snapshot()
         if details is not None:
             timing["performance"] = details
+            # Include queue wait in the headline total. This is server time,
+            # starting at do_POST; it does not include network/browser delays.
+            timing["queue_seconds"] = round(details.get('stages', {}).get(
+                'request.lock_wait', {}).get('inclusive_seconds', 0.0), 3)
+            timing["processing_seconds"] = round(max(
+                timing["total_seconds"] - timing["queue_seconds"], 0.0), 3)
+            timing["total_semantics"] = "server request including operation queue"
         return timing
 
     def _send_simple_stream(self, answer: str, kind: str, data: dict | None = None,
@@ -1679,6 +1762,9 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
                             conversation: dict | None = None,
                             diagnostics: dict | None = None) -> None:
         """发送不含 token 流的 SSE：仅 sources + done，用于预生成答案（stats/taxonomy/列表型/空结果）。"""
+        scope_payload = getattr(self, '_current_ask_scope_payload', None)
+        if scope_payload is not None:
+            data = dict(data or {}, ask_scope=scope_payload)
         check_cancelled()
         self._ask_headers_sent = True
         self.send_response(HTTPStatus.OK)
@@ -1733,6 +1819,9 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
 
     def _ask_stream(self, question: str, contexts: list[dict], sources: list[dict], history: list[dict] | None = None, expanded_terms: list[str] | None = None, kind: str = "qa", data: dict | None = None, display_question: str | None = None, request_started: float | None = None, retrieval_seconds: float = 0.0, conversation: dict | None = None, diagnostics: dict | None = None) -> None:
         """SSE 流式问答：先发 sources，再逐 token 发答案，最后发 done。"""
+        scope_payload = getattr(self, '_current_ask_scope_payload', None)
+        if scope_payload is not None:
+            data = dict(data or {}, ask_scope=scope_payload)
         check_cancelled()
         self._ask_headers_sent = True
         self.send_response(HTTPStatus.OK)
@@ -1832,12 +1921,19 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         clarification_sources = self._clarification_source_payloads()
         if clarification_sources:
             done_event["clarification_sources"] = clarification_sources
+        context_passages = self._context_passage_payloads()
+        if context_passages:
+            done_event["context_passages"] = context_passages
         if diagnostics is not None:
             done_event["diagnostics"] = diagnostics
         write_event(done_event)
 
     def _clarification_source_payloads(self) -> list[dict]:
         method = getattr(self.server.rag_pipeline, "clarification_source_payloads", None)
+        return method() if callable(method) else []
+
+    def _context_passage_payloads(self) -> list[dict]:
+        method = getattr(self.server.rag_pipeline, "context_passage_payloads", None)
         return method() if callable(method) else []
 
     @staticmethod
@@ -2004,6 +2100,22 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         if root == self.static_dir:
             self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_report_preview(self, body: bytes) -> None:
+        # A saved report is a standalone document. Keep its HTML isolated from
+        # the application's origin even if a future renderer permits rich text.
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Disposition", "inline")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; "
+                         "script-src 'unsafe-inline'; connect-src 'none'; "
+                         "style-src 'unsafe-inline'; img-src data:; base-uri 'none'; "
+                         "form-action 'none'; frame-ancestors 'self'")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

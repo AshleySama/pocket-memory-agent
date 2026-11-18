@@ -57,12 +57,13 @@ class WorkspaceTests(unittest.TestCase):
         new=ReportWorkspace(self.store,FakeEngine(),threading.RLock());self.assertEqual(new.read(r['id'])['notes']['summary'],'人工补充')
     def test_export_full_data_escape_no_external_assets(self):
         r=self.build();r['title']='<script>alert(1)</script>';out=export_html(r)
-        self.assertNotIn('<script',out);self.assertIn('&lt;script&gt;',out)
+        self.assertEqual(out.count('<script'),1);self.assertIn('<script data-report-source-links>',out)
+        self.assertNotIn('<script>alert(1)',out);self.assertIn('&lt;script&gt;',out)
         self.assertIn('<svg',out);self.assertIn('D</td>',out);self.assertIn('source-1',out)
         self.assertNotIn('src="http',out);self.assertNotIn('127.0.0.1',out)
     def test_six_types_valid_and_distinct(self):
         titles=set()
-        for t in TEMPLATES:
+        for t in (k for k in TEMPLATES if k!='auto'):
             r=self.build(t);out=render_report(r);self.assertIn('section-summary',out);titles.add(r['template_label'])
         self.assertEqual(len(titles),6)
     def test_reject_fabricated_quote(self):

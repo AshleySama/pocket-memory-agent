@@ -9,6 +9,74 @@ This grammar is not a general natural-language or semantic-scope classifier.
 import re
 import unicodedata
 
+ORIGINAL_REQUEST_VERSION = 'original-label-request-v1'
+LABEL_CONNECTORS = ('以及', '和', '与', '及', '、')
+
+
+def original_label_request(question, labels, notes):
+    """Bind the complete request to source labels, shared by prose projections.
+
+    Scope masking consumes only metadata/source-action syntax already owned by
+    the scope resolver. Every other character must belong to this grammar.
+    No keyword-only admission, inferred subject, filtering or semantic aliases.
+    Multiple literal labels are allowed; each producer decides which source
+    structure it can prove. Ambiguous label/connector partitions fall back.
+    """
+    # field_projection imports the field contracts in this module. Resolve the
+    # source helpers at call time to avoid a module initialization cycle.
+    from .field_projection import strip_scopes
+    from .source_scope import norm
+
+    names = {norm(label): label for label in labels}
+    if not names or len(names) != len(labels) or '' in names:
+        return None
+    request = norm(strip_scopes(question, notes))
+    terminal = request.rstrip('？?。！!')
+    requests = [terminal]
+    if terminal.endswith(('呢', '呀', '啊')):
+        requests.append(terminal[:-1])
+    prefix = (r'(?:(?:请问|请|帮我)?(?:只根据|只依据|根据|依据|只看|只读|参考)?)'
+              r'[，,:：]*(?:(?:项目|笔记|报告|资料|正文)?(?:里面|中|里|内)?'
+              r'(?:提到|提及|记录|列出|描述)?的?)')
+    forms = (
+        r'(?:有|存在|包括|包含)?(?:哪些|哪几项|哪几条|哪几个|什么)(?P<fields>.+)',
+        r'(?P<fields>.+?)(?:分别)?(?:有|包括|包含)?'
+        r'(?:哪些|哪几项|哪几条|哪几个|是什么内容|是什么|是哪些|有哪些|有什么内容|有什么|是谁)',
+        r'(?:请)?(?:列出|列举)的?(?P<fields>.+)',
+    )
+    candidates = set()
+
+    def literal_fields(text, start, selected=()):
+        if len(selected) >= 8:
+            return
+        for key in names:
+            if not text.startswith(key, start) or key in selected:
+                continue
+            end = start + len(key)
+            found = selected + (key,)
+            yield end, found
+            for connector in LABEL_CONNECTORS:
+                if text.startswith(connector, end):
+                    yield from literal_fields(text, end + len(connector), found)
+
+    for text in requests:
+        # Bind literal labels before applying scaffolding. A single greedy
+        # regex capture could consume 项目 in a literal 项目输入 label, or 有
+        # at the end of a label, and hide another valid partition.
+        for start in range(len(text)):
+            for end, found in literal_fields(text, start):
+                field = r'(?:全部|所有)?' + re.escape(text[start:end])
+                for form in forms:
+                    exact = form.replace('(?P<fields>.+?)', field).replace('(?P<fields>.+)', field)
+                    if re.fullmatch(prefix + exact, text):
+                        candidates.add(found)
+    if len(candidates) != 1:
+        return None
+    return dict(version=ORIGINAL_REQUEST_VERSION, question=question,
+                normalized_request=request,
+                labels=[names[key] for key in next(iter(candidates))],
+                selection='all_original_members', filters=[], residual='')
+
 FIELD = r'(?:(?:已(?:经)?保存的?|保存的?)?\s*)(?P<field>OCR(?:文本)?|正文)(?:里|中)?'
 ACTION = re.compile(
     r'(?P<action>(?:不要|不能|禁止|不得|别|不)(?:读取|使用|采用|参考|依据|引用|援引|检索|查|读|用|看)|'

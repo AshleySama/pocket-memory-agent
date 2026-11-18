@@ -1,0 +1,19 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0 */
+.history-tools{display:flex;flex-wrap:wrap;gap:4px;margin:0 6px 8px}
+.history-tools button,.history-batch-actions button,.history-undo button{font-size:11px;padding:4px 7px;min-height:28px}
+.history-tools button{background:transparent;border-color:transparent;color:var(--muted)}
+.history-tools button:hover{color:var(--ink);border-color:var(--line)}
+#history-clear-all{margin-left:auto}
+.history-batch-actions{margin:0 5px 9px;padding:9px 7px;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+.history-batch-actions[hidden],.history-undo[hidden]{display:none}
+.history-selection-line{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-bottom:7px;font-size:11px;color:var(--muted)}
+.history-selection-line label{display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--ink)}
+.history-selection-line input,.history-select{accent-color:var(--teal);width:14px;height:14px;margin:0;flex-shrink:0;cursor:pointer}
+#history-delete-selected{width:100%;color:var(--red)}
+.history-row-selecting{display:flex;align-items:center;gap:3px;padding-left:5px}
+.history-row-selecting .history-item{min-width:0;flex:1;padding-left:4px}
+.history-row-selecting .history-delete{flex-shrink:0}
+.history-undo{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin:0 5px 10px;padding:8px;font-size:11px;color:var(--ink);background:var(--teal-soft);border-radius:6px}
+.history-undo button{background:var(--paper);color:var(--teal)}
+@media print{.history-tools,.history-batch-actions,.history-undo{display:none!important}}

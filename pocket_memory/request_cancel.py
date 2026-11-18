@@ -119,10 +119,13 @@ def final_response():
 @contextmanager
 def cancellable_lock(lock):
     # A cancelled queued request leaves without preparing evidence or a model.
-    while True:
-        check_cancelled()
-        if lock.acquire(timeout=0.05):
-            break
+    # Import lazily: request_cancel is also imported during RAG initialization.
+    from pocket_memory.rag.performance import span
+    with span('request.lock_wait'):
+        while True:
+            check_cancelled()
+            if lock.acquire(timeout=0.05):
+                break
     try:
         check_cancelled()
         yield

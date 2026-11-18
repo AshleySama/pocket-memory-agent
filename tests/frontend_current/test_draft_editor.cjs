@@ -8,7 +8,7 @@ const extract=(s,a,b)=>s.slice(s.indexOf(a),s.indexOf(b,s.indexOf(a)));
 const funcs=extract(source,'function clearEditorAutosave(', 'async function toggleNoteEditing(')+extract(ui,'function draftKey(', 'function capturePersistentNew(');
 const events=[],session={saved:'O',draft:'A',status:'dirty',baseContent:'O'};
 const node={dataset:{noteId:'1'}};
-const c={clearTimeout,state:{noteEditorSessions:new Map([[1,session]]),pendingContentSaves:new Map(),draftNoteSources:new Map([[1,{id:1,content:'O'}]]),allNotes:[]},
+const c={clearTimeout,setTimeout:()=>null,state:{noteEditorSessions:new Map([[1,session]]),pendingContentSaves:new Map(),draftNoteSources:new Map([[1,{id:1,content:'O'}]]),allNotes:[]},
  captureEditorDraft:()=>session,noteEditorSession:()=>session,refreshEditorSaveState(){},syncCachedNote(){},showToast(){},draftVault:{close:k=>events.push(['close',k]),capture:(k,p)=>events.push(['capture',p.content])}};
 vm.createContext(c);vm.runInContext(funcs,c);
 (async()=>{

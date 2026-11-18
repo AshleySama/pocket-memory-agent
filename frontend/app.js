@@ -38,6 +38,12 @@ const state = {
   newNoteSaving: false,
   resultSortDirection: "manual",
   askHistory: [],
+  askHistoryScopeKey: null,
+  askScope: { mode: 'all', note_ids: [], document_ids: [], label: '全部资料' },
+  askCurrentNote: null,
+  askEditorNote: null,
+  askSources: null,
+  askSourcePicker: null,
   refreshRevision: 0,
   draftNoteSources: new Map(),
   renameSaving: 0,
@@ -166,15 +172,41 @@ function syncCachedNote(noteId, patch) {
   }
 }
 
-async function flushPendingContentSaves() {
+async function flushPendingContentSaves({ allowFailedDraft = false } = {}) {
   const content = currentNoteEditor();
+  let session = null, saved = true;
   if (content?.getAttribute("contenteditable") === "true") {
-    captureEditorDraft(content);
-    if (!await saveEditorContent(content)) return false;
+    session = captureEditorDraft(content);
+    saved = await saveEditorContent(content, { retryFailed: false });
   }
   const pending = [...state.pendingContentSaves.values()];
   const results = pending.length ? await Promise.all(pending) : [];
-  return results.every(Boolean);
+  if (!results.every(Boolean)) return false;
+  if (saved) return true;
+  return allowFailedDraft && await preserveFailedEditorForNavigation(content, session);
+}
+
+async function preserveFailedEditorForNavigation(content, session) {
+  const noteId = Number(content?.dataset.noteId), library = draftVault.library, epoch = draftVault.epoch;
+  const isCurrent = () => library && library === draftVault.library && epoch === draftVault.epoch
+    && currentNoteEditor() === content && state.noteEditorSessions.get(noteId) === session
+    && session.status === "error" && !session.conflict && !session.composing && !state.pendingContentSaves.has(noteId);
+  if (!session || !isCurrent()) return false;
+  captureEditorDraft(content);
+  const entry = draftVault.active.get(draftKey(noteId));
+  if (!entry || !await draftVault.flush(entry)) {
+    showToast("草稿尚未保存到本机", "请重试草稿保存，成功后即可切换笔记。");
+    return false;
+  }
+  if (!isCurrent()) return false;
+  captureEditorDraft(content);
+  if (draftVault.active.get(draftKey(noteId)) !== entry || entry.closed || entry.dirty
+      || entry.record.library_id !== library || entry.record.content !== session.draft) return false;
+  // Keep the failed session and its journal alive. Only this persisted version
+  // may leave the editor; later typing or another save revokes the permission.
+  clearEditorAutosave(session);
+  session.navigationDraft = session.draft;
+  return true;
 }
 
 function currentNoteEditor() {
@@ -198,7 +230,9 @@ function captureEditorDraft(content = currentNoteEditor()) {
   if (!content || content.getAttribute("contenteditable") !== "true") return null;
   const session = noteEditorSession(content);
   if (!session) return null;
-  session.draft = editableContentToMarkdown(content);
+  const draft = editableContentToMarkdown(content);
+  if (draft !== session.draft) delete session.navigationDraft;
+  session.draft = draft;
   if (session.status !== "saving" && session.status !== "error") {
     session.status = session.draft === session.saved ? "saved" : "dirty";
   }
@@ -249,7 +283,7 @@ function clearEditorAutosave(session) {
 function scheduleEditorAutosave(content, session = noteEditorSession(content)) {
   if (!session || content?.dataset.draft === "1") return;
   clearEditorAutosave(session);
-  if (session.composing || session.conflict || (session.draft === session.saved && !session.writeUncertain)) return;
+  if (session.composing || session.conflict || session.failedDraft === session.draft || (session.draft === session.saved && !session.writeUncertain)) return;
   const noteId = Number(content.dataset.noteId), library = draftVault.library;
   session.autosaveTimer = setTimeout(() => {
     session.autosaveTimer = null;
@@ -260,7 +294,7 @@ function scheduleEditorAutosave(content, session = noteEditorSession(content)) {
   }, 1500);
 }
 
-function saveEditorContent(content = currentNoteEditor(), { automatic = false } = {}) {
+function saveEditorContent(content = currentNoteEditor(), { automatic = false, retryFailed = !automatic } = {}) {
   const session = captureEditorDraft(content) || (content ? noteEditorSession(content) : null);
   if (!session) return Promise.resolve(true);
   const noteId = Number(content.dataset.noteId);
@@ -271,9 +305,15 @@ function saveEditorContent(content = currentNoteEditor(), { automatic = false } 
     return Promise.resolve(false);
   }
   if (state.pendingContentSaves.has(noteId)) return state.pendingContentSaves.get(noteId);
+  if (!retryFailed && (session.conflict || session.failedDraft === session.draft)) {
+    session.flushRequested = false;
+    return Promise.resolve(false);
+  }
+  delete session.navigationDraft;
   if (session.draft === session.saved && !session.writeUncertain && !session.conflict) {
     session.status = "saved";
     session.error = "";
+    delete session.failedDraft;
     session.flushRequested = false;
     refreshEditorSaveState(noteId);
     return Promise.resolve(true);
@@ -288,6 +328,7 @@ function saveEditorContent(content = currentNoteEditor(), { automatic = false } 
     session.uncertainContent = null;
     session.baseContent = updated.content ?? submitted;
     session.conflict = false;
+    delete session.failedDraft;
     state.draftNoteSources.set(noteId, {...state.draftNoteSources.get(noteId), ...updated});
     session.updatedAt = updated.updated_at || "";
     syncCachedNote(noteId, { content: updated.content ?? submitted, updated_at: updated.updated_at });
@@ -330,9 +371,11 @@ function saveEditorContent(content = currentNoteEditor(), { automatic = false } 
         clearEditorAutosave(session);
         session.status = "error";
         session.error = error.message;
+        session.failedDraft = submitted;
         capturePersistentEditor(content, session);
         refreshEditorSaveState(noteId);
         showToast(session.conflict ? "原笔记已更新，草稿已保留" : "保存失败，草稿已保留", session.conflict ? "可从草稿箱另存一份，保留两份内容。" : `${error.message}；可点击重试或按 Ctrl+S。`);
+        if (session.draft !== submitted) scheduleEditorAutosave(content, session);
         return false;
       }
     }
@@ -385,7 +428,7 @@ function saveCurrentEditor() {
 }
 
 async function prepareEditorNavigation() {
-  if (!await flushPendingContentSaves()) return false;
+  if (!await flushPendingContentSaves({ allowFailedDraft: true })) return false;
   if (!state.newNoteDraft) return true;
   if (state.newNoteSaving) return false;
   if (state.pendingAttachmentReads) {
@@ -411,6 +454,9 @@ async function prepareLibraryChange() {
   if (importQueue.busy || state.documentReplacing || importQueue.rows.some(x => x.retrying)) { showToast('文件正在提交', '请等待提交结束后再切换资料库。'); return false; }
   if (state.renameSaving || document.querySelector('[data-draft-rename]')) { showToast('标题尚未保存完成', '请先完成标题或页签名称修改，再切换资料库。'); return false; }
   if (state.newNoteSaving || !await flushPendingContentSaves()) return false;
+  if ([...state.noteEditorSessions.values()].some(session => session.draft !== session.saved || session.writeUncertain || session.conflict)) {
+    showToast('仍有笔记尚未保存', '请返回未保存的笔记重试，保存成功后再切换资料库。'); return false;
+  }
   if (!await draftVault.flushAll()) { showToast('草稿尚未写入本机', '请重试草稿保存后再切换资料库。'); return false; }
   if (!state.newNoteDraft) return true;
   syncNewNoteDraftFromDom();
@@ -422,6 +468,7 @@ async function prepareLibraryChange() {
 }
 
 function resetEditorForLibraryChange() {
+  resetAskScope();
   clearTimeout(state.documentPollTimer);
   state.documents = []; state.documentStatus = null;
   state.documentReplacementId = null;
@@ -920,7 +967,7 @@ function toggleReportSource(kind, id) {
     return;
   }
   if (state.reportSelection.size >= 8) {
-    showToast("最多选择 8 项资料", "建议将资料拆分为两个专题后分别生成报告");
+    showToast("最多选择 8 项资料", "建议将资料拆分为两个主题后分别生成文稿");
     return;
   }
   state.reportSelection.set(key, { kind, id: Number(id) });
@@ -1194,8 +1241,12 @@ function documentLinkOptions(link) {
   return { exactEvidence: link.dataset.docExact === 'true', documentSpans: spans, noteSpans };
 }
 
-function renderAnswerText(answer, sources = []) {
+function renderAnswerText(answer, sources = [], { sharedSource = false } = {}) {
   const text = String(answer || "");
+  if (sharedSource && sources.length === 1) {
+    const shared = renderSharedSourceAnswer(text, sources[0]);
+    if (shared) return shared;
+  }
   const byIndex = new Map();
   for (const source of sources) {
     const index = String(source.index ?? "");
@@ -1235,6 +1286,120 @@ function renderAnswerText(answer, sources = []) {
     }).join("");
     return `<div class="answer-source-group"><div class="answer-group-sources"><span>本段引用</span>${labels}</div><div class="answer-group-text">${inline(group.text)}</div></div>`;
   }).join("")}</div>`;
+}
+
+function renderSharedSourceAnswer(answer, source) {
+  const index = String(source.index);
+  const paragraphs = answer.split(/\r?\n[ \t]*\r?\n/);
+  const cited = paragraph => [...paragraph.matchAll(/\[(\d+)\]/g)].map(match => match[1]);
+  if (paragraphs.filter(paragraph => cited(paragraph).includes(index)).length < 2
+      || paragraphs.some(paragraph => cited(paragraph).some(value => value !== index))) return '';
+  const withoutReference = paragraph => escapeHtml(paragraph.replace(/\[(\d+)\]/g, (match, value) => value === index ? '' : match).trim());
+  let html = '', list = [];
+  const flush = () => {
+    if (list.length) html += `<ul class="answer-record-list">${list.map(text => `<li>${text}</li>`).join('')}</ul>`;
+    list = [];
+  };
+  for (const paragraph of paragraphs) {
+    if (cited(paragraph).includes(index)) list.push(withoutReference(paragraph));
+    else { flush(); html += `<p class="answer-prose">${escapeHtml(paragraph)}</p>`; }
+  }
+  flush();
+  return `<div class="answer-shared-source"><div class="answer-group-sources">${answerSourceLink(source, `[${index}] ${source.title || '未命名资料'}`, 'answer-source-label')}</div>${html}</div>`;
+}
+
+function answerNoteGroupIdentity(source) {
+  const spans = source.display_spans;
+  if (source.source_type !== 'note' || !Number.isSafeInteger(source.source_id) || source.source_id <= 0
+      || (source.kind && source.kind !== 'content')
+      || (source.source_field && source.source_field !== 'content')
+      || !Array.isArray(spans) || !spans.length) return null;
+  const parent = source.parent_note_id ?? null, tab = source.tab_name ?? '';
+  const url = parent === null ? `/api/notes/${source.source_id}` : `/api/notes/${parent}?tab_id=${source.source_id}`;
+  const revision = spans[0]?.source_revision;
+  if (source.url !== url || !/^[a-f0-9]{64}$/.test(revision || '')
+      || (source.source_revision && source.source_revision !== revision)) return null;
+  const members = Array.isArray(source.citation_members) ? source.citation_members : [];
+  for (const span of spans) {
+    if (!span || span.field !== 'content' || span.source_id !== source.source_id
+        || (span.parent_note_id ?? null) !== parent || (span.tab_name ?? '') !== tab
+        || span.source_revision !== revision || typeof span.quote !== 'string'
+        || !Number.isSafeInteger(span.char_start) || !Number.isSafeInteger(span.char_end_exclusive)
+        || span.char_start < 0 || span.char_end_exclusive <= span.char_start
+        || Array.from(span.quote).length !== span.char_end_exclusive - span.char_start) return null;
+    const proven = members.some(member => member.verification === 'exact_saved_original'
+      && member.source_type === 'note' && member.source_id === source.source_id
+      && (member.parent_note_id ?? null) === parent && (member.tab_name ?? '') === tab
+      && Array.isArray(member.spans) && member.spans.some(raw => raw && raw.field === 'content'
+        && (raw.source_id === undefined || raw.source_id === source.source_id)
+        && (raw.parent_note_id === undefined || (raw.parent_note_id ?? null) === parent)
+        && (raw.tab_name === undefined || (raw.tab_name ?? '') === tab)
+        && raw.source_revision === revision && typeof raw.quote === 'string'
+        && Number.isSafeInteger(raw.char_start) && Number.isSafeInteger(raw.char_end_exclusive)
+        && raw.char_start <= span.char_start && raw.char_end_exclusive >= span.char_end_exclusive
+        && Array.from(raw.quote).length === raw.char_end_exclusive - raw.char_start
+        && Array.from(raw.quote).slice(span.char_start - raw.char_start, span.char_end_exclusive - raw.char_start).join('') === span.quote));
+    if (!proven) return null;
+  }
+  return JSON.stringify(['note', source.source_key || `note:${source.source_id}`, source.source_id, parent, tab, revision, 'content', url]);
+}
+
+function deriveAnswerPresentation(answer, sources = [], passages = []) {
+  const contextPassages = answerContextPassages(passages);
+  const backgroundIndices = new Set(contextPassages.map(passage => String(passage.source_index)));
+  const citedIndices = new Set([...String(answer || '').matchAll(/\[(\d+)\]/g)].map(match => match[1]));
+  const mainSources = sources.filter(source => !backgroundIndices.has(String(source.index)) || citedIndices.has(String(source.index)));
+  const unchanged = { answer, sources: mainSources, contextSources: sources, contextPassages, grouped: false };
+  const indices = sources.map(source => String(source.index));
+  if (new Set(indices).size !== indices.length || indices.some(index => !/^[1-9]\d*$/.test(index))) return unchanged;
+  const groups = [], byIdentity = new Map();
+  for (const source of mainSources) {
+    const identity = answerNoteGroupIdentity(source);
+    if (identity && byIdentity.has(identity)) byIdentity.get(identity).push(source);
+    else {
+      const group = [source]; groups.push(group);
+      if (identity) byIdentity.set(identity, group);
+    }
+  }
+  const uniqueValues = values => [...new Set(values.filter(value => typeof value === 'string' && value))];
+  const uniqueRecords = records => [...new Map(records.map(record => [JSON.stringify(record), record])).values()];
+  const merged = groups.flatMap(group => {
+    if (group.length < 2) return group.map(source => ({ source, originals: [source] }));
+    const ranges = [...new Map(group.flatMap(source => source.display_spans)
+      .map(span => [JSON.stringify([span.char_start, span.char_end_exclusive, span.quote]), span])).values()]
+      .sort((a, b) => a.char_start - b.char_start);
+    if (ranges.some((span, index) => index && span.char_start < ranges[index - 1].char_end_exclusive)) {
+      return group.map(source => ({ source, originals: [source] }));
+    }
+    const join = field => uniqueValues(group.map(source => source[field])).join('\n');
+    return [{ originals: group, source: { ...group[0], display_grouped: true,
+      display_spans: ranges, display_evidence_count: ranges.length,
+      display_evidence: uniqueValues(group.map(source => source.display_evidence ?? source.evidence)).join('\n'),
+      display_context: uniqueValues(group.map(source => source.display_context ?? source.excerpt)).join('\n'),
+      evidence: join('evidence'), excerpt: join('excerpt'),
+      raw_evidence: uniqueRecords(group.flatMap(source => source.raw_evidence || [])),
+      citation_members: uniqueRecords(group.flatMap(source => source.citation_members || [])),
+      evidence_locations: uniqueValues(group.flatMap(source => source.evidence_locations || [])),
+      matched_terms: uniqueValues(group.flatMap(source => source.matched_terms || [])),
+      display_partial_focus: group.some(source => source.display_partial_focus),
+    } }];
+  });
+  if (!merged.some(group => group.originals.length > 1)) return unchanged;
+  const reserved = new Set([...citedIndices].filter(index => !indices.includes(index)));
+  const remap = new Map(); let nextIndex = 1;
+  const number = group => {
+    while (reserved.has(String(nextIndex))) nextIndex += 1;
+    const index = nextIndex++;
+    for (const original of group.originals) remap.set(String(original.index), index);
+    return { ...group.source, index };
+  };
+  const displayed = merged.map(number);
+  const background = sources.filter(source => !mainSources.includes(source)).map(source => number({ source, originals: [source] }));
+  return {
+    answer: String(answer || '').replace(/\[(\d+)\]/g, (match, index) => remap.has(index) ? `[${remap.get(index)}]` : match),
+    sources: displayed, contextSources: [...displayed, ...background], grouped: true,
+    contextPassages: contextPassages.map(passage => ({ ...passage, source_index: remap.get(String(passage.source_index)) ?? passage.source_index })),
+  };
 }
 
 function answerSourceEvidenceCount(source) {
@@ -1338,13 +1503,38 @@ function renderClarificationSources(sources = []) {
   </section>`;
 }
 
-function renderAnswer(payload, question) {
+function answerContextPassages(passages = []) {
+  return (Array.isArray(passages) ? passages : []).filter(passage => passage
+    && passage.kind === 'background' && typeof passage.quote === 'string' && passage.quote.trim());
+}
+
+function renderAnswerContextPassages(passages = [], sources = []) {
+  const items = answerContextPassages(passages);
+  if (!items.length) return '';
+  const byIndex = new Map((Array.isArray(sources) ? sources : []).map(source => [String(source.index), source]));
+  return `<details class="source-context answer-context-passages"><summary>原文背景与限制</summary>
+    ${items.map(passage => {
+      const source = byIndex.get(String(passage.source_index));
+      // Preserve the exact source identity without treating background as
+      // support for the main answer or inventing a text-match fallback.
+      const reference = source ? { ...source, display_evidence: source.display_evidence ?? '',
+        ...(source.source_type === 'note' ? { display_spans: Array.isArray(source.display_spans) ? source.display_spans : [] } : {}) } : null;
+      const link = reference ? answerSourceLink(reference, `[${source.index}] ${source.title || '打开原文'}`, 'source-link')
+        : '<span class="muted">来源未定位</span>';
+      return `<div class="source-excerpt"><blockquote>${escapeHtml(passage.quote)}</blockquote>${link}</div>`;
+    }).join('')}
+  </details>`;
+}
+
+function renderAnswer(payload, question, scope = null) {
   const kind = payload.kind || "qa";
   const data = payload.data || {};
+  const presentation = deriveAnswerPresentation(payload.answer, payload.sources || [], payload.context_passages);
+  const answerSources = presentation.sources;
   if (kind === "stats" || kind === "taxonomy") {
     $("#result-count").textContent = "即时结果";
   } else {
-    const sourceCount = (payload.sources || []).length;
+    const sourceCount = answerSources.length;
     const clarificationCount = groupClarificationSources(payload.clarification_sources || []).length;
     $("#result-count").textContent = !sourceCount && clarificationCount
       ? `待确认对象 · 相关资料 ${clarificationCount} 条`
@@ -1370,15 +1560,17 @@ function renderAnswer(payload, question) {
       </div>
       <div class="answer-header-actions"><button id="close-answer" class="ghost" type="button">关闭</button></div>
     </div>
+    ${renderAnswerScope(scope || payload.data?.ask_scope)}
     ${expandedHtml}
     ${dataHtml}
     <div class="answer-response">
       <img class="answer-cat-mark" src="/brand/pocket-memory-small-logo.png" alt="智能问答标识">
-      <div class="answer-body">${renderAnswerText(payload.answer || "没有生成回答。", payload.sources || [])}</div>
+      <div class="answer-body">${renderAnswerText(presentation.answer || "没有生成回答。", answerSources, { sharedSource: presentation.grouped })}</div>
     </div>
-    ${(payload.sources || []).length ? `
+    ${renderAnswerContextPassages(presentation.contextPassages, presentation.contextSources)}
+    ${answerSources.length ? `
       <div class="answer-sources">
-        ${(payload.sources || []).map(renderAnswerSource).join("")}
+        ${answerSources.map(renderAnswerSource).join("")}
       </div>` : ""}
     ${renderClarificationSources(payload.clarification_sources || [])}`;
   const closeAnswer = () => {
@@ -1554,7 +1746,7 @@ function renderNoteHtml(note, terms) {
     </article>`;
 }
 
-function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "", citationSpans = null } = {}) {
+function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "", citationSpans = null, sourcePreview = false } = {}) {
   const tags = (note.tags || []).slice(0, 2).map((tag) => (
     `<span class="tag-chip"><span>#${highlightText(tag, terms)}</span></span>`
   )).join("");
@@ -1571,10 +1763,21 @@ function renderReferenceNoteHtml(note, terms = [], { citationEvidence = "", cita
       ${note.attachment_path ? `<img class="note-image" src="/data/${escapeHtml(note.attachment_path)}" alt="笔记图片">` : ""}
       <div class="note-tabs-bar" data-note-id="${note.id}" data-active-tab="${note.id}"></div>
       <div class="note-tab-content" data-note-id="${note.id}">
-        <div class="note-content reference-note-content">${note.content ? renderNoteContent(note.content, terms, { citationEvidence, citationSpans }) : "<p class='muted'>此页签暂无正文。</p>"}</div>
+        ${sourcePreview ? renderSourcePreviewNoteContent(note, citationSpans) : `<div class="note-content reference-note-content">${note.content ? renderNoteContent(note.content, terms, { citationEvidence, citationSpans }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`}
       </div>
       ${ocr}
     </article>`;
+}
+
+function renderSourcePreviewNoteContent(note, citationSpans) {
+  // Preview ranges describe saved originals, not final-answer support. An empty
+  // array deliberately disables keyword fallback, including table row matching.
+  const content = note.content
+    ? renderNoteContent(note.content, [], { citationSpans: Array.isArray(citationSpans) ? citationSpans : [] })
+    : "<p class='muted'>此页签暂无正文。</p>";
+  const notice = content.includes('<mark>') ? ''
+    : '<p class="muted" role="status">未定位：未能确认这处原文的位置，请在来源中核对。</p>';
+  return `${notice}<div class="note-content reference-note-content">${content}</div>`;
 }
 
 function canManuallyReorderNotes() {
@@ -1605,7 +1808,7 @@ function renderResultNote(note, terms, index) {
   const dragAttributes = draggable ? ` data-drag-note-id="${note.id}" draggable="true"` : "";
   return `
     <article class="result-note${isWelcome ? " welcome-result-card" : ""}${isActive ? " active" : ""}${selectedForReport ? " report-source-selected" : ""}" data-note-id="${note.id}"${dragAttributes}>
-      ${selectable ? `<button class="report-source-toggle ${selectedForReport ? "selected" : ""}" data-report-source-kind="note" data-report-source-id="${note.id}" type="button" aria-label="${selectedForReport ? "取消选择" : "选择资料"}" title="${selectedForReport ? "取消选择" : "选择为报告资料"}">${selectedForReport ? "✓" : ""}</button>` : ""}
+      ${selectable ? `<button class="report-source-toggle ${selectedForReport ? "selected" : ""}" data-report-source-kind="note" data-report-source-id="${note.id}" type="button" aria-label="${selectedForReport ? "取消选择" : "选择资料"}" title="${selectedForReport ? "取消选择" : "选择为汇编资料"}">${selectedForReport ? "✓" : ""}</button>` : ""}
       <button class="result-note-open" draggable="${draggable}" data-action="select-note" data-id="${note.id}" data-result-tab-id="${resultTabId || ""}" type="button">
         ${isWelcome ? "" : `<span class="result-index">${index + 1}</span>`}
         <span class="result-note-main">
@@ -1637,7 +1840,7 @@ function renderResultDocument(document, index) {
   const selectedForReport = selectable && isReportSourceSelected("document", document.id);
   return `
     <article class="result-note document-result-card${selectedForReport ? " report-source-selected" : ""}" data-document-id="${document.id}">
-      ${selectable ? `<button class="report-source-toggle ${selectedForReport ? "selected" : ""}" data-report-source-kind="document" data-report-source-id="${document.id}" type="button" aria-label="${selectedForReport ? "取消选择" : "选择资料"}" title="${selectedForReport ? "取消选择" : "选择为报告资料"}">${selectedForReport ? "✓" : ""}</button>` : ""}
+      ${selectable ? `<button class="report-source-toggle ${selectedForReport ? "selected" : ""}" data-report-source-kind="document" data-report-source-id="${document.id}" type="button" aria-label="${selectedForReport ? "取消选择" : "选择资料"}" title="${selectedForReport ? "取消选择" : "选择为汇编资料"}">${selectedForReport ? "✓" : ""}</button>` : ""}
       <button class="result-note-open" data-document-card-action="preview" data-document-id="${document.id}" data-document-chunk-id="${primaryMatch?.chunk_id || ""}" data-document-evidence="${escapeHtml(primaryMatch?.matched_excerpt || "")}" data-document-search-query="${escapeHtml($("#search")?.value || "")}" type="button">
         <span class="result-index">${index + 1}</span>
         <span class="result-note-main">
@@ -1726,9 +1929,10 @@ function renderEditorDock(terms = []) {
   if (!dock) return;
   const previous = currentNoteEditor();
   const previousSession = captureEditorDraft(previous);
-  if (previousSession && (previousSession.draft !== previousSession.saved || previousSession.composing || previousSession.writeUncertain || ["saving", "error"].includes(previousSession.status))) {
-    // Background refresh/filter results may change; a failed draft stays on its
-    // original note/tab until a successful save permits navigation.
+  const protectedNavigation = previousSession?.status === "error" && !previousSession.conflict && !previousSession.composing
+    && !state.pendingContentSaves.has(Number(previous?.dataset.noteId)) && previousSession.navigationDraft === previousSession.draft;
+  if (previousSession && !protectedNavigation && (previousSession.draft !== previousSession.saved || previousSession.composing || previousSession.writeUncertain || ["saving", "error"].includes(previousSession.status))) {
+    // Background refresh/filter results cannot replace an unprotected draft.
     state.selectedNoteId = Number(previous.closest(".note")?.dataset.noteId);
     paintEditorState(previous);
     return;
@@ -1774,7 +1978,7 @@ function renderEditorDock(terms = []) {
   }
   if (tabsBar) {
     const activeTab = state.editorActiveTabs.get(Number(selected.id));
-    if (activeTab && activeTab !== Number(selected.id)) switchTab(Number(selected.id), activeTab, { tabsBar });
+    if (activeTab && activeTab !== Number(selected.id)) switchTab(Number(selected.id), activeTab, { tabsBar, updateAskScope: false });
     else loadTabsBar(Number(tabsBar.dataset.noteId), tabsBar);
   }
 }
@@ -1805,12 +2009,12 @@ function renderEditorToolbar({ hidden = false } = {}) {
       <button class="editor-tool" type="button" data-editor-command="bold" title="加粗" aria-label="加粗">${tablerIcon("bold", "editor-control-icon")}</button>
       <button class="editor-tool" type="button" data-editor-command="italic" title="斜体" aria-label="斜体">${tablerIcon("italic", "editor-control-icon")}</button>
       <button class="editor-tool" type="button" data-editor-command="underline" title="下划线" aria-label="下划线">${tablerIcon("underline", "editor-control-icon")}</button>
-      <label class="editor-color-swatch" title="文字颜色">
-        <span aria-hidden="true">A</span><input type="color" class="editor-color-input" data-editor-color="foreColor" value="#1f2f2d" aria-label="文字颜色">
-      </label>
-      <label class="editor-color-swatch editor-highlight-swatch" title="文字背景颜色">
-        <span aria-hidden="true"></span><input type="color" class="editor-color-input" data-editor-color="hiliteColor" value="#fff3a6" aria-label="文字背景颜色">
-      </label>
+      <button class="editor-color-swatch" type="button" data-editor-color="foreColor" data-color-value="#1f2f2d" style="--editor-picked-color:#1f2f2d" title="文字颜色" aria-label="文字颜色" aria-haspopup="dialog" aria-expanded="false">
+        <span aria-hidden="true">A</span>
+      </button>
+      <button class="editor-color-swatch editor-highlight-swatch" type="button" data-editor-color="hiliteColor" data-color-value="#fff3a6" style="--editor-picked-color:#fff3a6" title="文字背景颜色" aria-label="文字背景颜色" aria-haspopup="dialog" aria-expanded="false">
+        <span aria-hidden="true"></span>
+      </button>
       <span class="editor-tool-divider" aria-hidden="true"></span>
       <button class="editor-tool" type="button" data-editor-command="insertUnorderedList" title="无序列表" aria-label="无序列表">${tablerIcon("list", "editor-control-icon")}</button>
       <button class="editor-tool" type="button" data-editor-command="insertOrderedList" title="有序列表" aria-label="有序列表">${tablerIcon("list-numbers", "editor-control-icon")}</button>
@@ -2255,6 +2459,7 @@ async function scrollToNote(noteId) {
   // 在结果列表中定位指定笔记，并在右栏编辑器中打开它。
   if (!await prepareEditorNavigation()) return;
   state.selectedNoteId = Number(noteId);
+  rememberAskEditorNote(noteId);
   renderTimeline();
   switchPane("editor-pane");
   const btn = document.querySelector(`#timeline [data-id="${noteId}"]`);
@@ -2369,7 +2574,7 @@ async function beginNewNote(folderId = null, { keepAttachment = false } = {}) {
     $("#new-note-content")?.focus();
     return;
   }
-  if (!await flushPendingContentSaves()) return;
+  if (!await prepareEditorNavigation()) return;
   if (!keepAttachment) {
     state.imageDataUrl = null;
     state.imageName = null;
@@ -2379,6 +2584,7 @@ async function beginNewNote(folderId = null, { keepAttachment = false } = {}) {
   state.editorSelection = null;
   state.newNoteDraft = { title: "", content: "", folder_id: preferredFolder };
   state.selectedNoteId = null;
+  rememberAskCurrentNote(null);
   $("#inline-composer")?.classList.add("hidden");
   document.querySelectorAll("#timeline .result-note.active").forEach((item) => item.classList.remove("active"));
   switchPane("editor-pane");
@@ -2463,6 +2669,7 @@ async function saveNewNote() {
   state.allNotes = [...state.notes];
   state.pendingScrollId = created.id;
   state.selectedNoteId = created.id;
+  rememberAskCurrentNote(created);
   state.filter = {};
   $("#search").value = "";
   $("#search-clear").classList.add("hidden");
@@ -2691,6 +2898,7 @@ $("#search-clear").addEventListener("click", async () => {
   catch (error) { showToast("刷新失败", error.message); }
 });
 $("#search-mode").addEventListener("change", refresh);
+initializeAskScope();
 // Read-only preview lifecycle. Final citations belong exclusively to `done`.
 function askIsCurrent(session) {
   return state.activeAsk === session && !session.controller.signal.aborted;
@@ -2718,10 +2926,11 @@ function stopAskWaiting(message = "已请求停止。本地生成会在当前计
   $("#answer-panel").innerHTML = `<div class="empty-guide"><p>${escapeHtml(message)}</p></div>`;
 }
 
-function renderAskWaiting(question, text) {
+function renderAskWaiting(question, text, scope) {
   $("#answer-panel").innerHTML = `
     <div class="answer-header"><div><p class="eyebrow">智能问答 · 正在整理</p><h2>${escapeHtml(question)}</h2></div>
     <button id="stop-ask-waiting" class="ghost" type="button">停止生成</button></div>
+    ${renderAnswerScope(scope)}
     <div class="rag-loading" role="status"><span class="rag-loading-dots" aria-hidden="true"><span></span><span></span><span></span></span>
       <span class="rag-loading-text">${escapeHtml(text)}</span></div>
     <div id="source-preview-slot"></div>`;
@@ -2748,7 +2957,7 @@ function renderSourcePreview(preview) {
       ${group.map((item) => `<div class="source-preview-fragment">
         <p class="source-preview-location">${escapeHtml(item.location || "原文")}</p>
         <div class="source-preview-quotes">${item.quotes.map((quote) => `<blockquote>${escapeHtml(quote)}</blockquote>`).join("")}</div>
-        <span data-source-preview-id="${escapeHtml(item.id)}">${answerSourceLink({ url: item.url, title: item.title, evidence: item.quotes.join("\n") }, "打开这处原文", "source-link")}</span>
+        <span data-source-preview-id="${escapeHtml(item.id)}">${answerSourceLink({ ...item, source_type: 'note', display_evidence: item.quotes.join("\n"), display_spans: Array.isArray(item.display_spans) ? item.display_spans : [] }, "打开这处原文", "source-link")}</span>
       </div>`).join("")}
     </details>`).join("")}</div></details>`;
 }
@@ -2773,7 +2982,10 @@ async function openSourcePreviewLink(link) {
     // Do not open a preview from the interval before the next revision poll,
     // or one replaced by the final answer while this check was in flight.
     if (!await checkAskRevision(session) || session.completed || !link.isConnected) return;
-    await openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", documentLinkOptions(link));
+    await openDoc(link.dataset.docUrl, link.dataset.docTitle, link.dataset.docEvidence || "", {
+      ...documentLinkOptions(link), sourcePreview: true,
+      previewIsCurrent: () => askIsCurrent(session) && !session.completed && link.isConnected,
+    });
   } catch (error) {
     if (askIsCurrent(session)) stopAskWaiting("暂时无法确认原文版本，请重新提问后打开资料。");
   }
@@ -2796,19 +3008,24 @@ function watchAskRevision(session) {
 async function askWith(endpoint, loadingText) {
   const question = $("#search").value.trim();
   if (!question) { await showAlert("先输入一个问题。"); return; }
+  const scope = askScopeSnapshot();
+  if (!scope) { await showAlert('请先打开一条笔记，或指定问答资料。'); return; }
+  if (endpoint.includes('llama-index') && scope.mode !== 'all') { await showAlert('实验问答暂不支持限定资料，请使用智能问答。'); return; }
+  const scopeKey = askScopeKey(scope);
+  const history = state.askHistoryScopeKey === scopeKey ? [...state.askHistory] : [];
   stopAskWaiting();
   state.stoppedAsk = null;
   const session = { controller: new AbortController(), previewTimer: null, previewRevision: null,
-    requestId: endpoint === '/api/ask' ? crypto.randomUUID() : null };
+    requestId: endpoint === '/api/ask' ? crypto.randomUUID() : null, scope };
   state.activeAsk = session;
   switchPane("answer-pane");
-  renderAskWaiting(question, loadingText);
+  renderAskWaiting(question, loadingText, scope);
 
   // LlamaIndex 实验链路不支持流式，走原逻辑
   if (endpoint.includes("llama-index")) {
     try {
       const payload = await request(endpoint, { method: "POST", body: JSON.stringify({ question }), signal: session.controller.signal });
-      if (askIsCurrent(session)) renderAnswer(payload, question);
+      if (askIsCurrent(session)) renderAnswer(payload, question, session.scope);
     } catch (error) {
       if (!askIsCurrent(session)) return;
       $("#answer-panel").innerHTML = `<p class="ocr-error">${escapeHtml(error.message)}</p>`;
@@ -2826,7 +3043,7 @@ async function askWith(endpoint, loadingText) {
       method: "POST",
       signal: session.controller.signal,
       headers: { "Content-Type": "application/json", 'X-PocketMemory-Request-ID': session.requestId },
-      body: JSON.stringify({ question, stream: true, history: state.askHistory }),
+      body: JSON.stringify({ question, stream: true, history, scope: askScopeRequest(session.scope) }),
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
@@ -2911,7 +3128,8 @@ async function askWith(endpoint, loadingText) {
                 { role: "assistant", content: answerText.slice(0, 1200) },
               ];
           session.completed = true;
-          renderAnswer({ answer: answerText, sources, clarification_sources: event.clarification_sources || [], expanded_terms: expandedTerms, kind: resultKind, data: resultData, timing: event.timing || {} }, question);
+          state.askHistoryScopeKey = scopeKey;
+          renderAnswer({ answer: answerText, sources, context_passages: event.context_passages || [], clarification_sources: event.clarification_sources || [], expanded_terms: expandedTerms, kind: resultKind, data: resultData, timing: event.timing || {} }, question, session.scope);
           return;
         } else if (event.type === "error") {
           throw new Error(event.message || "智能问答暂时不可用");
@@ -3054,13 +3272,13 @@ function renderImportQueue() {
   const failed = rows.filter(x => ['stage_failed','failed','upload_failed','needs_file','rejected'].includes(x.status)).length;
   $('#import-summary').textContent = `${rows.length} 个文件 · ${done} 个就绪${failed ? ` · ${failed} 个需处理` : ''}${importQueue.hasUnsaved() ? ' · 部分原件尚未暂存，请勿关闭页面。' : rows.some(x => x.staged) ? ' · 未提交原件已暂存，重开后可继续。' : ''}${importQueue.cacheError ? ' · '+importQueue.cacheError : ''}`;
   $('#import-resume').disabled = importQueue.busy || !rows.some(x => !x.documentId && x.staged && ['staged','upload_failed'].includes(x.status));
-  list.innerHTML = rows.map(row => {
+  PocketImportView.render(list, rows, row => {
     const saved = Boolean(row.documentId);
     const retryable = row.status === 'failed' || (['staged','stage_failed','upload_failed'].includes(row.status) && row.file);
     const missingOriginal = /FileNotFoundError|原文件暂不可用/.test(row.error || '');
     const details = (row.status === 'failed' ? importFailureMessage(row.error) : row.error) || (row.status === 'ready' ? (row.reused ? '相同内容已存在，已复用原记录，没有重复导入。' : '原件和索引已保存。') : saved ? '原件已在当前资料库中，刷新页面后仍可继续查看状态。' : row.staged ? '原件已暂存本机，刷新或重开后可继续导入，无需重新选择。' : '尚未确认原件保存。');
     return `<li class="import-status-item" data-failed="${['stage_failed','failed','upload_failed','needs_file','rejected'].includes(row.status)}"><div class="import-item-heading"><strong>${escapeHtml(row.name)}</strong><span>${missingOriginal ? '原件待恢复' : labels[row.status] || escapeHtml(row.status)}</span></div><p>${escapeHtml(details)}</p>${row.cleanupError ? `<p class="muted">${escapeHtml(row.cleanupError)}</p>` : ''}${row.status === 'failed' && !missingOriginal ? '<p class="muted">原件仍保存在本机，可下载检查。修正后的文件可重新导入；重复提交相同内容不会新增副本。</p>' : ''}${row.error && row.error !== details ? `<details><summary>详细原因</summary><p>${escapeHtml(row.error)}</p></details>` : ''}<div class="import-item-actions">${retryable && !missingOriginal ? `<button type="button" class="ghost" data-import-retry="${escapeHtml(row.key)}" ${importQueue.busy || row.retrying ? 'disabled' : ''}>${row.retrying ? '正在重试' : saved ? '重试处理' : row.status === 'stage_failed' ? '重试暂存' : row.staged ? '继续导入' : '重试提交'}</button>` : ''}${row.status === 'needs_file' || missingOriginal ? '<button type="button" class="ghost" data-import-select>重新选择原文件</button>' : ''}${!saved && ['staged','stage_failed','upload_failed','needs_file','rejected'].includes(row.status) ? `<button type="button" class="ghost" data-import-dismiss="${escapeHtml(row.key)}">移出列表</button>` : ''}${saved ? `${!missingOriginal ? `<a href="/api/documents/${Number(row.documentId)}/file?download=1&library=${encodeURIComponent(importQueue.scope)}" download>下载已保存原件</a>` : ''}<button type="button" class="ghost" data-import-open="${Number(row.documentId)}">查看文件</button>` : ''}</div></li>`;
-  }).join('');
+  }, importQueue.scope);
 }
 function importFailureMessage(error = '') {
   if (/BadZipFile|PackageNotFoundError|not a zip file|FileDataError/i.test(error)) return '文件内容与格式不符，或文件已损坏。请用原软件打开检查，重新保存后再导入。';
@@ -3087,7 +3305,7 @@ $('#import-status-list').addEventListener('click', async event => {
 });
 $('#import-refresh').addEventListener('click', async () => { try { await importQueue.activate(true); await refreshDocuments(); } catch (error) { $('#document-import-hint').textContent=error.message; } });
 $('#import-resume').addEventListener('click', async () => { try { await importQueue.resume(); await refreshDocuments(); } catch (error) { $('#document-import-hint').textContent=error.message; } });
-$('#import-clear').addEventListener('click', async () => { try { await importQueue.clearCompleted(); } catch (error) { $('#document-import-hint').textContent=`未能清理暂存记录：${error.message}`; } });
+$('#import-clear').addEventListener('click', async () => { try { await importQueue.clearCompleted(); } catch (error) { $('#document-import-hint').textContent=`未能清除导入记录：${error.message}`; } });
 window.addEventListener('beforeunload', event => { if (importQueue.hasUnsaved()) { event.preventDefault(); event.returnValue = ''; } });
 
 function bindDocumentFileInput(selector) {
@@ -3101,6 +3319,14 @@ function bindDocumentFileInput(selector) {
 
 bindDocumentFileInput("#document-file-input");
 bindDocumentFileInput("#document-folder-input");
+for (const picker of document.querySelectorAll('.document-file-picker[for]')) {
+  picker.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      document.getElementById(picker.htmlFor)?.click();
+    }
+  });
+}
 
 function isSupportedDocumentFile(file) {
   const extension = file?.name?.split(".").pop()?.toLowerCase() || "";
@@ -3155,6 +3381,7 @@ async function handleDocumentAction(document, action) {
   if (action === "reindex") {
     try {
       await request(`/api/documents/${document.id}/reindex`, { method: "POST", body: "{}", headers });
+      importQueue.revealDocument(document.id, headers['X-PocketMemory-Library']);
       showToast("已提交", "正在重新提取并建立索引");
       await refreshDocuments();
     } catch (error) { showToast("操作失败", error.message); }
@@ -3990,29 +4217,45 @@ document.addEventListener("pointerdown", (event) => {
 }, true);
 
 document.addEventListener("mousedown", (event) => {
-  if (event.target.closest(".editor-tool")) event.preventDefault();
+  if (event.target.closest(".editor-tool, .editor-color-swatch")) event.preventDefault();
 });
 
 document.addEventListener("click", (event) => {
-  const tool = event.target.closest(".editor-tool");
+  const tool = event.target.closest(".editor-tool, .editor-color-swatch");
   if (!tool) return;
   const editor = $("#editor-dock-content .note-content.editable");
   if (!editor || editor.getAttribute("contenteditable") !== "true") return;
+  if (tool.dataset.editorColor) {
+    if (!window.PMColorPalette?.open) return;
+    rememberEditorSelection();
+    const selection = state.editorSelection?.cloneRange();
+    const highlight = tool.dataset.editorColor === "hiliteColor";
+    window.PMColorPalette.open({
+      trigger: tool,
+      title: highlight ? "文字背景颜色" : "文字颜色",
+      value: document.queryCommandValue(tool.dataset.editorColor) || tool.dataset.colorValue,
+      defaultValue: highlight ? "#fff3a6" : "#1f2f2d",
+      kind: highlight ? "highlight" : "text",
+      onPick: (color) => {
+        if (!editor.isConnected || editor.getAttribute("contenteditable") !== "true"
+          || $("#editor-dock-content .note-content.editable") !== editor) return;
+        if (selection) state.editorSelection = selection;
+        tool.dataset.colorValue = color;
+        tool.style.setProperty("--editor-picked-color", color);
+        applyEditorCommand(editor, tool.dataset.editorColor, color);
+      },
+    });
+    return;
+  }
   applyEditorCommand(editor, tool.dataset.editorCommand, tool.dataset.editorValue || null);
 });
 
 document.addEventListener("change", (event) => {
   const select = event.target.closest(".editor-format-select");
-  const colorInput = event.target.closest(".editor-color-input");
-  if (!select && !colorInput) return;
+  if (!select) return;
   const editor = $("#editor-dock-content .note-content.editable");
   if (!editor || editor.getAttribute("contenteditable") !== "true") return;
-  if (select) {
-    applyEditorCommand(editor, "formatBlock", `<${select.value}>`);
-  } else {
-    colorInput.closest(".editor-color-swatch")?.style.setProperty("--editor-picked-color", colorInput.value);
-    applyEditorCommand(editor, colorInput.dataset.editorColor, colorInput.value);
-  }
+  applyEditorCommand(editor, "formatBlock", `<${select.value}>`);
 });
 
 $("#stats-panel").addEventListener("click", async (event) => {
@@ -4069,6 +4312,7 @@ async function handleNoteInteraction(event) {
   if (resultSelect) {
     if (!await prepareEditorNavigation()) return;
     state.selectedNoteId = Number(resultSelect.dataset.id);
+    rememberAskEditorNote(state.selectedNoteId);
     renderTimeline();
     switchPane("editor-pane");
     const tabId = Number(resultSelect.dataset.resultTabId) || null;
@@ -4135,6 +4379,8 @@ async function handleNoteInteraction(event) {
     if (!await flushPendingContentSaves()) return;
     try {
       await request(`/api/notes/${note.id}`, { method: "DELETE" });
+      if (Number(state.askCurrentNote?.id) === Number(note.parent_note_id || note.id)) rememberAskCurrentNote(null);
+      if (Number(state.askEditorNote?.id) === Number(note.parent_note_id || note.id)) state.askEditorNote = null;
       const removedIds = new Set([Number(note.id), state.editorActiveTabs.get(Number(note.id))]);
       for (const id of removedIds) state.noteEditorSessions.delete(id);
       state.editorActiveTabs.delete(Number(note.id));
@@ -4271,23 +4517,32 @@ function renderTabsBar(tabsBar, tabs, activeId) {
   tabsBar.innerHTML = `${chips}${addButton}`;
 }
 
-async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = [], citationEvidence = "", noteSpans = null, tabsBar: scopedTabsBar = null } = {}) {
+async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = [], citationEvidence = "", noteSpans = null, sourcePreview = false, previewIsCurrent = null, tabsBar: scopedTabsBar = null, updateAskScope = true } = {}) {
   const tabsBar = scopedTabsBar || document.querySelector(`.note-tabs-bar[data-note-id="${noteId}"]`);
   const noteEl = tabsBar?.closest(".note");
   if (!noteEl) return;
   const isReference = noteEl.classList.contains("reference-note");
-  if (!isReference && !await flushPendingContentSaves()) return false;
+  // Keep the original preview identity through manual tab navigation. Equal
+  // text in a different tab must never become a replacement location.
+  sourcePreview = isReference && (sourcePreview || Array.isArray(tabsBar.sourcePreviewSpans));
+  if (sourcePreview) {
+    noteSpans = Array.isArray(noteSpans) ? noteSpans : (tabsBar.sourcePreviewSpans || []);
+    tabsBar.sourcePreviewSpans = noteSpans;
+    highlightTerms = [];
+  }
+  if (!isReference && !await prepareEditorNavigation()) return false;
   const loadToken = String(Number(tabsBar.dataset.loadToken || 0) + 1);
   tabsBar.dataset.loadToken = loadToken;
   try {
     const tabNote = await request(`/api/notes/${tabId}`);
     const citationSpans = Array.isArray(noteSpans) ? await validatedNoteCitationSpans(tabNote, noteSpans) : null;
-    if (!tabsBar.isConnected || tabsBar.dataset.loadToken !== loadToken) return false;
+    if (!tabsBar.isConnected || tabsBar.dataset.loadToken !== loadToken || (previewIsCurrent && !previewIsCurrent())) return false;
+    if (updateAskScope) rememberAskCurrentNote(tabNote, isReference ? 'reference' : 'editor');
     const contentEl = noteEl.querySelector(".note-tab-content");
     tabsBar.dataset.activeTab = tabId;
     contentEl.dataset.activeTab = tabId;
     contentEl.innerHTML = isReference
-      ? `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, Array.isArray(citationSpans) ? [] : highlightTerms, { citationEvidence, citationSpans }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`
+      ? (sourcePreview ? renderSourcePreviewNoteContent(tabNote, citationSpans) : `<div class="note-content reference-note-content">${tabNote.content ? renderNoteContent(tabNote.content, Array.isArray(citationSpans) ? [] : highlightTerms, { citationEvidence, citationSpans }) : "<p class='muted'>此页签暂无正文。</p>"}</div>`)
       : renderNoteBody(tabNote, highlightTerms);
     if (!isReference) {
       state.draftNoteSources.set(Number(tabId), tabNote);
@@ -4316,7 +4571,7 @@ async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = 
     }
     // 更新页签高亮
     const tabs = await request(`/api/notes/${noteId}/tabs`);
-    if (!tabsBar.isConnected || tabsBar.dataset.loadToken !== loadToken) return false;
+    if (!tabsBar.isConnected || tabsBar.dataset.loadToken !== loadToken || (previewIsCurrent && !previewIsCurrent())) return false;
     renderTabsBar(tabsBar, tabs, tabId);
     if (focusEditor && !isReference) {
       requestAnimationFrame(() => contentEl.querySelector(".note-content.editable")?.focus());
@@ -4324,6 +4579,7 @@ async function switchTab(noteId, tabId, { focusEditor = false, highlightTerms = 
     if (highlightTerms.length || citationSpans?.length) scrollToCitation(contentEl);
     return true;
   } catch (e) {
+    if (previewIsCurrent && !previewIsCurrent()) return false;
     showToast("切换失败", e.message);
   }
 }
@@ -4503,7 +4759,7 @@ document.addEventListener("blur", (event) => {
   const content = event.target.closest(".note-content.editable");
   if (!content) return;
   if (content.dataset.draft === "1") syncNewNoteDraftFromDom();
-  else saveEditorContent(content);
+  else saveEditorContent(content, { retryFailed: false });
 }, true);
 
 document.addEventListener("focus", (event) => {
@@ -5145,32 +5401,45 @@ async function openDoc(url, title, evidence = "", options = {}) {
     // 解析 tab_id 参数：用于从智能解答来源直接定位到具体页签
     const tabIdMatch = url.match(/[?&]tab_id=(\d+)/);
     const tabId = tabIdMatch ? Number(tabIdMatch[1]) : null;
-    $("#doc-preview-eyebrow").textContent = "参考笔记 · 只读定位";
-    $("#doc-preview-title").textContent = title || "参考文档";
-    $("#doc-preview-body").innerHTML = `<p class="muted">加载中...</p>`;
-    $("#doc-preview").classList.remove("hidden");
-    $("#timeline").classList.add("hidden");
-    $("#doc-fab").classList.remove("hidden");
-    window.scrollTo({ top: 0 });
+    const previewIsCurrent = options.previewIsCurrent || (() => true);
+    const noteSpans = options.sourcePreview
+      ? (Array.isArray(options.noteSpans) ? options.noteSpans : []) : options.noteSpans;
+    const showNotePreview = () => {
+      $("#doc-preview-eyebrow").textContent = "参考笔记 · 只读定位";
+      $("#doc-preview-title").textContent = title || "参考文档";
+      $("#doc-preview-body").innerHTML = `<p class="muted">加载中...</p>`;
+      $("#doc-preview").classList.remove("hidden");
+      $("#timeline").classList.add("hidden");
+      $("#doc-fab").classList.remove("hidden");
+      window.scrollTo({ top: 0 });
+    };
+    if (!options.sourcePreview) showNotePreview();
     try {
       const note = await request(`/api/notes/${noteId}`);
-      const citationSpans = Array.isArray(options.noteSpans) ? await validatedNoteCitationSpans(note, options.noteSpans) : null;
+      const citationSpans = Array.isArray(noteSpans) ? await validatedNoteCitationSpans(note, noteSpans) : null;
+      if (!previewIsCurrent()) return;
+      if (options.sourcePreview) showNotePreview();
       // 引用视图只展示可核对原文，不能携带编辑、删除或整理操作。
-      const citationTerms = citationHighlightTerms(evidence);
+      const citationTerms = options.sourcePreview ? [] : citationHighlightTerms(evidence);
       const terms = Array.isArray(citationSpans) ? [] : citationTerms.length || options.exactEvidence ? citationTerms : searchHighlightTerms();
-      $("#doc-preview-body").innerHTML = `<div class="timeline reference-timeline">${renderReferenceNoteHtml(note, terms, { citationEvidence: evidence, citationSpans })}</div>`;
+      $("#doc-preview-body").innerHTML = `<div class="timeline reference-timeline">${renderReferenceNoteHtml(note, terms, { citationEvidence: evidence, citationSpans, sourcePreview: options.sourcePreview })}</div>`;
+      rememberAskCurrentNote(note, 'reference');
       const tabsBar = $("#doc-preview-body .note-tabs-bar");
       if (tabsBar) {
+        if (options.sourcePreview) tabsBar.sourcePreviewSpans = noteSpans;
         if (tabId && tabId !== noteId) {
           tabsBar.dataset.activeTab = tabId;
         }
         await loadTabsBar(Number(tabsBar.dataset.noteId), tabsBar);
+        if (!previewIsCurrent()) return;
         if (tabId && tabId !== noteId) {
-          await switchTab(noteId, tabId, { highlightTerms: terms, citationEvidence: evidence, noteSpans: options.noteSpans, tabsBar });
+          await switchTab(noteId, tabId, { highlightTerms: terms, citationEvidence: evidence, noteSpans, sourcePreview: options.sourcePreview, previewIsCurrent, tabsBar });
         }
       }
       if (!tabId || tabId === noteId) scrollToCitation($("#doc-preview-body"));
     } catch (err) {
+      if (!previewIsCurrent()) return;
+      if (options.sourcePreview) showNotePreview();
       $("#doc-preview-body").innerHTML = `<p class="ocr-error">${escapeHtml(err.message)}</p>`;
     }
     return;
@@ -5208,6 +5477,7 @@ function renderDocumentCitationText(chunk, documentId, spans = []) {
 }
 
 async function openImportedDocument(documentId, fallbackTitle = "导入文档", options = {}) {
+  if (state.askCurrentNote?.origin === 'reference') rememberAskCurrentNote(state.askEditorNote);
   const library = draftVault.library;
   $('#doc-preview-body').dataset.documentLibrary = library || '';
   $("#doc-preview-eyebrow").textContent = "参考文档 · 原文预览";
@@ -5268,6 +5538,7 @@ async function openImportedDocument(documentId, fallbackTitle = "导入文档", 
 }
 
 async function closeDoc() {
+  if (state.askCurrentNote?.origin === 'reference') rememberAskCurrentNote(state.askEditorNote);
   $("#doc-preview").classList.add("hidden");
   $("#timeline").classList.remove("hidden");
   $("#doc-fab").classList.add("hidden");
@@ -5294,6 +5565,7 @@ $("#doc-preview-body").addEventListener("click", async (event) => {
     const documentId = Number(reindex.dataset.documentPreviewReindex);
     request(`/api/documents/${documentId}/reindex`, { method: "POST", body: "{}", headers })
       .then(async () => {
+        importQueue.revealDocument(documentId, headers['X-PocketMemory-Library']);
         showToast("已提交", "正在重新提取并建立索引");
         await refreshDocuments();
         await openImportedDocument(documentId);
@@ -5390,7 +5662,7 @@ function appUpdateBusyReason() {
   if (state.pendingAttachmentReads) return '图片正在读取，请稍后再更新。';
   if (document.querySelector('[data-draft-rename]')) return '请先完成标题或页签名称修改，再更新程序。';
   if (Number(state.intelligenceStatus?.pending || 0) > 0 || [...state.notes, ...state.allNotes].some(note => ['pending','processing'].includes(note.ocr_status) || ['pending','processing'].includes(note.ai_status))) return '资料正在识别或整理，请处理完成后再更新。';
-  if ($('#report-generate')?.classList.contains('is-loading')) return '报告正在生成，请完成后再更新。';
+  if ($('#report-generate')?.classList.contains('is-loading')) return '文稿正在生成，请完成后再更新。';
   const composer = $('#inline-composer');
   if (composer && !composer.classList.contains('hidden') && ($('#inline-content')?.value.trim() || state.imageDataUrl)) return '请先保存或取消当前录入内容，再更新程序。';
   if (draftVault.loading || !draftVault.library) return '本机草稿尚未就绪，请稍后再更新。';
@@ -5946,451 +6218,9 @@ document.addEventListener("mousedown", (event) => {
 // 初始化时检查是否需要 onboarding（延迟到 DOM 就绪）
 setTimeout(showOnboardingIfNeeded, 800);
 
-// ---------- 知识图谱 ----------
-// 基于 Canvas 的轻量力导向图：节点=笔记+标签，边=标签归属+[[双链]]。
-// 优化：收敛机制(alpha decay)、孤立节点过滤、搜索高亮、标签开关、节点大小按 degree 缩放。
-const graph = {
-  canvas: null,
-  ctx: null,
-  rawNodes: [],
-  rawEdges: [],
-  nodes: [],
-  edges: [],
-  nodeMap: {},
-  rafId: null,
-  dragNode: null,
-  dragMoved: false,
-  hoverNode: null,
-  scale: 1,
-  offsetX: 0,
-  offsetY: 0,
-  width: 0,
-  height: 0,
-  running: false,
-  bound: false,
-  alpha: 1,          // 模拟温度，从1衰减到0，0时停止
-  searchTerm: "",
-  showIsolated: true,
-  showTags: true,
-  showBroken: false,
-};
+// 知识图谱的独立 Canvas 视图由 graph-light.js 提供。
 
-const CATEGORY_COLORS = {
-  "工作": "#C89B6A",
-  "技术": "#3399CC",
-  "学习": "#7C3AED",
-  "生活": "#22C55E",
-  "灵感": "#EC4899",
-  "其他": "#64748B",
-};
-
-function nodeColor(node) {
-  if (node.type === "tag") return "#22C55E";
-  if (node.type === "broken") return "#EF4444";
-  return CATEGORY_COLORS[node.category] || "#3399CC";
-}
-
-function resizeGraphCanvas() {
-  const c = graph.canvas;
-  if (!c) return;
-  const dpr = window.devicePixelRatio || 1;
-  const rect = c.getBoundingClientRect();
-  c.width = Math.max(1, rect.width) * dpr;
-  c.height = Math.max(1, rect.height) * dpr;
-  graph.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  graph.width = rect.width;
-  graph.height = rect.height;
-}
-
-function filterGraphNodes() {
-  // 根据开关和搜索词过滤节点
-  const showIsolated = graph.showIsolated;
-  const showTags = graph.showTags;
-  const showBroken = graph.showBroken;
-  graph.nodes = graph.rawNodes.filter((n) => {
-    if (n.type === "tag" && !showTags) return false;
-    if (n.type === "broken" && !showBroken) return false;
-    if (!showIsolated && (n.degree || 0) === 0) return false;
-    return true;
-  });
-  const nodeIds = new Set(graph.nodes.map((n) => n.id));
-  graph.edges = graph.rawEdges.filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target));
-  graph.nodeMap = {};
-  graph.nodes.forEach((n) => { graph.nodeMap[n.id] = n; });
-}
-
-function initGraph(data) {
-  graph.rawNodes = data.nodes.map((n) => ({
-    ...n,
-    vx: 0,
-    vy: 0,
-    // 节点半径按 degree 缩放：有连接的更大，孤立的更小
-    radius: n.type === "tag"
-      ? Math.min(6 + (n.count || 1) * 1.2, 16)
-      : n.type === "broken"
-      ? 6
-      : Math.min(5 + (n.degree || 0) * 1.5, 12),
-  }));
-  graph.rawEdges = data.edges;
-  filterGraphNodes();
-  // 初始位置：环形分布，避免重叠
-  layoutCircular();
-  graph.scale = 1;
-  graph.offsetX = 0;
-  graph.offsetY = 0;
-  graph.dragNode = null;
-  graph.hoverNode = null;
-  graph.alpha = 1;
-}
-
-function layoutCircular() {
-  const cx = graph.width / 2, cy = graph.height / 2;
-  const r = Math.min(graph.width, graph.height) * 0.35;
-  const n = graph.nodes.length;
-  graph.nodes.forEach((node, i) => {
-    const angle = (i / Math.max(n, 1)) * Math.PI * 2;
-    node.x = cx + Math.cos(angle) * r + (Math.random() - 0.5) * 20;
-    node.y = cy + Math.sin(angle) * r + (Math.random() - 0.5) * 20;
-    node.vx = 0;
-    node.vy = 0;
-  });
-}
-
-function tickGraph() {
-  const nodes = graph.nodes;
-  if (!nodes.length) return;
-  const cx = graph.width / 2, cy = graph.height / 2;
-  // 参数随 alpha 衰减，收敛后停止
-  const alpha = graph.alpha;
-  const repulsion = 3500 * alpha;
-  const linkDistance = 140;
-  const linkStrength = 0.06 * alpha;
-  const centerStrength = 0.01 * alpha;
-  const damping = 0.82;
-
-  for (let i = 0; i < nodes.length; i += 1) {
-    for (let j = i + 1; j < nodes.length; j += 1) {
-      const a = nodes[i], b = nodes[j];
-      let dx = b.x - a.x, dy = b.y - a.y;
-      let dist2 = dx * dx + dy * dy;
-      if (dist2 < 0.01) { dist2 = 0.01; dx = Math.random() - 0.5; dy = Math.random() - 0.5; }
-      const dist = Math.sqrt(dist2);
-      // 节点半径之和的排斥（防止重叠）
-      const minDist = a.radius + b.radius + 4;
-      const force = dist < minDist ? repulsion / Math.max(dist2, minDist * minDist) : repulsion / dist2;
-      const fx = (dx / dist) * force, fy = (dy / dist) * force;
-      a.vx -= fx; a.vy -= fy;
-      b.vx += fx; b.vy += fy;
-    }
-  }
-  for (const edge of graph.edges) {
-    const a = graph.nodeMap[edge.source], b = graph.nodeMap[edge.target];
-    if (!a || !b) continue;
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-    const diff = dist - linkDistance;
-    const fx = (dx / dist) * diff * linkStrength;
-    const fy = (dy / dist) * diff * linkStrength;
-    a.vx += fx; a.vy += fy;
-    b.vx -= fx; b.vy -= fy;
-  }
-  for (const n of nodes) {
-    if (n === graph.dragNode) { n.vx = 0; n.vy = 0; continue; }
-    n.vx += (cx - n.x) * centerStrength;
-    n.vy += (cy - n.y) * centerStrength;
-    n.vx *= damping; n.vy *= damping;
-    n.x += n.vx; n.y += n.vy;
-  }
-  // alpha 衰减
-  graph.alpha = Math.max(0, graph.alpha - 0.005);
-  if (graph.alpha <= 0.01) {
-    graph.running = false;
-  }
-}
-
-function isNodeMatched(node) {
-  if (!graph.searchTerm) return false;
-  return (node.label || "").toLowerCase().includes(graph.searchTerm.toLowerCase());
-}
-
-function drawGraph() {
-  const ctx = graph.ctx;
-  if (!ctx) return;
-  ctx.clearRect(0, 0, graph.width, graph.height);
-  ctx.save();
-  ctx.translate(graph.offsetX, graph.offsetY);
-  ctx.scale(graph.scale, graph.scale);
-
-  // 搜索时未匹配节点变暗
-  const hasSearch = !!graph.searchTerm;
-
-  // 画边
-  for (const edge of graph.edges) {
-    const a = graph.nodeMap[edge.source], b = graph.nodeMap[edge.target];
-    if (!a || !b) continue;
-    const matched = hasSearch && (isNodeMatched(a) || isNodeMatched(b));
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    if (edge.type === "link") {
-      ctx.strokeStyle = matched ? "rgba(51, 153, 204, 0.8)" : "rgba(51, 153, 204, 0.3)";
-      ctx.lineWidth = matched ? 2 : 1.2;
-      ctx.setLineDash([]);
-    } else if (edge.type === "broken") {
-      ctx.strokeStyle = matched ? "rgba(239, 68, 68, 0.8)" : "rgba(239, 68, 68, 0.35)";
-      ctx.lineWidth = matched ? 2 : 1.2;
-      ctx.setLineDash([5, 3]);
-    } else {
-      ctx.strokeStyle = matched ? "rgba(100, 116, 139, 0.5)" : "rgba(100, 116, 139, 0.18)";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([]);
-    }
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-
-  // 画节点
-  for (const n of graph.nodes) {
-    const color = nodeColor(n);
-    const matched = isNodeMatched(n);
-    const isHover = n === graph.hoverNode;
-    let alpha = 0.85;
-    if (hasSearch) alpha = matched ? 1 : 0.2;
-    if (isHover) alpha = 1;
-
-    if (n.type === "broken") {
-      // 失效目标：红色空心虚线圆，表示不存在的笔记
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = "rgba(239, 68, 68, 0.08)";
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#EF4444";
-      ctx.lineWidth = isHover ? 2.5 : 1.5;
-      ctx.setLineDash([3, 2]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    } else {
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = isHover ? 2.5 : 1.5;
-      ctx.stroke();
-    }
-
-    // 标签：搜索匹配或悬停时显示完整，否则截断
-    const showFull = isHover || matched || !hasSearch;
-    const label = showFull
-      ? (n.label.length > 14 ? n.label.slice(0, 13) + "…" : n.label)
-      : "";
-    if (label) {
-      ctx.fillStyle = "#1E293B";
-      ctx.font = n.type === "tag" ? "600 11px Inter, sans-serif" : "500 11px Inter, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      // 白色描边提高可读性
-      ctx.strokeStyle = "rgba(255,255,255,0.9)";
-      ctx.lineWidth = 3;
-      ctx.strokeText(label, n.x, n.y + n.radius + 3);
-      ctx.fillText(label, n.x, n.y + n.radius + 3);
-    }
-
-    if (n.type === "tag") {
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "700 9px Inter, sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.textAlign = "center";
-      ctx.fillText(String(n.count), n.x, n.y);
-    }
-  }
-  ctx.restore();
-}
-
-function startGraphSimulation() {
-  stopGraphSimulation();
-  graph.alpha = 1;
-  graph.running = true;
-  const step = () => {
-    if (!graph.running) { drawGraph(); return; }
-    tickGraph();
-    drawGraph();
-    if (graph.running) {
-      graph.rafId = requestAnimationFrame(step);
-    } else {
-      graph.rafId = requestAnimationFrame(() => drawGraph());
-    }
-  };
-  graph.rafId = requestAnimationFrame(step);
-}
-
-function stopGraphSimulation() {
-  graph.running = false;
-  if (graph.rafId) cancelAnimationFrame(graph.rafId);
-  graph.rafId = null;
-}
-
-function restartGraphSimulation() {
-  // 拖拽或过滤后重启模拟
-  graph.alpha = Math.max(graph.alpha, 0.3);
-  if (!graph.running) startGraphSimulation();
-}
-
-function screenToGraph(sx, sy) {
-  return { x: (sx - graph.offsetX) / graph.scale, y: (sy - graph.offsetY) / graph.scale };
-}
-
-function nodeAtScreen(sx, sy) {
-  const p = screenToGraph(sx, sy);
-  for (let i = graph.nodes.length - 1; i >= 0; i -= 1) {
-    const n = graph.nodes[i];
-    const dx = p.x - n.x, dy = p.y - n.y;
-    if (dx * dx + dy * dy <= (n.radius + 3) * (n.radius + 3)) return n;
-  }
-  return null;
-}
-
-function bindGraphEvents() {
-  if (graph.bound) return;
-  graph.bound = true;
-  const c = graph.canvas;
-
-  c.addEventListener("mousedown", (e) => {
-    const rect = c.getBoundingClientRect();
-    graph.dragNode = nodeAtScreen(e.clientX - rect.left, e.clientY - rect.top);
-    graph.dragMoved = false;
-  });
-
-  c.addEventListener("mousemove", (e) => {
-    const rect = c.getBoundingClientRect();
-    const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    if (graph.dragNode) {
-      const p = screenToGraph(x, y);
-      graph.dragNode.x = p.x;
-      graph.dragNode.y = p.y;
-      graph.dragMoved = true;
-      restartGraphSimulation();
-    } else {
-      const prev = graph.hoverNode;
-      graph.hoverNode = nodeAtScreen(x, y);
-      if (prev !== graph.hoverNode) drawGraph();
-      c.style.cursor = graph.hoverNode ? "pointer" : "grab";
-    }
-  });
-
-  c.addEventListener("mouseup", () => {
-    if (graph.dragNode && !graph.dragMoved) {
-      if (graph.dragNode.type === "note") {
-        const noteId = graph.dragNode.noteId;
-        closeGraph();
-        $("#search").value = "";
-        $("#search-clear").classList.add("hidden");
-        state.filter = {};
-        state.pendingScrollId = noteId;
-        refresh();
-      } else if (graph.dragNode.type === "broken") {
-        toast(`失效链接：目标笔记「${graph.dragNode.label}」不存在或已删除`);
-      }
-    }
-    graph.dragNode = null;
-  });
-
-  c.addEventListener("mouseleave", () => {
-    graph.dragNode = null;
-    graph.hoverNode = null;
-    drawGraph();
-  });
-
-  c.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const rect = c.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-    const delta = e.deltaY < 0 ? 1.1 : 0.9;
-    const newScale = Math.max(0.3, Math.min(3, graph.scale * delta));
-    graph.offsetX = mx - (mx - graph.offsetX) * (newScale / graph.scale);
-    graph.offsetY = my - (my - graph.offsetY) * (newScale / graph.scale);
-    graph.scale = newScale;
-    drawGraph();
-  }, { passive: false });
-
-  // 工具栏事件
-  $("#graph-search").addEventListener("input", (e) => {
-    graph.searchTerm = e.target.value.trim();
-    drawGraph();
-  });
-  $("#graph-show-isolated").addEventListener("change", (e) => {
-    graph.showIsolated = e.target.checked;
-    filterGraphNodes();
-    layoutCircular();
-    restartGraphSimulation();
-  });
-  $("#graph-show-tags").addEventListener("change", (e) => {
-    graph.showTags = e.target.checked;
-    filterGraphNodes();
-    layoutCircular();
-    restartGraphSimulation();
-  });
-  $("#graph-show-broken").addEventListener("change", (e) => {
-    graph.showBroken = e.target.checked;
-    filterGraphNodes();
-    layoutCircular();
-    restartGraphSimulation();
-  });
-  $("#graph-relayout").addEventListener("click", () => {
-    layoutCircular();
-    restartGraphSimulation();
-  });
-}
-
-async function openGraph() {
-  const dialog = $("#graph-dialog");
-  dialog.showModal();
-  graph.canvas = $("#graph-canvas");
-  graph.ctx = graph.canvas.getContext("2d");
-  // 重置工具栏状态
-  $("#graph-search").value = "";
-  graph.searchTerm = "";
-  graph.showIsolated = true;
-  graph.showTags = true;
-  graph.showBroken = false;
-  $("#graph-show-isolated").checked = true;
-  $("#graph-show-tags").checked = true;
-  $("#graph-show-broken").checked = false;
-  resizeGraphCanvas();
-  bindGraphEvents();
-  $("#graph-empty").classList.add("hidden");
-  $("#graph-empty").textContent = "暂无足够数据生成图谱（至少需要 2 篇笔记或 1 条双链）。";
-  try {
-    const data = await request("/api/graph");
-    initGraph(data);
-    if (!graph.nodes.length) {
-      $("#graph-empty").classList.remove("hidden");
-      stopGraphSimulation();
-      drawGraph();
-      return;
-    }
-    startGraphSimulation();
-  } catch (err) {
-    $("#graph-empty").textContent = "加载图谱失败：" + err.message;
-    $("#graph-empty").classList.remove("hidden");
-    stopGraphSimulation();
-  }
-}
-
-function closeGraph() {
-  stopGraphSimulation();
-  const dialog = $("#graph-dialog");
-  if (dialog.open) dialog.close();
-}
-
-$("#graph-button")?.addEventListener("click", openGraph);
-$("#graph-close")?.addEventListener("click", closeGraph);
-
-/* ---------- 专题报告：选择资料 -> 模板编排 -> 编辑/导出 ---------- */
+/* ---------- 资料汇编：选择资料 -> 模板编排 -> 编辑/导出 ---------- */
 let reportTemplates = [];
 
 function cleanReportSourceLabel(value = "") {
@@ -6449,7 +6279,7 @@ function renderReportDraft(draft) {
     return `<section class="report-section"><div class="report-section-number">0${index + 1}</div><div><h2>${escapeHtml(section.title)}</h2><p class="report-section-lead">${escapeHtml(section.intro || "")}</p><div class="report-section-citations">${citationButtons(section.claim_ids || [])}</div><div class="report-claim-list">${claims}</div></div></section>`;
   }).join("");
   const summary = draft.summary || {};
-  return `<article class="report-sheet"><header class="report-sheet-header"><p>POCKET MEMORY · 本地专题报告</p><h1>${escapeHtml(draft.title)}</h1><div>${escapeHtml(draft.template_label)}</div></header><section class="report-intro report-summary"><span class="report-kicker">AI 归纳摘要</span><p>${escapeHtml(summary.text || "已根据所选资料完成编排。")}</p><div class="report-summary-citations">${citationButtons(summary.claim_ids || [])}</div></section>${sections}<footer class="report-sheet-footer"><strong>资料范围</strong><br>${sourceNames || "无"}</footer></article>`;
+  return `<article class="report-sheet"><header class="report-sheet-header"><p>POCKET MEMORY · 本地资料汇编</p><h1>${escapeHtml(draft.title)}</h1><div>${escapeHtml(draft.template_label)}</div></header><section class="report-intro report-summary"><span class="report-kicker">AI 归纳摘要</span><p>${escapeHtml(summary.text || "已根据所选资料完成编排。")}</p><div class="report-summary-citations">${citationButtons(summary.claim_ids || [])}</div></section>${sections}<footer class="report-sheet-footer"><strong>资料范围</strong><br>${sourceNames || "无"}</footer></article>`;
 }
 
 function showReportGenerationProgress() {
@@ -6457,7 +6287,7 @@ function showReportGenerationProgress() {
   const startedAt = Date.now();
   const stages = [
     [0, "核验资料", "检查每条内容是否能回到原文定位。"],
-    [2600, "提取事实", "从资料中提炼可引用的事实，不把推测写进报告。"],
+    [2600, "提取事实", "从资料中提炼可引用的事实，不把推测写进文稿。"],
     [10500, "组织章节", "根据资料主题编排摘要与章节结构。"],
   ];
   const render = () => {
@@ -6467,7 +6297,7 @@ function showReportGenerationProgress() {
     ), 0);
     preview.innerHTML = `<section class="report-generation" role="status" aria-live="polite">
       <div class="report-generation-orbit" aria-hidden="true"><span></span><i></i><b></b></div>
-      <div class="report-generation-copy"><p class="report-generation-kicker">本地 AI 正在工作</p><h3>正在编排这份专题报告</h3><p>资料越长、事实越多，所需时间会不同。你可以先核对左侧已选资料。</p></div>
+      <div class="report-generation-copy"><p class="report-generation-kicker">本地 AI 正在工作</p><h3>正在编排这份资料汇编</h3><p>资料越长、事实越多，所需时间会不同。你可以先核对左侧已选资料。</p></div>
       <ol class="report-generation-steps">${stages.map(([_, label, detail], index) => {
         const stateName = index < activeIndex ? "done" : index === activeIndex ? "active" : "";
         return `<li class="${stateName}"><span>${index < activeIndex ? "✓" : `0${index + 1}`}</span><div><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></div></li>`;
@@ -6497,10 +6327,10 @@ async function openReportDialog() {
     updateReportTemplateHint();
     renderReportSelectedSources();
     const title = $("#report-title");
-    if (!title.value.trim()) title.value = "我的专题报告";
+    if (!title.value.trim()) title.value = "我的资料汇编";
     $("#report-dialog").showModal();
   } catch (error) {
-    showToast("无法打开专题报告", error.message);
+    showToast("无法打开资料汇编", error.message);
   }
 }
 
@@ -6512,7 +6342,7 @@ function leaveReportSelection({ clear = false } = {}) {
 
 function exportReportHtml() {
   const preview = $("#report-preview");
-  const title = $("#report-title").value.trim() || "Pocket Memory 专题报告";
+  const title = $("#report-title").value.trim() || "Pocket Memory 资料汇编";
   const exportNode = preview.cloneNode(true);
   exportNode.querySelectorAll("[data-report-evidence-id]").forEach((button) => {
     const source = button.dataset.reportEvidenceTitle || "原始资料";
@@ -6554,11 +6384,11 @@ $("#report-selected-list").addEventListener("click", (event) => {
 });
 $("#report-generate").addEventListener("click", async () => {
   const title = $("#report-title").value.trim();
-  if (!title) { showToast("请输入专题名称", "例如：项目复盘或方案介绍"); return; }
+  if (!title) { showToast("请输入汇编标题", "例如：项目复盘或方案介绍"); return; }
   const button = $("#report-generate");
   button.disabled = true;
   button.classList.add("is-loading");
-  button.textContent = "正在编排报告...";
+  button.textContent = "正在编排文稿...";
   const stopProgress = showReportGenerationProgress();
   try {
     const draft = await request("/api/reports/draft", { method: "POST", body: JSON.stringify({ title, template: $("#report-template").value, sources: selectedReportSources() }) });
@@ -6567,15 +6397,15 @@ $("#report-generate").addEventListener("click", async () => {
     preview.innerHTML = renderReportDraft(draft);
     preview.contentEditable = "true";
     $("#report-export").disabled = false;
-    showToast("报告草稿已生成", "正文可直接编辑；每一项都保留原始资料入口");
+    showToast("文稿已生成", "正文可直接编辑；每一项都保留原始资料入口");
   } catch (error) {
-    $("#report-preview").innerHTML = `<p class="muted">报告未能生成：${escapeHtml(error.message || "请检查已选资料后重试")}</p>`;
+    $("#report-preview").innerHTML = `<p class="muted">文稿未能生成：${escapeHtml(error.message || "请检查已选资料后重试")}</p>`;
     showToast("生成失败", error.message);
   } finally {
     stopProgress();
     button.disabled = false;
     button.classList.remove("is-loading");
-    button.textContent = "生成报告草稿";
+    button.textContent = "生成文稿";
   }
 });
 $("#report-export").addEventListener("click", exportReportHtml);

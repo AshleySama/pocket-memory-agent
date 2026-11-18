@@ -65,14 +65,15 @@ class ReportViews(old.WorkspaceTests):
     def test_learning_retains_revision_negation(self):
         self.store.connection.execute('UPDATE notes SET content=? WHERE id=?',('原要求：状态只可为30/50。\n\n后续修改：增加开关，关闭后不再过滤；上游资料不受约束。',self.note.id));self.store.connection.commit()
         result=self.build('learning');out=render_report(result);exported=export_html(result)
-        # The body no longer repeats complete originals. Both revisions must
-        # remain reachable in the source snapshot and the offline appendix.
-        self.assertIn('report-source-index',out)
+        # The reader omits the full reference directory. Historical revisions
+        # remain in the saved snapshot; the export contains only used quotes.
+        self.assertNotIn('report-source-index',out)
         self.ws.write(result)
         ref=next(ref for ref in result['refs'] if '状态只可为30/50' in ref['quote'])
-        self.assertIn(f'data-ref="{ref["id"]}"',out)
         original=self.ws.source(result['id'],ref['id'])['snapshot']
         for text in ('状态只可为30/50','关闭后不再过滤','上游资料不受约束'):
-            self.assertIn(text,original);self.assertIn(text,exported)
+            self.assertIn(text,original)
+        for text in ('关闭后不再过滤','上游资料不受约束'):
+            self.assertIn(text,out);self.assertIn(text,exported)
 
 if __name__=='__main__': unittest.main(verbosity=2)

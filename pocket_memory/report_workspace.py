@@ -19,9 +19,11 @@ import time
 import uuid
 from datetime import datetime, timezone
 from collections import Counter
+from contextlib import nullcontext
 from .report_sections import readable, focus_view, quote_span, presentation_records
 
 TEMPLATES = {
+    'auto': ('按资料自动组织', '根据所选资料自动识别主题并分章；不强行合并无关主题，完整保留清单、条件、版本与来源'),
     'project': ('项目复盘／工作汇报', '围绕已完成工作、产品取舍、风险与下一步行动，区分笔记记录与建议'),
     'research': ('专题研究／知识整理', '归纳核心认识、观点依据、资料分歧和未知问题，不推断因果'),
     'compare': ('方案对比／辅助决策', '按相同维度比较资料中的方案、适用条件与代价，缺失信息不可补齐'),
@@ -92,13 +94,14 @@ class ReportWorkspace:
         self.lock = threading.RLock()
         self.jobs = {}
         self.worker = None
+        self.composing_report = None
 
     @property
     def directory(self):
         p = self.store.data_dir / 'reports-v2'; p.mkdir(exist_ok=True); return p
 
     def path(self, report_id):
-        if not isinstance(report_id, str) or not re.fullmatch('[a-f0-9]{32}', report_id): raise ValueError('无效报告编号')
+        if not isinstance(report_id, str) or not re.fullmatch('[a-f0-9]{32}', report_id): raise ValueError('无效文稿编号')
         return self.directory / (report_id + '.json')
 
     def _trash_path(self, undo_token):
@@ -109,7 +112,7 @@ class ReportWorkspace:
     def list_reports(self):
         with self.lock:
             records = [json.loads(p.read_text('utf-8')) for p in self.directory.glob('*.json')]
-        return sorted([{k: r[k] for k in ('id','title','template','updated','version')} for r in records], key=lambda x: x['updated'], reverse=True)
+        return sorted([dict({k: r[k] for k in ('id','title','template','updated','version')},status=r.get('adaptive',{}).get('status','complete')) for r in records], key=lambda x: x['updated'], reverse=True)
 
     def read(self, report_id):
         with self.lock:
@@ -124,25 +127,56 @@ class ReportWorkspace:
         os.replace(tmp, target)
 
     def save_edit(self, report_id, body):
+        from .report_document import ensure_editable_report, sanitize_document_html
+        if not isinstance(body, dict): raise ValueError('无效的文稿编辑请求')
         with self.lock:
+            if self.composing_report == report_id: raise ValueError('该文稿正在成稿，请完成后再编辑')
             r = self.read(report_id)
-            if body.get('version') != r['version']: raise ValueError('报告已更新，请重新打开后再编辑')
+            ensure_editable_report(r)
+            if type(body.get('version')) is not int or body['version'] != r['version']:
+                raise ValueError('文稿已更新，请重新打开后再编辑')
+            if any(not valid_ref(ref,r['units']) for ref in r['refs']):
+                raise ValueError('文稿快照引用不一致，请重新生成')
+            edit_fields = ('title', 'document_html', 'notes', 'edited', 'reviewed')
+            if 'undo_document_edit' in body:
+                if body['undo_document_edit'] is not True or set(body) != {'version', 'undo_document_edit'}:
+                    raise ValueError('撤回保存不能同时提交其他编辑')
+                previous = r.get('last_document_edit')
+                if not isinstance(previous, dict) or not isinstance(previous.get('fields'), dict):
+                    raise ValueError('没有可撤回的人工保存')
+                for key in edit_fields:
+                    if key in previous['fields']: r[key] = copy.deepcopy(previous['fields'][key])
+                    else: r.pop(key, None)
+                if 'document_html' in r:
+                    r['document_html'] = sanitize_document_html(r['document_html'], r['refs'])
+                r.pop('last_document_edit', None)
+                r.update(version=r['version']+1, updated=now())
+                self.write(r); return r
             title = str(body.get('title',r['title'])).strip()
             notes = body.get('notes',r.get('notes',{}))
             if not 1 <= len(title) <= 100 or not isinstance(notes,dict): raise ValueError('标题或章节说明无效')
-            if any(k not in ('summary','records','actions','chart','gaps','outcomes') or not isinstance(v,str) or len(v)>4000 for k,v in notes.items()): raise ValueError('章节说明超出范围')
+            allowed = {'summary','records','actions','chart','gaps','outcomes'} | {f'chapter-{c["id"]}' for c in r.get('adaptive',{}).get('chapters',[])}
+            if 'notes' in body and any(k not in allowed or not isinstance(v,str) or len(v)>4000 for k,v in notes.items()): raise ValueError('章节说明超出范围')
+            document = (sanitize_document_html(body['document_html'], r['refs'])
+                        if 'document_html' in body else None)
+            # One reversible manual save, including legacy title/notes clients.
+            # Generation, evidence identities and chapter facts are never edited.
+            r['last_document_edit'] = {'from_version': r['version'], 'saved_at': now(),
+                'fields': {key: copy.deepcopy(r[key]) for key in edit_fields if key in r}}
+            if document is not None: r['document_html'] = document
             r.update(title=title, notes=notes, reviewed=False, version=r['version']+1, updated=now(), edited=True)
             self.write(r); return r
 
     def delete(self, report_id, expected_version):
         """Move only the saved report to local trash; its source data is untouched."""
         with self.lock:
+            if self.composing_report == report_id: raise ValueError('该文稿正在成稿，请完成后再删除')
             target = self.path(report_id)
             if type(expected_version) is not int or expected_version < 1:
-                raise ValueError('请提供要删除报告的有效版本')
+                raise ValueError('请提供要删除文稿的有效版本')
             report = self.read(report_id)
             if expected_version != report['version']:
-                raise ValueError('报告已更新，请重新打开后再删除')
+                raise ValueError('文稿已更新，请重新打开后再删除')
             undo_token = uuid.uuid4().hex
             archived = self._trash_path(undo_token)
             archived.parent.mkdir(exist_ok=True)
@@ -160,9 +194,106 @@ class ReportWorkspace:
             report = json.loads(archived.read_text('utf-8'))
             target = self.path(report['id'])
             if target.exists() or target.is_symlink():
-                raise ValueError('同编号报告已存在，无法覆盖；已删除的报告仍保留在本机')
+                raise ValueError('同编号文稿已存在，无法覆盖；已删除的文稿仍保留在本机')
             os.replace(archived, target)
             return report
+
+    def delete_many(self, reports, all_reports=False):
+        """Preflight the complete selection before moving any report to trash."""
+        if not isinstance(reports, list) or not reports or type(all_reports) is not bool:
+            raise ValueError('请选择要删除的文稿')
+        with self.lock:
+            selected, seen = [], set()
+            for item in reports:
+                if not isinstance(item, dict) or set(item) != {'id', 'version'}:
+                    raise ValueError('批量删除需要每份文稿的编号和版本')
+                report_id, version = item['id'], item['version']
+                target = self.path(report_id)
+                if report_id in seen:
+                    raise ValueError('批量删除不能重复选择同一文稿')
+                seen.add(report_id)
+                if type(version) is not int or version < 1:
+                    raise ValueError('请提供要删除文稿的有效版本')
+                report = self.read(report_id)
+                if report['version'] != version:
+                    raise ValueError('文稿已更新，本批未删除；请刷新列表后重新选择')
+                if self.composing_report == report_id or self.active_job(report_id):
+                    raise ValueError('所选文稿正在生成或成稿，本批未删除；请完成后再操作')
+                selected.append((target, report_id))
+            if all_reports and seen != {r['id'] for r in self.list_reports()}:
+                raise ValueError('文稿列表已变化，本次未清空；请刷新列表后重新确认')
+            undo_token = uuid.uuid4().hex
+            folder = self._trash_path(undo_token).with_suffix('')
+            folder.parent.mkdir(exist_ok=True)
+            while folder.exists() or folder.is_symlink():
+                undo_token = uuid.uuid4().hex
+                folder = self._trash_path(undo_token).with_suffix('')
+            folder.mkdir()
+            manifest = folder / 'batch.json'
+            moved = []
+            try:
+                with manifest.open('x', encoding='utf-8') as out:
+                    json.dump({'id': undo_token, 'reports': [rid for _, rid in selected], 'created': now()}, out)
+                    out.flush(); os.fsync(out.fileno())
+                for target, report_id in selected:
+                    archived = folder / (report_id + '.json')
+                    os.replace(target, archived)
+                    moved.append((target, archived))
+            except OSError:
+                # A normal move failure must not leave half the batch deleted.
+                # If the filesystem also refuses rollback, all snapshots and the
+                # manifest stay in this batch's trash folder for recovery.
+                for target, archived in reversed(moved):
+                    os.replace(archived, target)
+                manifest.unlink(missing_ok=True)
+                folder.rmdir()
+                raise
+            return {'deleted': [rid for _, rid in selected], 'count': len(selected), 'undo_token': undo_token}
+
+    def restore_many(self, undo_token):
+        """Restore a whole deletion batch without overwriting existing reports."""
+        with self.lock:
+            folder = self._trash_path(undo_token).with_suffix('')
+            manifest = folder / 'batch.json'
+            if folder.is_symlink() or manifest.is_symlink() or not manifest.is_file():
+                raise KeyError(undo_token)
+            batch = json.loads(manifest.read_text('utf-8'))
+            report_ids = batch.get('reports')
+            if (batch.get('id') != undo_token or not isinstance(report_ids, list)
+                    or not report_ids or any(not isinstance(rid, str) for rid in report_ids)
+                    or len(set(report_ids)) != len(report_ids)):
+                raise ValueError('文稿撤销记录无效')
+            selected = []
+            for report_id in report_ids:
+                target = self.path(report_id)
+                archived = folder / (report_id + '.json')
+                if target.exists() or target.is_symlink():
+                    raise ValueError('同编号文稿已存在，本批未恢复；已删除文稿仍保留在本机')
+                if self.composing_report == report_id or self.active_job(report_id):
+                    raise ValueError('同编号文稿正在生成，本批未恢复；请完成后重试')
+                if archived.is_symlink() or not archived.is_file():
+                    raise ValueError('文稿撤销记录不完整，本批未恢复')
+                report = json.loads(archived.read_text('utf-8'))
+                if report.get('id') != report_id:
+                    raise ValueError('文稿撤销记录无效')
+                selected.append((archived, target))
+            moved = []
+            try:
+                for archived, target in selected:
+                    os.replace(archived, target)
+                    moved.append((archived, target))
+            except OSError:
+                for archived, target in reversed(moved):
+                    os.replace(target, archived)
+                raise
+            try:
+                manifest.unlink()
+                folder.rmdir()
+            except OSError:
+                # The reports are already restored. A leftover receipt must not
+                # turn a successful restore into a misleading failure message.
+                pass
+            return {'restored': report_ids, 'count': len(report_ids)}
 
     def snapshot(self, sources):
         if not isinstance(sources,list) or not 1 <= len(sources) <= 8: raise ValueError('请选择 1–8 项资料')
@@ -201,15 +332,27 @@ class ReportWorkspace:
         return selected, units
 
     def create_job(self, body):
-        title, template = str(body.get('title','')).strip(), body.get('template','project')
-        if not 1 <= len(title) <= 100 or template not in TEMPLATES: raise ValueError('请输入标题并选择报告类型')
+        requested_at = time.time()
+        title, template = str(body.get('title','')).strip(), body.get('template','auto')
+        if not 1 <= len(title) <= 100 or template not in TEMPLATES: raise ValueError('请输入标题并选择组织方式')
+        focus = str(body.get('focus','')).strip()
+        if len(focus)>1200: raise ValueError('整理要求请控制在1200字以内')
+        phase=body.get('phase','complete')
+        if phase not in ('complete','outline'):raise ValueError('文稿阶段无效')
+        if phase=='outline' and template!='auto':raise ValueError('可编辑提纲请使用按要求组织')
+        if focus and template!='auto':raise ValueError('自定义整理要求请使用按资料自动组织，旧模板不会应用这段要求')
+        composition_mode=body.get('composition_mode','model_written')
+        if composition_mode not in ('model_written','source_compiled'):
+            raise ValueError('文稿写作方式无效')
+        if composition_mode=='source_compiled' and template!='auto':
+            raise ValueError('快速编排请使用按资料自动组织')
         with self.lock:
-            if self.worker and self.worker.is_alive(): raise ValueError('已有报告正在生成，请等待完成')
+            if self.worker and self.worker.is_alive(): raise ValueError('已有文稿正在生成，请等待完成')
             selected, units = self.snapshot(body.get('sources'))
             job_id = uuid.uuid4().hex
-            job = {'id':job_id,'status':'queued','stage':'资料快照已保存，等待本地模型','started':time.time()}
+            job = {'id':job_id,'status':'queued','stage':'资料快照已保存，等待本地模型','started':requested_at}
             self.jobs[job_id] = job
-            self.worker = threading.Thread(target=self._run,args=(job_id,title,template,selected,units),daemon=True)
+            self.worker = threading.Thread(target=self._run,args=(job_id,title,template,selected,units,focus,phase=='outline',composition_mode),daemon=True)
             self.worker.start()
             return dict(job)
 
@@ -218,29 +361,222 @@ class ReportWorkspace:
             if job_id not in self.jobs: raise KeyError(job_id)
             return dict(self.jobs[job_id])
 
+    def active_job(self,report_id):
+        with self.lock:
+            return next((dict(j) for j in self.jobs.values()
+                         if j.get('report_id')==report_id and j.get('status') in ('queued','running')),None)
+
     def _stage(self, jid, text):
         with self.lock: self.jobs[jid]['stage']=text
 
-    def _run(self, jid, title, template, selected, units):
+    def discover_sources(self, query='', kind='all', page=1, page_size=30):
+        from .report_sources import discover
+        return discover(self.store,query,kind,page,page_size)
+
+    def _outline_update(self, report_id, body):
+        from .report_adaptive import validate_outline
+        r=self.read(report_id)
+        if r.get('template')!='auto' or r.get('adaptive',{}).get('status')!='outline':
+            raise ValueError('只有尚未成稿的提纲可以调整')
+        if body.get('version')!=r['version']:raise ValueError('提纲已更新，请重新打开后再修改')
+        if self.composing_report==report_id:raise ValueError('正在按提纲成稿，请等待完成')
+        if r['adaptive'].get('reading_mode')=='source_brief_v2':
+            from .report_brief import validate_outline as validate_brief_outline
+            outline=validate_brief_outline(body.get('outline',r['adaptive']['outline']),r['adaptive']['facts'],r['adaptive']['groups'])
+        else:
+            outline=validate_outline(body.get('outline',r['adaptive']['outline']),r['adaptive']['facts'])
+        r['adaptive']['outline']=outline
+        r.update(version=r['version']+1,updated=now(),outline_edited=True)
+        return r
+
+    def save_outline(self, report_id, body):
+        with self.lock:
+            r=self._outline_update(report_id,body);self.write(r);return r
+
+    def compose(self, report_id, body):
+        with self.lock:
+            if self.worker and self.worker.is_alive():raise ValueError('已有文稿正在生成，请等待完成')
+            r=self._outline_update(report_id,body)
+            self.write(r)  # Durable edited plan; a failed draft never deletes it.
+            jid=uuid.uuid4().hex
+            self.jobs[jid]=dict(id=jid,status='queued',stage='提纲已保存，准备分章成稿',started=time.time(),report_id=report_id)
+            self.composing_report=report_id
+            self.worker=threading.Thread(target=self._run_compose,args=(jid,r),daemon=True)
+            self.worker.start()
+            return dict(self.jobs[jid])
+
+    def _run_compose(self,jid,prepared_report):
         try:
-            with self.operation_lock:
+            with self.lock:self.jobs[jid]['status']='running'
+            old=prepared_report
+            r=self.build(old['title'],'auto',old['selected'],old['units'],lambda s:self._stage(jid,s),
+                         focus=old.get('focus',''),prepared=old['adaptive'],outline_override=old['adaptive']['outline'],
+                         composition_mode=old.get('composition_mode','model_written'))
+            r.update(id=old['id'],created=old['created'],version=old['version']+1,
+                     notes=old.get('notes',{}),outline_edited=old.get('outline_edited',False),
+                     planning_generation=old['generation'])
+            with self.lock:
+                if self.read(old['id'])['version']!=old['version']:
+                    raise ValueError('文稿版本已变化，未覆盖原提纲')
+                self.write(r)
+                partial=r['adaptive']['status']=='partial'
+                self.jobs[jid].update(status='done',stage='部分成稿已保存，请核对未覆盖项' if partial else '文稿已保存到本机',
+                                     partial=partial,report_id=r['id'],elapsed=round(time.time()-self.jobs[jid]['started'],2))
+        except Exception as exc:
+            import logging
+            logging.exception('Report outline composition failed')
+            with self.lock:self.jobs[jid].update(status='error',stage='成稿未完成，已保留提纲',error=str(exc))
+        finally:
+            with self.lock:self.composing_report=None
+
+    def _run(self, jid, title, template, selected, units, focus='', stop_after_outline=False,composition_mode='model_written'):
+        try:
+            # Auto reports use immutable source snapshots only. Holding the global
+            # mutation lock during every chapter would also block note navigation
+            # (its draft flush is a write). Model access remains engine-serialized;
+            # the server rejects library changes while this worker is active.
+            with (nullcontext() if template=='auto' else self.operation_lock):
+                with self.lock: self.jobs[jid]['status']='running'
                 self._stage(jid,'正在组织原文、表格和引用')
-                report = self.build(title,template,selected,units,lambda s:self._stage(jid,s))
+                def checkpoint(report):
+                    with self.lock:
+                        self.composing_report=report['id']
+                        self.write(report)
+                        self.jobs[jid]['report_id']=report['id']
+                report = self.build(title,template,selected,units,lambda s:self._stage(jid,s),focus=focus,
+                                    stop_after_outline=stop_after_outline,on_checkpoint=checkpoint,composition_mode=composition_mode)
                 with self.lock:
                     self.write(report)
-                    self.jobs[jid].update(status='done',stage='报告已保存到本机',report_id=report['id'],elapsed=round(time.time()-self.jobs[jid]['started'],2))
+                    status=report.get('adaptive',{}).get('status')
+                    partial=status in ('partial','reading_paused')
+                    label='阅读进度已保存，可继续阅读' if status=='reading_paused' else ('提纲已保存，可调整章节后继续成稿' if status=='outline' else ('部分成稿已保存，请查看未覆盖项' if partial else '文稿已保存到本机'))
+                    self.jobs[jid].update(status='done',stage=label,partial=partial,report_id=report['id'],elapsed=round(time.time()-self.jobs[jid]['started'],2))
         except Exception as exc:
             import logging
             logging.exception('Report workspace generation failed')
             with self.lock: self.jobs[jid].update(status='error',stage='生成失败',error=str(exc))
+        finally:
+            with self.lock:self.composing_report=None
 
-    def build(self,title,template,selected,units,stage=lambda _:None):
+    def resume_reading(self,report_id,body):
+        """Continue a durable reading snapshot, never accept client evidence."""
+        with self.lock:
+            if self.worker and self.worker.is_alive():raise ValueError('已有文稿正在生成，请等待完成')
+            old=self.read(report_id)
+            if old.get('adaptive',{}).get('status')!='reading_paused':raise ValueError('这份文稿没有待续读任务')
+            if body.get('version')!=old['version']:raise ValueError('阅读进度已更新，请重新打开')
+            jid=uuid.uuid4().hex
+            self.jobs[jid]=dict(id=jid,status='queued',stage='正在恢复已保存的阅读进度',started=time.time(),report_id=report_id)
+            self.composing_report=report_id
+            self.worker=threading.Thread(target=self._run_reading,args=(jid,old),daemon=True)
+            self.worker.start()
+            return dict(self.jobs[jid])
+
+    def _run_reading(self,jid,old):
+        def retain_identity(r):
+            r.update(id=old['id'],created=old['created'],version=old['version']+1)
+            # Report-level totals include previous sessions; cached traces do not
+            # represent another generation and are never added as new calls.
+            g=r['generation'];prior=old.get('generation',{})
+            g['current_session_calls']=g.get('calls',0)
+            g['calls']=g.get('calls',0)+prior.get('calls',0)
+            g['seconds']=round(g.get('seconds',0)+prior.get('seconds',0),3)
+            return r
+        def checkpoint(r):
+            with self.lock:self.write(retain_identity(r))
+        try:
+            with self.lock:self.jobs[jid]['status']='running'
+            r=self.build(old['title'],'auto',old['selected'],old['units'],lambda s:self._stage(jid,s),
+                         focus=old.get('focus',''),stop_after_outline=True,
+                         resume_reading=old['adaptive'],on_checkpoint=checkpoint)
+            r=retain_identity(r)
+            with self.lock:
+                self.write(r);paused=r['adaptive']['status']=='reading_paused'
+                self.jobs[jid].update(status='done',stage='阅读进度已保存，可继续阅读' if paused else '提纲已保存，可调整后成稿',
+                                     partial=paused,report_id=r['id'],elapsed=round(time.time()-self.jobs[jid]['started'],2))
+        except Exception as exc:
+            import logging
+            logging.exception('Report reading continuation failed')
+            with self.lock:self.jobs[jid].update(status='error',stage='续读未完成，已保留进度',error=str(exc))
+        finally:
+            with self.lock:self.composing_report=None
+
+    def build(self,title,template,selected,units,stage=lambda _:None,focus='',stop_after_outline=False,prepared=None,outline_override=None,
+              resume_reading=None,on_checkpoint=None,composition_mode='model_written'):
         refs, records, tables, actions = [], [], [], []
         def register(u,a,b):
             ref=make_ref(u,a,b)
             for old in refs:
                 if old['unit_id']==ref['unit_id'] and old['start']==a and old['end']==b: return old['id']
             ref['id']=len(refs)+1; refs.append(ref); return ref['id']
+        if template=='auto':
+            if composition_mode not in ('model_written','source_compiled'):
+                raise ValueError('文稿写作方式无效')
+            # Saved reports retain their protocol. A request cannot silently
+            # reinterpret a full-reading receipt as the faster compilation mode.
+            saved=prepared if prepared is not None else resume_reading
+            # Do not invent a business outline for an already structured,
+            # single-source guide. This conservative path is disabled for
+            # explicit user writing requirements and saved legacy drafts.
+            if composition_mode=='source_compiled' and saved is None and not stop_after_outline:
+                from .report_structured import plan as structure_plan
+                structure=structure_plan(units,focus)
+                if structure is not None:
+                    started=time.monotonic();stage('按原文标题组织内容并核对跨页引用')
+                    by_unit={u['unit_id']:u for u in units};chapters=[]
+                    for i,chapter in enumerate(structure['chapters'],1):
+                        segments=[]
+                        for segment in chapter['segments']:
+                            u=by_unit[segment['unit_id']]
+                            if u['body'][segment['start']:segment['end']]!=segment['text']:
+                                raise ValueError('原文结构与引用范围不一致')
+                            segments.append(dict(segment,ref=register(u,segment['start'],segment['end'])))
+                        chapters.append(dict(id=f'C{i}',title=chapter['title'],segments=segments))
+                    created=now()
+                    return dict(id=uuid.uuid4().hex,version=1,created=created,updated=created,
+                        title=title,template=template,template_label=TEMPLATES[template][0],
+                        selected=selected,units=units,refs=refs,claims=[],records=[],tables=[],actions=[],charts=[],
+                        notes={},edited=False,reviewed=False,focus=focus,model='原文结构整理 / 未调用4B',
+                        generation=dict(calls=0,seconds=round(time.monotonic()-started,3)),composition_mode=composition_mode,
+                        adaptive=dict(reading_mode='source_structured_v1',status='complete',chapters=chapters,
+                            outline=[dict(id=c['id'],title=c['title'],purpose='',fact_ids=[]) for c in chapters],
+                            coverage=structure['coverage'],omissions=structure['omissions'],issues=[]),
+                        limitations=['按已有标题整理原文，不代表新增综合分析或外部专业核验。'])
+            if saved is not None:
+                composition_mode='source_compiled' if saved.get('reading_mode') in ('source_compiled_v1','source_brief_v2') else 'model_written'
+            if composition_mode=='source_compiled':
+                if saved is not None and saved.get('reading_mode')=='source_compiled_v1':
+                    from .report_compiled import generate
+                else:
+                    from .report_brief import generate
+            else:
+                from .report_adaptive import generate
+            report_id=uuid.uuid4().hex;created=now()
+            def envelope(adaptive,claims,generation):
+                report={'id':report_id,'version':1,'created':created,'updated':now(),
+                    'title':title,'template':template,'template_label':TEMPLATES[template][0],
+                    'selected':selected,'units':units,'refs':copy.deepcopy(refs),'claims':claims,
+                    'records':[],'tables':[],'actions':[],'charts':[],
+                    'notes':{},'edited':False,'reviewed':False,'focus':focus,
+                    'model':'Qwen3-4B-Instruct-2507 / 本地现有配置',
+                    'generation':generation,'adaptive':adaptive,'composition_mode':composition_mode,
+                    'limitations':['完整阅读记录表示原文已送入本地模型，不代表每项事实已经准确归纳。',
+                                    '归纳使用生成时快照；历史资料中的计划、技术版本不自动代表当前现状。',
+                                    '精确引用可核对来源，语义、条件和遗漏仍需人工核对。']}
+                if composition_mode=='source_compiled':
+                    report['tables']=[copy.deepcopy(t) for c in adaptive.get('chapters',[]) for t in c.get('tables',[])]
+                    report['limitations']=[
+                        '原文快照完整保留；快速模式依据原子内容目录和标明范围的预览选材，不代表模型通读全文。',
+                        '来源事实、原文表格与编写建议分开呈现；编辑建议不是原文规定或已经验证的业务结论。',
+                        '内容依据生成时快照，数字、条件、语义与培训适用性仍需人工核对。']
+                if any(not valid_ref(r,units) for r in refs): raise ValueError('引用身份核对失败，文稿未保存')
+                return report
+            def checkpoint(adaptive,generation):
+                if on_checkpoint:on_checkpoint(envelope(adaptive,[],copy.deepcopy(generation)))
+            adaptive, claims, generation = generate(self.engine,title,focus,units,register,stage,self.directory/'.adaptive-cache',
+                                                   stop_after_outline=stop_after_outline,prepared=prepared,outline_override=outline_override,
+                                                   resume_reading=resume_reading,reading_checkpoint=checkpoint if on_checkpoint else None)
+            return envelope(adaptive,claims,generation)
         for u in units:
             if u['field']=='content':
                 for t in markdown_tables(u['body']):
@@ -285,7 +621,7 @@ class ReportWorkspace:
                       'limitations':['按原文主题、角色、完整条件与清单选编；模型决定要点取舍，事实文字来自绑定原文，不进行无依据自由扩写。',
                                    '归纳基于所选资料快照，不代表资料中的技术表述已按最新版本核实。',
                                    '引用身份与原文区间已核对；归纳仍需人工核对语义、条件与遗漏。']}
-            if any(not valid_ref(r,units) for r in refs): raise ValueError('引用身份核对失败，报告未保存')
+            if any(not valid_ref(r,units) for r in refs): raise ValueError('引用身份核对失败，文稿未保存')
             return report
         # Bounded model input; report tables and complete original records remain independent.
         selected_records=[]; queues=[[r for r in records if refs[r['ref']-1]['source_id']==s['id'] and refs[r['ref']-1]['kind']==s['kind']] for s in selected]
@@ -345,8 +681,8 @@ class ReportWorkspace:
                 'selected':selected,'units':units,'refs':refs,'claims':claims,'records':records,'tables':tables,'actions':actions,'charts':charts,
                 'notes':{},'edited':False,'reviewed':False,'model':'Qwen3-4B-Instruct-2507 / 本地现有配置',
                 'generation':{'calls':1 if model_blocks else 0,'seconds':model_seconds,'model_blocks':model_blocks,'raw_claims':generated,'rejected':rejected,'format_recovered':recovered},
-                'limitations':['AI 归纳仅代表初稿；原文逐字可定位不等于结论已获人工确认。','原文记录、未来计划及本轮实际实现不是同一事实；报告不会自动验证原资料是否仍然有效。','数值图表仅计算原文明确列值；结构图只展示原文清单／顺序，不推断收益、概率或因果。',f'AI 仅阅读 {len(model_blocks)} 段摘选（{used_chars} 字符）；下方另保留全部可组织正文、原表与 OCR。完整快照不表示全部资料均已由模型总结。']}
-        if any(not valid_ref(r,units) for r in refs): raise ValueError('引用身份核对失败，报告未保存')
+                'limitations':['AI 归纳仅代表初稿；原文逐字可定位不等于结论已获人工确认。','原文记录、未来计划及本轮实际实现不是同一事实；文稿不会自动验证原资料是否仍然有效。','数值图表仅计算原文明确列值；结构图只展示原文清单／顺序，不推断收益、概率或因果。',f'AI 仅阅读 {len(model_blocks)} 段摘选（{used_chars} 字符）；下方另保留全部可组织正文、原表与 OCR。完整快照不表示全部资料均已由模型总结。']}
+        if any(not valid_ref(r,units) for r in refs): raise ValueError('引用身份核对失败，文稿未保存')
         return report
 
     def source(self, report_id, ref_id):
@@ -360,7 +696,7 @@ class ReportWorkspace:
             for c in self.store.list_document_chunks(ref['source_id']):
                 if f'd{ref["source_id"]}:{c.id}'==ref['unit_id']:
                     d=c.as_dict();current=d.get('text') or d.get('content') or ''
-        return {'ref':ref,'changed':current is None or digest(current)!=ref['revision'],'current':current,
+        return {'ref':ref,'quote_text':readable(ref['quote']),'changed':current is None or digest(current)!=ref['revision'],'current':current,
                 'snapshot':next(x['body'] for x in r['units'] if x['unit_id']==ref['unit_id'])}
 
 
@@ -379,7 +715,13 @@ def chart_svg(chart):
 
 def render_report(r, appendix=False):
     if any(not valid_ref(ref,r['units']) for ref in r['refs']):
-        raise ValueError('报告快照引用不一致，请重新生成')
+        raise ValueError('文稿快照引用不一致，请重新生成')
+    if 'document_html' in r:
+        from .report_document import render_document
+        return render_document(r, appendix=appendix)
+    if r.get('adaptive'):
+        from .report_adaptive_view import render_adaptive
+        return render_adaptive(r,appendix=appendix)
     if r.get('digest',{}).get('protocol') == 'whole-document-v1':
         from .report_digest_view import render_digest
         return render_digest(r, appendix=appendix)
@@ -437,8 +779,8 @@ def render_report(r, appendix=False):
             t=next(t for t in r['tables'] if t['ref']==c['ref'])
             body+=table_html(t['headers'],[[esc(v) for v in row] for row in t['rows']])+f'<p class="table-caption">分母：{c["total"]} 行；所有行均计入；来源 {citation(c["ref"])}</p></details></div>'
         result+=section('chart','资料清单 · 可核对的状态分布',body)
-    else:
-        result+=section('chart','资料结构', '<div class="source-docs">'+''.join(f'<div class="source-doc"><b>{esc(s["title"])}</b><small>已选资料</small></div>' for s in r['selected'])+'</div><p class="muted">没有可按同一口径统计的状态表，未生成数值图表。</p>')
+    elif notes.get('chart'):
+        result+=section('chart','补充说明','')
     if r['template']!='project':
         # The summary and focus view already contain the saved points and lists.
         # Do not repeat every source fragment as report prose or invent more points.
@@ -472,31 +814,39 @@ def render_report(r, appendix=False):
         result+=section('actions',heading[2],'<div class="panel">'+actions+'</div>')
     elif notes.get('actions'):
         result+=section('actions',heading[2],'')
-    limitations=[str(x).replace('下方另保留全部可组织正文、原表与 OCR', '完整正文、原表与 OCR 可在引用资料和导出附录中核对') for x in r['limitations']]
-    # Technical limits are available without impersonating substantive report
-    # findings. Keep user-authored notes visible even if a section has no data.
+    # Preserve user-authored notes; technical audit data stays in the saved report.
     if notes.get('gaps'):
         result+=section('gaps','待确认事项','')
-    if limitations:
-        result+='<details class="report-source-index report-method"><summary>编制说明</summary><ul>'+''.join('<li>'+esc(x)+'</li>' for x in limitations)+'</ul></details>'
-    # One compact entry per saved page/field keeps all source snapshots reachable,
-    # including material not selected as a summary point. No originals are deleted.
-    source_units={}
-    for ref in r['refs']:
-        source_units.setdefault(ref['unit_id'],ref)
-    if source_units:
-        result+='<details class="report-source-index"><summary>参考资料</summary><ul>'
-        for ref in source_units.values():
-            result+='<li>'+citation(ref['id'])+' '+esc(ref['title'])+'<span> · '+esc(ref['tab'])+' · '+('OCR' if ref['field']=='ocr_text' else '正文')+'</span></li>'
-        result+='</ul></details>'
-    result+=f'<footer class="report-footer"><span>纯本地 4B · 生成 {r["generation"]["seconds"]:.1f}s · 原文与图表同一快照</span><span>可编辑初稿，不代替专业审批</span></footer>'
     if appendix:
-        result+='<details class="section appendix" id="report-source-appendix"><summary>参考资料与原文快照</summary><p>点击正文引用可定位到对应原文。完整快照保留，用于核对。</p>'
-        for ref in r['refs']:
-            result+=f'<article id="source-{ref["id"]}"><h3>[{ref["id"]}] {esc(ref["title"])} · {esc(ref["tab"])} · {"OCR" if ref["field"]=="ocr_text" else "正文"}</h3><blockquote>{esc(ref["quote"])}</blockquote><small>字段 {esc(ref["field"])} · 区间 [{ref["start"]}, {ref["end"]}) · 修订 {ref["revision"][:12]}</small></article>'
-        result+='</details>'
+        used_refs={int(n) for n in re.findall(r'data-ref="(\d+)"',result)}
+        if used_refs:
+            result+='<details class="section appendix" id="report-source-appendix"><summary>引用核对</summary><p>点击正文引用可展开对应原文。</p>'
+            for ref in r['refs']:
+                if ref['id'] in used_refs:
+                    result+=f'<article id="source-{ref["id"]}"><h3>[{ref["id"]}] {esc(ref["title"])} · {esc(ref["tab"])}</h3><blockquote>{esc(ref["quote"])}</blockquote></article>'
+            result+='</details>'
     return result
 
 def export_html(r):
+    if r.get('adaptive',{}).get('status') in ('outline','reading_paused'):raise ValueError('当前为阅读或提纲阶段，请先完成分章成稿再导出文稿')
+    if r.get('adaptive',{}).get('status') == 'partial' and not r['adaptive'].get('chapters'):
+        raise ValueError('文稿尚未生成，不能导出空结果；资料与错误记录仍保留')
     css=(Path(__file__).resolve().parent.parent/'frontend'/'reports-v2.css').read_text('utf-8')
-    return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(r['title'])+'</title><style>'+css+'\n.edit{display:none!important}body{background:white}.report-wrap{max-width:1200px;margin:auto}.appendix article{scroll-margin-top:20px;margin:25px 0}.appendix blockquote{white-space:pre-wrap;border-left:3px solid #218e8f;padding:14px;background:#f1f8f5}</style></head><body><main class="report-wrap">'+render_report(r,appendix=True)+'</main></body></html>'
+    # This fixed local script reveals a cited passage inside collapsed details.
+    # No report text is interpolated into JavaScript and no network access is used.
+    source_links = '''<script data-report-source-links>(function(){
+function reveal(){var id=location.hash.slice(1);if(!/^source-\\d+$/.test(id))return;
+var target=document.getElementById(id);if(!target)return;
+for(var p=target.parentElement;p;p=p.parentElement){if(p.tagName==='DETAILS')p.open=true;}
+target.scrollIntoView({block:'start'});}
+window.addEventListener('hashchange',reveal);
+document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#source-"]');
+if(a&&a.hash===location.hash)setTimeout(reveal,0);});reveal();})();</script>'''
+    return ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1"><title>'
+            +esc(r['title'])+'</title><style>'+css+'</style></head>'
+            '<body class="export-document"><header class="export-masthead">'
+            '<strong>Pocket Memory</strong><span>资料汇编 · 离线阅读</span></header>'
+            '<main class="report-wrap" id="report-document">'+render_report(r,appendix=True)
+            +'</main><nav class="export-page-end" aria-label="文档导航">'
+            '<a href="#report-document">返回文稿开头 ↑</a></nav>'+source_links+'</body></html>')

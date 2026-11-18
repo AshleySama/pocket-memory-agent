@@ -10,11 +10,13 @@ import copy
 import hashlib
 import re
 
-from .field_projection import resolve_scope, strip_scopes
-from .question_plan import DEPENDENCY, number, paragraphs
-from .source_scope import natural_source_question, norm
+from .field_projection import resolve_scope
+from .projection_context import VERSION as CONTEXT_VERSION, context_is_referenced, context_parts
+from .question_plan import DEPENDENCY, number
+from .request_contract import original_label_request
+from .source_scope import natural_source_question
 
-VERSION = 'numbered-original-labels-v2-full-context'
+VERSION = 'numbered-original-labels-v3-request-context'
 MAX_CONTEXT_CHARS = 1200
 NUM = r'(?:[0-9]+|[一二三四五六七八九十两]+)'
 MARKER = re.compile(r'(?m)^[ \t]*(?:[-*][ \t]+)?(?P<label>[\u3400-\u9fff]{1,16}?)(?P<number>'+NUM+r')[：:][ \t]*')
@@ -36,17 +38,9 @@ def scoped_question(question, notes):
 
 
 def asks_label(question, label, notes):
-    """Consume the whole request; only source and enumeration scaffolding vary."""
-    q = norm(strip_scopes(question, notes))
-    # Source-introduction syntax, not predicates, conditions or hidden facets.
-    pre = (r'(?:(?:请问|请|帮我)?(?:只根据|只依据|根据|依据|只看|只读|参考)?)'
-           r'[，,:：]*(?:(?:项目|笔记|报告|资料|正文)?(?:里面|中|里|内)?'
-           r'(?:提到|提及|记录|列出|描述)?的?)')
-    item = re.escape(norm(label))
-    forms = (r'(?:有|存在)?哪些'+item,
-             item+r'(?:有|包括|包含)?(?:哪些|哪几项|哪几条|哪几个|是什么|有哪些|是什么内容)',
-             r'(?:请)?(?:列出|列举)的?(?:全部|所有)?'+item)
-    return bool(re.fullmatch(pre + r'(?:'+'|'.join(forms)+r')[？?。！!]*', q))
+    """Compatibility probe using the same full-request contract as sections."""
+    request = original_label_request(question, [label], notes)
+    return bool(request and request['labels'] == [label])
 
 
 def original_span(body, start, end, note):
@@ -120,7 +114,11 @@ def validate_list(question, plan, notes, ocr=None):
     canonical, scope = resolved
     if any((ocr or {}).get(sid, '').strip() for sid in scope.pairs): return ['ocr_scope_unproved']
     label = plan.get('label', '')
-    if not label or not asks_label(canonical, label, notes): return ['unparsed_request']
+    labels = sorted({m['label'] for sid in scope.pairs for m in MARKER.finditer(notes[sid]['content'])})
+    request = original_label_request(canonical, labels, notes)
+    if not request or request['labels'] != [label]: return ['unparsed_request']
+    if plan.get('request_contract') != request: return ['request_contract_mismatch']
+    if plan.get('context_policy') != CONTEXT_VERSION: return ['context_policy_mismatch']
     if sorted(scope.pairs) != plan.get('scope_note_ids'): return ['scope_mismatch']
     records = plan.get('records', [])
     if not 2 <= len(records) <= 16: return ['not_bounded_list']
@@ -158,7 +156,8 @@ def validate_list(question, plan, notes, ocr=None):
         next_field = re.search(r'[。；;\n]\s*[\u3400-\u9fffA-Za-z_]{1,20}[：:]', tail)
         required_end = a+colon.end()+next_field.start()+1 if next_field else b
         if d != required_end: return ['primary_field_truncated']
-    expected_dependencies = []
+    expected_dependencies = []; expected_background = []
+    protect_background = context_is_referenced(notes[sid]['content'] for sid in scope.pairs)
     for sid in sorted(scope.pairs):
         body = notes[sid]['content']
         # Independently cover every original character, then inspect the gaps.
@@ -172,15 +171,19 @@ def validate_list(question, plan, notes, ocr=None):
             while a < b and body[a].isspace(): a += 1
             while b > a and body[b-1].isspace(): b -= 1
             if a == b: continue
-            text = body[a:b]
-            for _,_,paragraph in paragraphs(text):
+            for start, end, paragraph, relation in context_parts(body, a, b, [label], protect_background):
                 if label in paragraph and not DEPENDENCY.match(paragraph):
                     return ['unparsed_label_context']
-            expected_dependencies.append((sid,a,b,text))
+                raw = original_span(body, start, end, notes[sid])
+                if relation == 'independent_progress':
+                    expected_background.append(dict(span=raw, relation=relation))
+                expected_dependencies.append((sid,start,end,paragraph))
     if sum(b-a for _,a,b,_ in expected_dependencies) > MAX_CONTEXT_CHARS:
         return ['external_context_over_budget']
     if [(r['source_id'],r['char_start'],r['char_end_exclusive'],r['quote']) for r in plan.get('dependencies', [])] != expected_dependencies:
         return ['missing_or_changed_dependency']
+    if plan.get('background') != expected_background:
+        return ['background_identity_or_relation_mismatch']
     for r in plan.get('dependencies', []):
         sid = r['source_id']; note = notes.get(sid, {}); body = note.get('content', '')
         if not scope.permits(sid, 'content') or body[r['char_start']:r['char_end_exclusive']] != r['quote']:
@@ -207,10 +210,11 @@ class EnumeratedList:
             # This parser proves saved prose records only. OCR may contain
             # additional members or conditions and cannot be silently ignored.
             self.audit['reason'] = 'ocr_scope_requires_existing_route'; return None
-        labels = {m['label'] for sid in scope.pairs for m in MARKER.finditer(self.notes[sid]['content'])}
-        requested = [label for label in labels if asks_label(canonical, label, self.notes)]
-        if len(requested) != 1: return None
-        label = requested[0]; records = []; dependencies = []
+        labels = sorted({m['label'] for sid in scope.pairs for m in MARKER.finditer(self.notes[sid]['content'])})
+        request = original_label_request(canonical, labels, self.notes)
+        if not request or len(request['labels']) != 1: return None
+        label = request['labels'][0]; records = []; dependencies = []; background = []
+        protect_background = context_is_referenced(self.notes[sid]['content'] for sid in scope.pairs)
         for sid in sorted(scope.pairs):
             note = self.notes[sid]; body = note['content']
             if re.search(r'<(?:table|tr|p|div)\b|\|[^\n]+\|', body, re.I):
@@ -221,24 +225,28 @@ class EnumeratedList:
                     self.audit['reason'] = 'unparsed_member_in_scope'; return None
                 records.extend(local)
             else: local = []
-            # A qualifier can use arbitrary wording. Preserve ALL remaining
-            # saved prose, including a tab containing context but no member.
-            for a,b,text in outside_records(body, local):
-                for _,_,paragraph in paragraphs(text):
+            # Unknown context remains in the answer. Explicit progress narrative
+            # gets a separate expandable citation, retaining all dependencies.
+            for a,b,_ in outside_records(body, local):
+                for start,end,paragraph,relation in context_parts(body, a, b, [label], protect_background):
                     if label in paragraph and not DEPENDENCY.match(paragraph):
                         self.audit['reason'] = 'unparsed_label_context'; return None
-                dependencies.append(original_span(body,a,b,note))
+                    raw = original_span(body,start,end,note)
+                    if relation == 'independent_progress':
+                        background.append(dict(span=raw, relation=relation))
+                    dependencies.append(raw)
         if sum(d['char_end_exclusive']-d['char_start'] for d in dependencies) > MAX_CONTEXT_CHARS:
             self.audit['reason'] = 'external_context_over_budget'; return None
         if [r['ordinal'] for r in records] != list(range(1, len(records)+1)) or not 2 <= len(records) <= 16:
             self.audit['reason'] = 'incomplete_or_conflicting_sequence'; return None
-        plan = dict(label=label, records=records, dependencies=dependencies,
+        plan = dict(label=label, records=records, dependencies=dependencies, background=background,
+            request_contract=request, context_policy=CONTEXT_VERSION,
             scope_note_ids=sorted(scope.pairs),
             scope_revisions={str(sid):digest(self.notes[sid]['content']) for sid in scope.pairs})
         errors = validate_list(question, plan, self.notes, self.ocr)
         if errors:
             self.audit.update(reason='projection_guard_failed', errors=errors); return None
-        sources = []; lines = []
+        sources = []; lines = []; context_passages = []
         for r in records:
             note = self.notes[r['source_id']]; body = note['content']; i = len(sources)+1
             primary = original_span(body,r['display_start'],r['display_end'],note)
@@ -250,18 +258,26 @@ class EnumeratedList:
             # a condition may follow any colon label. The COMPLETE record is
             # the answer; primary spans are only a navigation aid.
             sources.append(source); lines.append(f'{whole["quote"]} [{i}]')
-        # Context is visibly separated from the requested list, never omitted.
-        if dependencies: lines.append('原文说明：')
+        # Keep necessary or uncertain context in the answer. Display-only
+        # background retains the same original source registry and exact span.
+        main_context_started = False
         for dependency in dependencies:
             note = self.notes[dependency['source_id']]
             source = source_record(note, len(sources)+1, copy.deepcopy(dependency),
                                    [copy.deepcopy(dependency)])
             sources.append(source)
+            if any(item['span'] == dependency for item in background):
+                context_passages.append(dict(kind='background', source_index=source['index'],
+                                             quote=dependency['quote']))
+                continue
+            if not main_context_started:
+                lines.append('原文说明：'); main_context_started = True
             lines.append(dependency['quote']+f' [{source["index"]}]')
         self.audit = dict(version=VERSION, active=True, plan=plan,
-            proof='complete saved scope + contiguous data-labelled records + all original record and external prose',
+            proof='complete saved scope + contiguous source-labelled records + conservative context decisions',
             guard='source and structural verification, not arbitrary semantic entailment')
         response = dict(answer='\n\n'.join(lines), answer_status='answered', sources=sources,
+            context_passages=context_passages,
             provided_sources=copy.deepcopy(sources), citation_validation=dict(passed=not errors, errors=errors),
             trace=dict(enumerated_list=copy.deepcopy(self.audit), generation_calls=0, messages=[],
                        rendering='verbatim-numbered-original-fields'))

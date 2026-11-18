@@ -71,14 +71,21 @@ class LocalLlm(CustomLLM):
         yield self.complete(prompt, **kwargs)
 
 @timed('snapshot.sql_and_nodes')
-def load_nodes(database):
+def load_nodes(database, ask_scope=None):
+    from ..ask_scope import AskScope, ScopedNotes
+    ask_scope = ask_scope or AskScope()
     connection = sqlite3.connect(Path(database).resolve().as_uri() + '?mode=ro', uri=True)
     connection.row_factory = sqlite3.Row
-    notes = {r['id']: dict(r) for r in connection.execute('SELECT id,title,parent_note_id,tab_name,content FROM notes')}
-    documents = {r['id']: dict(r) for r in connection.execute('SELECT id,title,original_name FROM documents')}
+    condition, params = ask_scope.sql('note')
+    notes = ScopedNotes({r['id']: dict(r) for r in connection.execute(
+        'SELECT id,title,parent_note_id,tab_name,content FROM notes WHERE ' + condition, params)}, ask_scope)
+    condition, params = ask_scope.sql('document')
+    documents = {r['id']: dict(r) for r in connection.execute(
+        'SELECT id,title,original_name FROM documents WHERE ' + condition, params)}
     nodes = []
     for kind in ('note', 'document'):
-        rows = connection.execute(f'SELECT c.*,e.vector,e.dimension FROM {kind}_chunks c JOIN {kind}_chunk_embeddings e ON c.id=e.chunk_id ORDER BY c.id')
+        condition, params = ask_scope.sql(kind, f'c.{kind}_id')
+        rows = connection.execute(f'SELECT c.*,e.vector,e.dimension FROM {kind}_chunks c JOIN {kind}_chunk_embeddings e ON c.id=e.chunk_id WHERE {condition} ORDER BY c.id', params)
         for row in rows:
             source_id = row[f'{kind}_id']
             source = (notes if kind == 'note' else documents)[source_id]
@@ -101,7 +108,7 @@ class Candidate:
     def __init__(self, context, round_number):
         self.context = context
         self.round_number = round_number
-        self.nodes, self.notes, self.documents = load_nodes(context.store.db_path)
+        self.nodes, self.notes, self.documents = load_nodes(context.store.db_path, getattr(context, 'ask_scope', None))
         self.by_id = {node.node_id: node for node in self.nodes}
         self.embed = FrozenBge(context.embedding_service.engine)
         storage = StorageContext.from_defaults(vector_store=PreparedVectorStore())

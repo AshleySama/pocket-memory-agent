@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.10 - 2026-11-18
+
+- 修复打包版资料汇编计算缓存指纹时依赖不存在的 Python 源文件，导致无法生成。
+- 修复更新准备回执短暂拒读即失败；保留身份校验、有界重试和安全退出次序。
+
+
+## 1.0.9 - 2026-11-18
+
+- 引用合并展示、定位更准确。
+- 减少部分问答的无效计算和无关上下文，缩短首次提问的等待。
+- 报告支持批量删除、一键清空和撤销删除。
+
 ## 1.0.8 - 2026-11-16
 
 - Save edits to existing notes and tabs automatically after an idle pause; replace the editor's Done action with Read. Keep explicit first save for new notes and local drafts for recovery.

@@ -3,6 +3,46 @@
  */
 
 .document-dialog { width:min(760px,calc(100vw - 32px)); max-height:85vh; overflow-y:auto; }
+#document-dialog.document-dialog { padding:0; scroll-padding-top:100px; overscroll-behavior:contain; }
+#document-dialog > .dialog-header {
+  position:sticky;
+  top:0;
+  z-index:2;
+  margin:0;
+  padding:24px 24px 18px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface-solid, #fff);
+}
+#document-dialog > .dialog-header > button { flex:none; }
+#document-dialog > .dialog-header .eyebrow { color:var(--text-soft); }
+#document-dialog > .document-import-area {
+  margin:0 24px 24px;
+  color:var(--text);
+  background:linear-gradient(145deg, var(--surface-solid), var(--surface-soft));
+}
+#document-dialog .document-import-copy { border-bottom-color:var(--border); }
+#document-dialog .document-import-kicker { color:var(--accent); }
+#document-dialog .document-file-picker {
+  border-color:var(--border-strong);
+  color:var(--accent);
+  background:var(--surface-solid);
+}
+#document-dialog .document-file-picker small { color:var(--text-soft); }
+#document-dialog .document-file-picker:hover {
+  border-color:var(--accent);
+  background:var(--surface-elev);
+  box-shadow:0 7px 16px var(--accent-soft);
+}
+#document-dialog .document-file-picker.is-primary {
+  border-color:var(--accent);
+  color:var(--text-on-blue);
+  background:linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 82%, var(--surface-solid)));
+  box-shadow:0 6px 14px var(--accent-soft);
+}
+#document-dialog .document-file-picker.is-primary small { color:var(--text-on-blue-soft); }
+#document-dialog .document-file-picker.is-primary:hover {
+  background:linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 90%, var(--surface-solid)));
+}
 .import-status-header { display:flex; align-items:center; gap:12px; justify-content:space-between; margin-top:20px; border-top:1px solid var(--border); padding-top:16px; }
 .import-status-header h3 { margin:0; font-size:16px; }
 .import-status-actions { display:flex; flex-wrap:wrap; gap:8px; }
@@ -19,3 +59,84 @@
 .import-item-actions a:hover { text-decoration:underline; }
 .import-summary { min-height:1.5em; margin:10px 0; font-size:13px; }
 .import-status-list:empty::before { content:"尚无待处理文件。"; display:block; padding:12px 0; opacity:.7; }
+
+/* Keep the existing dialog and theme; motion follows actual queue states only. */
+.document-dialog[open] { animation:import-dialog-enter 210ms cubic-bezier(.2,.7,.25,1) both; }
+.document-dialog[open]::backdrop { animation:import-backdrop-enter 180ms ease-out both; }
+.document-dialog .document-file-picker:active { transform:translateY(0) scale(.985); }
+.document-dialog :is(button, a, summary, .document-file-picker):focus-visible {
+  outline:2px solid var(--accent);
+  outline-offset:3px;
+}
+.document-dialog .import-status-item { position:relative; }
+.document-dialog .import-item-heading { align-items:flex-start; }
+.document-dialog .import-item-heading > span {
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  line-height:1.6;
+}
+.document-dialog .import-item-heading > span::before {
+  content:"";
+  display:block;
+  flex:none;
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--muted);
+  opacity:.65;
+}
+.document-dialog .import-status-item[data-import-activity="working"] .import-item-heading > span::before {
+  width:11px;
+  height:11px;
+  border:2px solid var(--border-strong);
+  border-top-color:var(--accent);
+  background:transparent;
+  opacity:1;
+}
+.document-dialog[open] .import-status-item[data-import-activity="working"] .import-item-heading > span::before {
+  animation:import-working 1.25s linear infinite;
+}
+.document-dialog .import-status-item[data-import-activity="ready"] .import-item-heading > span::before {
+  width:10px;
+  height:6px;
+  border:solid var(--accent);
+  border-width:0 0 2px 2px;
+  border-radius:0;
+  background:transparent;
+  opacity:1;
+  transform:rotate(-45deg) translateY(-1px);
+}
+.document-dialog .import-status-item[data-import-activity="attention"] .import-item-heading > span::before {
+  border:2px solid var(--warn);
+  background:transparent;
+  opacity:1;
+}
+.document-dialog[open] .import-status-item[data-import-animate="enter"] {
+  animation:import-row-enter 220ms ease-out both;
+}
+.document-dialog[open] .import-status-item[data-import-animate="change"] {
+  animation:import-state-change 240ms ease-out both;
+}
+@keyframes import-dialog-enter { from { opacity:0; transform:translateY(9px) scale(.99); } to { opacity:1; transform:none; } }
+@keyframes import-backdrop-enter { from { opacity:0; } to { opacity:1; } }
+@keyframes import-row-enter { from { opacity:.2; transform:translateY(5px); } to { opacity:1; transform:none; } }
+@keyframes import-state-change { from { opacity:.65; } to { opacity:1; } }
+@keyframes import-working { to { transform:rotate(360deg); } }
+@media (max-width:620px) {
+  #document-dialog > .dialog-header { padding:18px 18px 14px; }
+  #document-dialog > .document-import-area { margin:0 18px 18px; }
+  .document-dialog .import-status-header { flex-direction:column; align-items:flex-start; gap:10px; }
+  .document-dialog .import-status-actions { gap:6px; }
+  .document-dialog .import-item-heading { flex-wrap:wrap; gap:4px 12px; }
+  .document-dialog .import-item-heading > span { white-space:normal; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .document-dialog[open],
+  .document-dialog[open]::backdrop,
+  .document-dialog .import-status-item,
+  .document-dialog .import-item-heading > span::before { animation:none !important; }
+  .document-dialog .document-file-picker { transition:none !important; }
+  .document-dialog .document-file-picker:hover,
+  .document-dialog .document-file-picker:active { transform:none !important; }
+}

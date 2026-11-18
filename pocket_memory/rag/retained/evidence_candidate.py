@@ -4,6 +4,7 @@
 """Isolated evidence layer; model, retrieval, prompt and citation guard unchanged."""
 from pathlib import Path
 import sqlite3
+from contextlib import closing
 from .evidence_layer import parse_schema,make_block,validate_field_references
 
 from . import restored_candidate as prior
@@ -13,8 +14,10 @@ from .citation_guard import apply_guard,indices
 class Candidate(prior.Candidate):
     def __init__(self, context):
         super().__init__(context)
-        with sqlite3.connect(context.store.db_path.resolve().as_uri()+'?mode=ro',uri=True) as con:
-            ocr=dict(con.execute('SELECT id,ocr_text FROM notes'))
+        from ..ask_scope import AskScope
+        condition, params = (getattr(context, 'ask_scope', None) or AskScope()).sql('note')
+        with closing(sqlite3.connect(context.store.db_path.resolve().as_uri()+'?mode=ro',uri=True)) as con:
+            ocr=dict(con.execute('SELECT id,ocr_text FROM notes WHERE ' + condition, params))
         self.schemas={i:s for i,n in self.notes.items() if (s:=parse_schema(n['content'],ocr.get(i,'')))}
         self.question='';self.schema_trace={}
 

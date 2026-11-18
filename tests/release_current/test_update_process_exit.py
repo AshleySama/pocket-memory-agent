@@ -1,6 +1,5 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-
 """Exercise real enumeration code with deterministic Win32 lifetime boundaries."""
 import ctypes
 import os

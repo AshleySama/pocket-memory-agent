@@ -66,6 +66,35 @@ class NoteAutosaveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.update_note(self.note.id, content='D', category='新分类', autosave=True)
 
+    def test_existing_note_recovers_missing_markdown_month_directory(self):
+        path = self.store.data_dir/self.note.markdown_path
+        path.unlink()
+        path.parent.rmdir()
+        updated = self.store.update_note(self.note.id, content='恢复后保存的完整正文',
+                                         expected_content='原正文', autosave=True)
+        self.assertEqual(updated.content, '恢复后保存的完整正文')
+        self.assertIn(updated.content, path.read_text(encoding='utf-8'))
+        self.assertEqual([v['content'] for v in self.store.list_versions(self.note.id)], ['原正文'])
+
+    def test_failed_file_replace_keeps_original_and_does_not_add_or_prune_history(self):
+        for i in range(50):
+            self.store.update_note(self.note.id, content=f'历史{i}')
+        before = self.store.get_note(self.note.id)
+        versions = self.store.list_versions(self.note.id)
+        path = self.store.data_dir/before.markdown_path
+        original_bytes = path.read_bytes()
+        with patch.object(Path, 'replace', side_effect=PermissionError('disk denied')):
+            for _ in range(3):
+                with self.assertRaises(PermissionError):
+                    self.store.update_note(self.note.id, content='未保存草稿',
+                                           expected_content=before.content, autosave=True)
+        self.assertEqual(self.store.get_note(self.note.id), before)
+        self.assertEqual(self.store.list_versions(self.note.id), versions)
+        self.assertEqual(path.read_bytes(), original_bytes)
+        self.assertEqual(list(path.parent.glob('.*.tmp')), [])
+        self.store.update_note(self.note.id, content='重试成功', expected_content=before.content, autosave=True)
+        self.assertEqual(self.store.list_versions(self.note.id)[0]['content'], before.content)
+
     def test_http_autosave_conflict_noop_and_deferred_organisation(self):
         config = AppConfig(Path(self.tmp.name)/'config.json', self.store.data_dir,
                            ai_warmup_on_start=False, ai_auto_apply=True)
@@ -111,6 +140,7 @@ class NoteAutosaveTests(unittest.TestCase):
 
     def test_timed_out_library_drain_resumes_pending_organisation(self):
         fake = Mock()
+        fake.report_workspace = None
         fake.office_tools.busy = False
         fake.document_service.executor.submit.return_value.result.side_effect = TimeoutError()
         fake._recover_ai_after_cancelled_library_change = lambda: PocketMemoryServer._recover_ai_after_cancelled_library_change(fake)

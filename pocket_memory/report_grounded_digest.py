@@ -1,6 +1,5 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-
 """Automatic evidence-constrained reports: the model selects, never invents facts.
 
 Complete fact bundles carry subject/condition/list boundaries. The source itself
@@ -178,7 +177,7 @@ def generate(engine,title,focus,units,register,cache_dir,stage):
                 if saved.get('key')!=key:raise ValueError('进度身份不一致')
                 parse_selection(response,batch);cached=True;reused+=1
             else:
-                if time.monotonic()-started>3600:raise ValueError('本次长报告已到时间上限；已完成选材保存，可继续')
+                if time.monotonic()-started>3600:raise ValueError('本次长文稿已到时间上限；已完成选材保存，可继续')
                 response=engine.report_completion(messages,OUTPUT,schema=schema);calls+=1
                 atomic_json(path,dict(key=key,response=response,messages=messages,schema=schema,fingerprint=fingerprint))
             selected=parse_selection(response,batch)

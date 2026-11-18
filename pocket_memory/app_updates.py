@@ -322,6 +322,45 @@ def worker_identity_matches(pid: int, launched_pid: int, executable: Path) -> bo
         kernel.CloseHandle(handle)
 
 
+def wait_for_worker_ready(worker, ready: Path, token: str, executable: Path, *, timeout=15.0):
+    """Read the atomic receipt without treating a transient Windows lock as failure.
+
+    Only receipt visibility/read access is retried. Invalid data, tokens and
+    process identities never authorize go.json or application shutdown.
+    The deadline must remain below the installed worker's 20-second go wait.
+    """
+    deadline = time.monotonic() + timeout
+    last_access_error = None
+    while time.monotonic() < deadline:
+        if worker.poll() is not None:
+            raise UpdateError("自动更新组件未能启动；原程序仍保留。")
+        try:
+            _no_links(ready)
+            with ready.open("rb") as handle:
+                raw = handle.read(4097)
+        except FileNotFoundError:
+            # The atomic writer has not published the receipt yet.
+            pass
+        except PermissionError as exc:
+            # Windows rename/scanner handles may deny reads briefly even
+            # after the final name is visible. Do not relax file permissions.
+            last_access_error = exc
+        else:
+            last_access_error = None
+            if len(raw) > 4096:
+                raise UpdateError("自动更新组件的准备信息过大；原程序未替换。")
+            payload = _json_bytes(raw)
+            if (payload.get("token") == token
+                    and worker_identity_matches(payload.get("pid"), worker.pid, executable)):
+                return
+        time.sleep(0.1)
+    if last_access_error is not None:
+        logger.warning("Update readiness receipt remained unreadable: %s", ready,
+                       exc_info=(type(last_access_error), last_access_error, last_access_error.__traceback__))
+        raise UpdateError("更新准备文件持续无法读取，可能被占用或受权限限制；原程序和资料未改动。请稍后重试，若仍失败请保留更新诊断记录。") from last_access_error
+    raise UpdateError("自动更新组件准备超时；原程序未替换。")
+
+
 class AppUpdateService:
     def __init__(self, config, data_dir: Path, *, server_port: int, exit_callback, current_version: str = APP_VERSION):
         self.config = config
@@ -462,23 +501,20 @@ class AppUpdateService:
             worker = subprocess.Popen([str(staged_helper), "--request", str(request_path)],
                                       cwd=str(work), stdout=log, stderr=subprocess.STDOUT,
                                       creationflags=creationflags, close_fds=True)
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if worker.poll() is not None:
-                raise UpdateError("自动更新组件未能启动；原程序仍保留。")
-            ready = work / "ready.json"
-            if ready.is_file():
-                payload = _json_bytes(ready.read_bytes())
-                if (payload.get("token") == token
-                        and worker_identity_matches(payload.get("pid"), worker.pid, staged_helper)):
-                    break
-            time.sleep(0.1)
-        else:
-            worker.terminate()
-            raise UpdateError("自动更新组件准备超时；原程序未替换。")
+        try:
+            wait_for_worker_ready(worker, work / "ready.json", token, staged_helper)
+            _atomic_json(work / "go.json", {"token": token})
+        except Exception:
+            # No shutdown has been requested. Stop only the process we started;
+            # a onefile child also has its own bounded, no-go cancellation.
+            try:
+                if worker.poll() is None:
+                    worker.terminate()
+            except OSError:
+                logger.warning("Could not stop unconfirmed update worker", exc_info=True)
+            raise
         self._set(state="restarting", shutdown_requested=True,
                   message="程序包已准备好，正在退出、更新并自动重新打开…")
-        _atomic_json(work / "go.json", {"token": token})
         # Give the launcher watcher/frontend one polling interval to notice.
         time.sleep(1.5)
         self.exit_callback()

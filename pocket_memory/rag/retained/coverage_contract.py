@@ -17,6 +17,9 @@ class CoverageContract:
     def __init__(self,owner):
         self.owner=owner
         self.splitter=None
+    def complete_list_units(self, question, pool):
+        from .numbered_evidence import complete_list_units
+        return complete_list_units(question, pool, self.owner.notes)
     @staticmethod
     def covered_length(bounds,ranges):
         lo,hi=bounds;merged=[]
@@ -95,6 +98,7 @@ class CoverageContract:
                     truncated=False,coverage_complete=False)
                 pool[identity]=item
         if not pool:return None
+        pool = self.complete_list_units(question, pool)
         scored=self.owner.context.reranker.rerank(question,list(pool.values()))
         selected=[];packed=[];decisions=[]
         for item in scored:

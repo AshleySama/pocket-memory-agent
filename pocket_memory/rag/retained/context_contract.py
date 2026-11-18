@@ -270,6 +270,11 @@ class Contract:
                 if key not in groups:
                     groups[key]=dict(unit,raw_evidence=[],anchors=[],chunk_ids=[],original_locations=[],citation_granularity='selected_spans_of_same_source_article',article_start=article)
                 g=groups[key];g['raw_evidence'].extend(spans);g['anchors'].extend(unit['anchors'])
+                if unit.get('requested_list_spans'):
+                    g.setdefault('requested_list_spans',[])
+                    for member in unit['requested_list_spans']:
+                        if member not in g['requested_list_spans']:
+                            g['requested_list_spans'].append(member)
                 g['chunk_ids'].extend(unit.get('chunk_ids',[]))
                 g['original_locations'].append(unit['location'])
         out=[]
@@ -347,7 +352,10 @@ class Contract:
             PromptTemplate('{original_prompt}').partial_format(original_prompt=rendered.prompt),
             num_chunks=1,padding=MARGIN).chunk_size
         selected, packed, omitted = [], [], []
-        for unit in self.units(hits[:12]):
+        from .numbered_evidence import complete_list_units
+        units = complete_list_units(question,
+            {i:unit for i,unit in enumerate(self.units(hits[:12]))}, self.owner.notes)
+        for unit in units.values():
             proposed = self.bundles(selected+[unit])
             used = self.count(self.messages(question,proposed))
             if used+OUTPUT+MARGIN > CONTEXT:

@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import copy
+import io
 import json
 from pathlib import Path
 import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pocket_memory.report_exports import ReportExportStore, handle_report_export_api
 from pocket_memory.report_workspace import ReportWorkspace, TEMPLATES, digest, export_html
@@ -50,9 +51,11 @@ class ReportExportTests(unittest.TestCase):
         self.assertIn('id="source-1"', path.read_text('utf-8'))
         self.assertIn('负责人：林女士。', path.read_text('utf-8'))
         self.assertEqual(self.exports.describe(result['id']), result)
+        self.assertEqual(result['view_url'], f"/api/report-exports/{result['id']}/view")
+        self.assertEqual(result['download_url'], f"/api/report-exports/{result['id']}/download")
 
     def test_all_six_templates_keep_original_export_renderer(self):
-        for template in TEMPLATES:
+        for template in (k for k in TEMPLATES if k!='auto'):
             with self.subTest(template=template):
                 report = copy.deepcopy(self.report)
                 report.update(template=template, template_label=TEMPLATES[template][0])
@@ -61,7 +64,7 @@ class ReportExportTests(unittest.TestCase):
                 self.assertEqual(Path(saved['path']).read_text('utf-8'), export_html(report))
 
     def test_stale_version_does_not_export(self):
-        with self.assertRaisesRegex(ValueError, '报告已更新'):
+        with self.assertRaisesRegex(ValueError, '文稿已更新'):
             self.exports.create(self.workspace, self.report['id'], 2)
         self.assertFalse((self.data / 'report-exports').exists())
 
@@ -106,6 +109,92 @@ class ReportExportTests(unittest.TestCase):
         self.assertEqual(download.download[1], result['filename'])
         self.assertEqual(download.download[2], 'text/html; charset=utf-8')
 
+    def test_browser_preview_uses_the_saved_bytes_without_a_desktop_app(self):
+        result = self.exports.create(self.workspace, self.report['id'], 1)
+        handler = ExportHandler(self.workspace, result['view_url'])
+        with patch('pocket_memory.report_exports.webbrowser.open') as browser, \
+             patch('pocket_memory.report_exports.os.startfile', create=True) as desktop:
+            self.assertTrue(handle_report_export_api(handler, 'GET'))
+        self.assertTrue(handler.local_validated)
+        self.assertEqual(handler.preview, Path(result['path']).read_bytes())
+        browser.assert_not_called()
+        desktop.assert_not_called()
+
+    def test_preview_rejects_modified_exports_and_arbitrary_paths(self):
+        result = self.exports.create(self.workspace, self.report['id'], 1)
+        Path(result['path']).write_text('<script>changed()</script>', encoding='utf-8')
+        handler = ExportHandler(self.workspace, result['view_url'])
+        with self.assertRaisesRegex(ValueError, '已修改'):
+            handle_report_export_api(handler, 'GET')
+        self.assertFalse(hasattr(handler, 'preview'))
+        handler = ExportHandler(self.workspace, '/api/report-exports/..%2Fprivate/view')
+        with self.assertRaisesRegex(ValueError, '无效'):
+            handle_report_export_api(handler, 'GET')
+
+    def test_open_uses_the_bound_browser_url_when_html_association_is_broken(self):
+        result = self.exports.create(self.workspace, self.report['id'], 1)
+        handler = ExportHandler(self.workspace, f"/api/report-exports/{result['id']}/open", {})
+        handler.headers['Host'] = 'localhost:1234'
+        with patch('pocket_memory.report_exports.webbrowser.open', return_value=True) as browser, \
+             patch('pocket_memory.report_exports.os.startfile', create=True,
+                   side_effect=OSError('no HTML association')) as desktop:
+            self.assertTrue(handle_report_export_api(handler, 'POST'))
+        browser.assert_called_once_with('http://127.0.0.1:2751' + result['view_url'], new=2)
+        desktop.assert_not_called()
+        self.assertEqual(handler.response[0]['method'], 'browser')
+
+    def test_browser_failure_preserves_the_desktop_file_fallback(self):
+        result = self.exports.create(self.workspace, self.report['id'], 1)
+        path = Path(result['path'])
+        with patch.object(self.exports, 'file', return_value=(path, result)), \
+             patch('pocket_memory.report_exports.os.name', 'nt'), \
+             patch('pocket_memory.report_exports.webbrowser.open', return_value=False), \
+             patch('pocket_memory.report_exports.os.startfile', create=True) as desktop:
+            opened = self.exports.open(result['id'], view_url='http://127.0.0.1:2751' + result['view_url'])
+        self.assertTrue(opened['opened'])
+        desktop.assert_called_once_with(str(path))
+
+    def test_open_folder_keeps_the_native_folder_action(self):
+        result = self.exports.create(self.workspace, self.report['id'], 1)
+        path = Path(result['path'])
+        with patch.object(self.exports, 'file', return_value=(path, result)), \
+             patch('pocket_memory.report_exports.os.name', 'nt'), \
+             patch('pocket_memory.report_exports.webbrowser.open') as browser, \
+             patch('pocket_memory.report_exports.os.startfile', create=True) as desktop:
+            opened = self.exports.open(result['id'], folder=True, view_url='http://127.0.0.1:2751' + result['view_url'])
+        self.assertTrue(opened['opened'])
+        browser.assert_not_called()
+        desktop.assert_called_once_with(str(path.parent))
+
+    def test_open_failure_points_to_the_browser_and_download_actions(self):
+        result = self.exports.create(self.workspace, self.report['id'], 1)
+        path = Path(result['path'])
+        with patch.object(self.exports, 'file', return_value=(path, result)), \
+             patch('pocket_memory.report_exports.os.name', 'nt'), \
+             patch('pocket_memory.report_exports.webbrowser.open', side_effect=OSError('no browser')), \
+             patch('pocket_memory.report_exports.os.startfile', create=True, side_effect=OSError('no HTML association')):
+            with self.assertRaisesRegex(ValueError, '浏览器查看或下载 HTML'):
+                self.exports.open(result['id'], view_url='http://127.0.0.1:2751' + result['view_url'])
+
+    def test_preview_response_is_inline_utf8_and_isolated_from_app_origin(self):
+        from pocket_memory.server import PocketMemoryHandler
+
+        handler = SimpleNamespace(send_response=Mock(), send_header=Mock(),
+                                  end_headers=Mock(), wfile=io.BytesIO())
+        payload = '<!doctype html><h1>中文报告</h1>'.encode('utf-8')
+        PocketMemoryHandler._send_report_preview(handler, payload)
+        headers = dict(call.args for call in handler.send_header.call_args_list)
+        self.assertEqual(handler.wfile.getvalue(), payload)
+        self.assertEqual(headers['Content-Type'], 'text/html; charset=utf-8')
+        self.assertEqual(headers['Content-Disposition'], 'inline')
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        self.assertEqual(headers['Content-Length'], str(len(payload)))
+        self.assertEqual(headers['X-Content-Type-Options'], 'nosniff')
+        self.assertIn('sandbox allow-scripts;', headers['Content-Security-Policy'])
+        self.assertIn("default-src 'none'", headers['Content-Security-Policy'])
+        self.assertNotIn('allow-same-origin', headers['Content-Security-Policy'])
+        self.assertIn("connect-src 'none'", headers['Content-Security-Policy'])
+
     def test_api_refuses_untrusted_action_or_caller_supplied_path(self):
         handler = ExportHandler(self.workspace, '/api/report-exports',
             {'report_id': self.report['id'], 'version': 1})
@@ -123,7 +212,7 @@ class ExportHandler:
         self.path, self.body = path, body
         self.headers = {'X-PocketMemory-Report-Export': '1'}
         self.server = SimpleNamespace(store=workspace.store, report_workspace=workspace,
-                                      operation_lock=threading.RLock())
+                                      operation_lock=threading.RLock(), server_address=('127.0.0.1', 2751))
         self.local_validated = False
 
     def _validate_local_cancellation(self):
@@ -137,6 +226,9 @@ class ExportHandler:
 
     def _send_download_file(self, path, filename, content_type):
         self.download = path.read_bytes(), filename, content_type
+
+    def _send_report_preview(self, body):
+        self.preview = body
 
 
 if __name__ == '__main__':

@@ -82,6 +82,14 @@ def resolve_scope(question, notes):
             return ScopeSpec({sid:fields},True,strict,conflict,constrained,
                              tuple(dict(e,source_id=sid) for e in events),tuple((sid,f) for f in sorted(deny)))
         if constrained: return ScopeSpec({}, True, strict, True,True,tuple(events))
+    request_scope = getattr(notes, 'ask_scope', None)
+    if request_scope is not None and request_scope.single_note_family:
+        # The UI supplied saved source identities. This is a real explicit
+        # boundary; no title injection or change to the generation question.
+        selected = {i: set(fields) for i in notes}
+        return ScopeSpec(selected, True, strict, conflict, constrained,
+                         tuple(dict(e,source_id=i) for i in notes for e in events),
+                         tuple((i,f) for i in notes for f in sorted(deny)))
     if constrained: return ScopeSpec({}, True, strict, True,True,tuple(events))
     return ScopeSpec({i: {'content'} for i in notes}, False)
 
@@ -91,7 +99,7 @@ def strip_scopes(question, notes):
     for m in TITLE.finditer(question):
         if sum(norm(n['title'])==norm(m[1]) for n in notes.values())==1:
             spans.append(m.span())
-            local=re.match(r'\s*(?:里|中|内)',question[m.end():])
+            local=re.match(r'\s*(?:里面|里|中|内)',question[m.end():])
             if local:spans.append((m.end(),m.end()+local.end()))
     ident=re.search(r'接口\s*(?:ID\s*[:：]?)?\s*\d+',question,re.I)
     scope=resolve_scope(question,notes)
@@ -102,6 +110,11 @@ def strip_scopes(question, notes):
         spans.extend(m.span() for m in re.finditer(r'(?:标签页|页签)\s*[0-9一二三四五六七八九十]+|首页|主页|主笔记',lead))
     if not scope.unresolved:
         spans.extend((e['start'],e['end']) for e in scope.actions)
+    request_scope = getattr(notes, 'ask_scope', None)
+    if request_scope is not None and request_scope.single_note_family:
+        # Consume only the referent already supplied by saved source identity.
+        spans.extend(m.span() for m in re.finditer(
+            r'(?:这个|那个|该|此|这份|那份|这项|那项)(?=项目|笔记|报告|资料|文档|文件)', question))
     chars=list(question)
     for a,b in spans:chars[a:b]=' '*(b-a)
     return ''.join(chars)

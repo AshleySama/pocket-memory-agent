@@ -1,7 +1,3 @@
-/* Copyright 2026 AshleySama
- * SPDX-License-Identifier: Apache-2.0
- */
-
 const assert = require('node:assert/strict');
 const Queue = require('../../frontend/imports.js');
 const file = (name='test.txt', size=4) => ({name,size,lastModified:1});
@@ -38,8 +34,10 @@ await test('same name/size/mtime is not treated as proof of duplicate bytes',asy
 await test('double selection while upload running is serialized',async()=>{
  let release;let calls=0;const pause=new Promise(r=>release=r);const q=create(async()=>{calls++;await pause;return{id:calls,status:'ready'}});const f=file();const pending=q.add([f]);while(!calls) await new Promise(r=>setImmediate(r));await q.add([f,file('next.txt')]);release();await pending;assert.equal(calls,2);assert.equal(q.busy,false);
 });
-await test('saved failed item remains visible on reload and clear does not drop pending',async()=>{
- const s=storage();const q=create(async()=>({id:4,status:'failed',error:'parse error'}),{storage:s});await q.add([file()]);await q.clearCompleted();const next=create(async()=>{}, {storage:s});await next.activate();assert.equal(next.rows[0].documentId,4);assert.equal(next.rows[0].status,'failed');
+await test('explicitly cleared saved failure stays hidden on reload while pending remains visible',async()=>{
+ const s=storage(),failed={id:4,status:'failed',error:'parse error',updated_at:'2026-11-17T01:00:00'};
+ const q=create(async()=>failed,{storage:s});await q.add([file()]);await q.reconcile([{id:5,status:'pending',original_name:'pending.txt'}]);await q.clearCompleted();
+ const next=create(async()=>{}, {storage:s});await next.activate();await next.reconcile([failed,{id:5,status:'pending',original_name:'pending.txt'}]);assert.deepEqual(next.rows.map(x=>x.documentId),[5]);assert.equal(next.rows[0].status,'pending');
 });
 await test('disabled browser storage is explicit, not successful persistence',async()=>{
  const q=create(async()=>({id:1,status:'ready'}),{storage:{getItem:()=>null,setItem:()=>{throw Error('quota')}}});await q.add([file()]);assert.equal(q.storageError,true);assert.equal(q.rows[0].status,'ready');

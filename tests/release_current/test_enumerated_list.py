@@ -29,7 +29,7 @@ class EnumeratedListBehavior(unittest.TestCase):
         return p['direct_record_response'] if p else None
 
     def test_original_and_paraphrases_keep_three_risks(self):
-        for q in ['项目复盘项目有哪些风险', '项目复盘里提到的风险是什么？',
+        for q in ['项目复盘项目有哪些风险', '项目复盘有什么风险', '项目复盘里提到的风险是什么？',
                   '《项目复盘》中有哪些风险？', '请列出《项目复盘》的全部风险',
                   '《项目复盘》的风险有哪几项？']:
             with self.subTest(q=q):
@@ -37,7 +37,7 @@ class EnumeratedListBehavior(unittest.TestCase):
                 self.assertIsNotNone(r)
                 self.assertEqual(r['trace']['generation_calls'], 0)
                 self.assertEqual(len(r['trace']['enumerated_list']['plan']['records']), 3)
-                self.assertEqual(len(r['sources']), 4)
+                self.assertEqual(len(r['sources']), 5)
                 for p in (R1, R2, R3):
                     self.assertIn(p.split('处理动作')[0], r['answer'])
                 # Review tightened this contract before HTTP/model testing:
@@ -49,10 +49,14 @@ class EnumeratedListBehavior(unittest.TestCase):
                     self.assertIn('处理动作', s['evidence'])
                     self.assertEqual(len(s['raw_evidence']), 1)
                     self.assertNotIn('本周完成了三项', s['evidence'])
-                context = r['sources'][3]
-                self.assertEqual(context['display_evidence'], context['raw_evidence'][0]['quote'])
-                self.assertEqual(context['display_spans'], context['raw_evidence'])
-                self.assertIn(context['display_evidence'] + ' [4]', r['answer'])
+                # Progress narrative retains exact citations in expandable
+                # context instead of becoming the main answer. Unknown or
+                # qualifying prose has separate preservation tests below.
+                self.assertNotIn('原文说明', r['answer'])
+                self.assertNotIn('本周完成了三项', r['answer'])
+                self.assertEqual(len(r['trace']['enumerated_list']['plan']['background']), 2)
+                self.assertEqual(len(r['context_passages']), 2)
+                self.assertEqual([p['source_index'] for p in r['context_passages']], [4, 5])
                 for s in r['sources']:
                     self.assertTrue(s['display_spans'])
                     for span in s['raw_evidence'] + s['display_spans']:

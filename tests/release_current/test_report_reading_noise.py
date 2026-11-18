@@ -1,7 +1,8 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-
 import copy
+from html import escape
+import re
 import unittest
 from pathlib import Path
 import sys
@@ -62,6 +63,25 @@ class ReadingNoise(unittest.TestCase):
 
 
 class EmptySections(WorkspaceTests):
+    def test_reader_body_omits_engineering_notes_but_keeps_source_content(self):
+        self.store.connection.execute(
+            'UPDATE notes SET content=content || ?,ocr_text=? WHERE id=?',
+            ('\n\n原文列举：第一，保留正文；第二，核对条件；第三，保留引用。',
+             'OCR 原文必须完整保留。', self.note.id))
+        self.store.connection.commit()
+        r = self.build('project')
+        r['limitations'] = ['编制说明中的条件完整保留。']
+        before = copy.deepcopy(r)
+        for out in (render_report(r), export_html(r)):
+            self.assertNotIn('report-source-index report-method', out)
+            self.assertNotIn('<summary>参考资料</summary>', out)
+            self.assertIn('<details class="ocr-record"><summary>OCR 原文', out)
+            self.assertIn('<details><summary>查看上方列举的完整原段落 ', out)
+            self.assertIn('<details><summary>查看图表数据与完整清单</summary>', out)
+            self.assertNotIn('编制说明中的条件完整保留。', out)
+            self.assertIn('OCR 原文必须完整保留。', out)
+        self.assertEqual(r, before)
+
     def test_empty_learning_sections_hidden_but_manual_notes_retained(self):
         r = self.build('learning')
         r.update(records=[], actions=[], tables=[], claims=[])
@@ -74,13 +94,22 @@ class EmptySections(WorkspaceTests):
         for key in r['notes']:
             self.assertIn('人工说明-' + key, out)
 
-    def test_offline_appendix_collapsed_and_all_snapshots_retained(self):
+    def test_offline_cited_passages_collapsed_and_saved_snapshots_unchanged(self):
         r = self.build('learning')
         before = copy.deepcopy(r)
         out = export_html(r)
         self.assertIn('<details class="section appendix" id="report-source-appendix">', out)
+        used = {int(value) for value in re.findall(r'data-ref="(\d+)"', render_report(r))}
         for ref in r['refs']:
-            self.assertIn('id="source-' + str(ref['id']) + '"', out)
+            if ref['id'] in used:
+                self.assertIn('id="source-' + str(ref['id']) + '"', out)
+                self.assertIn('<blockquote>' + escape(ref['quote']) + '</blockquote>', out)
+            else:
+                self.assertNotIn('id="source-' + str(ref['id']) + '"', out)
+        self.assertNotIn('完整快照', out)
+        reference_ids = {ref['id'] for ref in r['refs']}
+        for reference_id in re.findall(r'href="#source-(\d+)"', out):
+            self.assertIn(int(reference_id), reference_ids)
         self.assertEqual(r, before)
 
 

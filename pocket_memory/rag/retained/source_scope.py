@@ -25,7 +25,7 @@ def natural_source_question(question, notes, documents=None):
     if TITLE.search(question):
         return question, None
     q = norm(question)
-    q = re.sub(r'^(?:麻烦)?(?:请问一下|请问|请|帮我|我想知道|想问一下|问一下)', '', q)
+    q = re.sub(r'^(?:麻烦)?(?:请问一下|请问|请|帮我|我想知道|想问一下|问一下)[，,:：]*', '', q)
     preamble = re.match(r'^(?:(?:只|仅)?(?:根据|依据|看|读|参考))', q)
     rest = q[preamble.end():] if preamble else q
     candidates = [n for n in notes.values() if len(norm(n['title'])) >= 4 and rest.startswith(norm(n['title']))]

@@ -1137,7 +1137,7 @@ class PocketMemoryServerTests(unittest.TestCase):
             {"role": "assistant", "content": "工业互联网负责连接，人工智能负责分析与生成。"},
         ]
         _, payload = self.request(
-            "/api/ask", "POST", {"question": "项目有哪些风险", "history": history}
+            "/api/ask", "POST", {"question": "《项目复盘》有哪些风险", "history": history}
         )
         self.assertEqual(payload["sources"][0]["id"], risk_note.id)
         self.assertIn("风险一", payload["answer"])

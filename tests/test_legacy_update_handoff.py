@@ -1,6 +1,5 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-
 """Small filesystem/process-identity fixtures; no build, GUI or real installation."""
 import hashlib
 import json

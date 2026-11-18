@@ -73,6 +73,25 @@
   .rail .history-item small,.outline a {color:var(--work-muted)}
   .outline a:hover {color:var(--work-text);background:var(--work-active)}
   .outline .ordinal {color:var(--work-muted)}
+  .outline a[aria-current="location"] {color:var(--work-accent);background:var(--work-active);border-left-color:var(--work-accent)}
+  .outline a[aria-current="location"] .ordinal {color:var(--work-accent)}
+  .create-dialog {
+    --ink:var(--work-text); --muted:var(--work-muted); --line:var(--work-border);
+    --teal:var(--work-accent); --teal-soft:var(--work-active);
+    background:var(--work-surface);color:var(--work-text);border-color:var(--work-border);
+  }
+  .create-dialog .dialog-head,.create-dialog .dialog-footer {background:var(--work-surface);border-color:var(--work-border)}
+  .create-dialog .eyebrow,.create-dialog #selected-count {color:var(--work-accent)}
+  .create-dialog .source-help,.create-dialog .source-option small {color:var(--work-muted)}
+  .create-dialog input,.create-dialog select,.create-dialog button {background:var(--work-button);color:var(--work-text);border-color:var(--work-border)}
+  .create-dialog .source-option input {accent-color:var(--work-accent)}
+  .create-dialog #source-picker {background:var(--work-button);border-color:var(--work-border)}
+  .create-dialog .source-option {border-color:var(--work-border)}
+  .create-dialog .source-option:hover,.create-dialog .source-option:has(input:checked),.create-dialog button:hover {background:var(--work-active)}
+  .create-dialog .source-option:focus-within {outline-color:var(--work-accent)}
+  .create-dialog button.primary {background:var(--work-accent);border-color:var(--work-accent);color:var(--work-on-accent)}
+  .create-dialog .dialog-head>button {background:transparent;border-color:transparent}
+  .create-dialog :focus-visible {outline-color:var(--work-accent)}
   .appbar :focus-visible,.rail :focus-visible,.document-toolbar :focus-visible {
     outline-color:var(--work-accent);
   }

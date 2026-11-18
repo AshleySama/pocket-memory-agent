@@ -1,22 +1,25 @@
 {
   "source": "PocketMemoryWebsite/templates/index.html",
-  "template_sha256": "3850bbaf0b3a40e9521f06e8ff1affb77044a6841439a6aa7f3d818b680cbefb",
+  "template_sha256": "598e802872c7b593f3721930553a144d741578d6406166e2f6739add03fc68ae",
   "version": "1.0.0",
   "download_url": "https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip",
   "video_url": "https://download-files-1312623621.cos.ap-beijing.myqcloud.com/pocket-memory-demo.mp4",
   "assets": {
-    "static/img/report-actions-20261111.jpg": "7d0642b1fa360e57d12b693adc5b6d5f21a28fc610226220899c159a650cea96",
-    "static/samples/action-followup.html": "6c59b9cf2bce3bdc59f26e57be771ddc719fd57493beb811ef686a95025f5525",
-    "static/img/report-review-20261111.jpg": "be14a8827d5ca1238818eb1e2592f4b0366727e7c45d2a0839b6a3497fde6e0a",
-    "static/samples/project-review.html": "3df757359b7c08119f0fd256fe2646cbcc83272bc02f397f395d85f835fff9c3",
-    "static/img/text-assistant-20261111.jpg": "528c8f188a6a03df658f7103f49c880bffaf6a3561d44ec53e2a763a004dfc8a",
-    "static/img/RAG_demo.png": "21b5f1b2cf8c6ce3ffe76b28c15209076dd4fb253350d927fd527140b9097fbf",
-    "static/img/workbench-20261111.jpg": "392cb3ba988b8ac8ea414bfe200c0ec2df0d3747a4d0c63b70249e21ec18b6e0",
-    "static/img/pocket-memory-workbench-demo.png": "ba0066c4a229bffcfdda043cf9dd137de17d6f3dea8da407f8885429414a6da0",
+    "static/css/editorial-depth.css": "136354b4097bb1d6a84740872d1bbabce3cd6f5f32bac6a589124ff2696c7a2f",
+    "static/css/editorial.css": "eef9e67819b754ac5d03cd64156e1fb3de48f2f9ee70acea34f6352708464a75",
+    "static/img/auto-update-20261117.png": "be3c62f26e0fa436f459844b6109c504a629673eb8b32c2de3a2e2bd0bae5669",
+    "static/img/knowledge-graph-supplied-20261118.png": "bf3b4b409efcc904666d3e9198cde8fdf90410f93899e6df60986d134a3db50a",
     "static/img/pocket-memory-logo.png": "a72b030976558e3d33336beb124114bb260332ffc61f9cb6259115d1a42f04cd",
-    "static/js/proof-gallery.js": "1622b37f37d7e8e455e3daa25cfe54abbb39ff82e2ebf8f1dc6fa5852673de16",
-    "static/js/site.js": "38b39470af212d1aa5668087263b98040eedc307c22ff79dda09eeab844d30a4",
-    "static/css/site.css": "33a1d2f7ec208737b48437512ceda598d7e94caf6d73ef14061f97fd1a4f4272"
+    "static/img/rag-supplied-20261118.png": "9270813ff589b486cad1f296723b73d794f982f759d1e9405b20201cb065120a",
+    "static/img/workbench-20261116.png": "72baadbe983f96cd2e155edba01784f05716b9ecbb13741e6f7b4d0f5a32c7e4",
+    "static/img/workspace-tabs-supplied-20261118.png": "1dc9fd2d128a103e6816f6e3e3cf6914cce4d09ed486e9887699e5d35fa0708b",
+    "static/js/editorial.js": "0b373ce5689fdedfbeba6f9aa68aae0354858b9e5ef5a4498b07e045e8898129",
+    "static/js/proof-gallery.js": "92c73d70cc62133f9ebf02f41e5544b9f7224e022181cf1ad6bdda06d8438391",
+    "static/js/site.js": "6dabf9ad22305a783528e57db6b669e30fd82b50d2c21f210a545c0da33de9be",
+    "static/samples/action-followup.html": "6c59b9cf2bce3bdc59f26e57be771ddc719fd57493beb811ef686a95025f5525",
+    "static/samples/agent-capabilities-20261118.html": "094ff6b63add2e2fb17655c19d0da4c779f806a2152452454c12e13267af30d7"
   },
-  "index_sha256": "6142c412af770ab4f9e1e85d6ac28c4e66e3878e1e3da921f03120330d01c48c"
+  "index_sha256": "dd406a34ab92ad573e92849dcc7da99954c295ad0a6bd0ff004b3af2d51efb8b",
+  "export_date": "2026-11-18",
+  "source_package_sha256": "abeee9c6266fe9b2f7f7a2e543847c8e525c7a6c8e232e20ac758ac553750ef7"
 }

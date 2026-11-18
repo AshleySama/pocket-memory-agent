@@ -6,6 +6,8 @@
   if (!frame || !video) return;
   const controls = frame.querySelector('.player-controls');
   const play = frame.querySelector('.player-play');
+  const launch = frame.querySelector('.player-launch');
+  const launchButton = frame.querySelector('.player-launch-button');
   const seek = frame.querySelector('.player-seek');
   const mute = frame.querySelector('.player-mute');
   const volume = frame.querySelector('.player-volume');
@@ -16,6 +18,7 @@
   const speedButtons = [...menu.querySelectorAll('[data-speed]')];
   const rates = new Set([0.75, 1, 1.5, 2, 3]);
   let selectedRate = video.playbackRate;
+  let playbackPending = false;
   const timeText = value => {
     if (!Number.isFinite(value)) return '--:--';
     const seconds = Math.max(0, Math.floor(value));
@@ -32,12 +35,26 @@
     play.setAttribute('aria-label', video.paused ? '播放' : '暂停');
     play.querySelector('.play-symbol').toggleAttribute('hidden', !video.paused);
     play.querySelector('.pause-symbol').toggleAttribute('hidden', video.paused);
+    if (launch && launchButton) {
+      const visible = video.paused || playbackPending;
+      if (!visible && launch.contains(document.activeElement)) play.focus({preventScroll: true});
+      launch.hidden = !visible;
+      const atEnd = video.ended || (Number.isFinite(video.duration) && video.duration > 0 && video.currentTime >= video.duration - 0.1);
+      const label = playbackPending ? '正在载入…' : atEnd ? '重新播放' : video.currentTime > 0 ? '继续播放' : '播放演示';
+      launch.querySelector('[data-launch-label]').textContent = label;
+      launchButton.setAttribute('aria-label', label);
+      launchButton.setAttribute('aria-busy', String(playbackPending));
+      launchButton.setAttribute('aria-disabled', String(playbackPending));
+    }
   };
   const togglePlay = async () => {
     if (!video.paused) { video.pause(); return; }
+    if (playbackPending) return;
+    playbackPending = true;
+    updatePlay();
     try { await video.play(); } catch (error) {
       if (error.name !== 'AbortError') { status.textContent = '视频暂时无法播放，请稍后重试。'; status.hidden = false; }
-    }
+    } finally { playbackPending = false; updatePlay(); }
   };
   const closeMenu = (restoreFocus = false) => {
     menu.hidden = true;
@@ -59,6 +76,7 @@
     volume.value = String(video.muted ? 0 : video.volume);
   };
   play.addEventListener('click', togglePlay);
+  launchButton?.addEventListener('click', togglePlay);
   video.addEventListener('click', togglePlay);
   seek.addEventListener('input', () => { if (!seek.disabled) { video.currentTime = Number(seek.value) / 100 * video.duration; updateTime(); } });
   mute.addEventListener('click', () => { video.muted = !video.muted; if (!video.muted && !video.volume) video.volume = 1; });
@@ -93,7 +111,7 @@
   if (!document.fullscreenEnabled) fullscreen.hidden = true;
   video.addEventListener('loadedmetadata', () => { video.playbackRate = selectedRate; updateTime(); });
   ['timeupdate', 'durationchange'].forEach(event => video.addEventListener(event, updateTime));
-  ['play', 'pause', 'ended'].forEach(event => video.addEventListener(event, updatePlay));
+  ['play', 'pause', 'ended', 'seeked'].forEach(event => video.addEventListener(event, updatePlay));
   video.addEventListener('volumechange', updateVolume);
   video.addEventListener('ratechange', updateSpeed);
   video.addEventListener('playing', () => { status.hidden = true; });

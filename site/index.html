@@ -1,21 +1,81 @@
 <!doctype html>
 <!-- Copyright 2026 AshleySama | SPDX-License-Identifier: Apache-2.0 -->
-<html lang="zh-CN"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Pocket Memory 随手记，本地资料工作台。完整离线包内置4B模型，记录笔记、导入文件、核对问答出处、提取待办、加工文字，整理带来源的专题报告。">
-<meta name="theme-color" content="#153a39"><title>Pocket Memory · 你的本地资料工作台</title>
-<link rel="stylesheet" href="static/css/site.css?v=20261111-7">
-<script src="static/js/site.js?v=20261111-5" defer></script><script src="static/js/proof-gallery.js?v=1" defer></script>
-</head><body><a class="skip-link" href="#main">跳到主要内容</a>
-<header class="topbar"><div class="wrap"><a class="brand" href="#top"><img src="static/img/pocket-memory-logo.png" alt="">Pocket Memory</a><nav class="nav" aria-label="页面导航"><a href="#capabilities">产品能力</a><a href="#rag">智能问答</a><a href="#tools">文字助手</a><a href="#reports">专题报告</a><a href="#data-safety">数据安全</a><a class="download-mini" href="#download">下载与使用</a></nav></div></header>
+<html lang="zh-CN" data-motion="on">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Pocket Memory，本地资料工作台。记录笔记、导入文件、核对问答出处，按要求整理已有资料，保留可核对出处。资料与 AI 处理留在自己的电脑上。">
+  <meta name="theme-color" content="#fafaf8">
+  <title>Pocket Memory · 你的本地资料工作台</title>
+  <link rel="stylesheet" href="static/css/editorial.css?v=20261118-player-size-2">
+  <link rel="stylesheet" href="static/css/editorial-depth.css?v=20261118-media-balance-3">
+  <script src="static/js/site.js?v=20261118-local-emphasis-1" defer></script>
+  <script src="static/js/proof-gallery.js?v=20261117-editorial-4" defer></script>
+  <script src="static/js/editorial.js?v=20261118-navigation-1" defer></script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="reading-progress" aria-hidden="true"><span></span></div>
+<header class="topbar">
+  <div class="header-inner">
+    <a class="brand" href="#top" aria-label="Pocket Memory 首页"><img src="static/img/pocket-memory-logo.png" width="36" height="40" alt=""><span>Pocket Memory</span></a>
+    <nav class="nav" aria-label="页面导航"><a href="#rag">智能问答</a><a href="#workspace">笔记与文件</a><a href="#graph">知识图谱</a><a href="#reports">资料汇编</a><a href="#data-safety">数据安全</a><a href="#download">下载</a></nav>
+  </div>
+</header>
 <main id="main">
-<section class="hero" id="top"><div class="wrap"><p class="eyebrow">随手记 · 你的本地资料工作台</p><h1>把零散资料，<br>变成自己的知识库。</h1><p class="lead">随手记录，导入文件，把有关的笔记连起来。<br>需要时直接提问，沿着出处核对，再整理成一份报告。</p><div class="actions"><a class="button" href="#download">下载完整离线包</a><a class="button alt" href="#demo">观看演示</a></div><div class="hero-facts"><span>开箱即用，解压即可启动</span><span>内置本地 4B 模型</span><a href="#data-safety">资料与 AI 处理留在本机</a></div></div></section>
-<div class="anchor-band"><nav class="anchor-tabs" aria-label="介绍页章节导航"><a href="#why">为什么用它</a><a href="#demo">操作演示</a><a href="#notes">笔记与文件</a><a href="#links">双链与关系图</a><a href="#rag">问答与出处</a><a href="#tools">待办与文字助手</a><a href="#reports">六类报告</a><a href="#data-safety">数据安全</a><a href="#download">下载</a></nav></div>
-<section id="why" class="section paper"><div class="wrap"><div class="section-head"><p class="eyebrow">让资料积累下来</p><div><h2>写下来的、存下来的，<br>下次需要时能用上。</h2><p class="section-lead">会议、项目、学习，每天都会留下一些资料。把它们放在同一个地方，按自己的习惯整理，查找时不用再翻遍文件夹。</p></div></div><div class="principles"><article class="principle"><span class="index">01 / 留得住</span><h3>从一条记录开始</h3><p>用笔记与多页签记下想法和项目过程；分类、标签、收藏和历史版本，方便长期维护。</p></article><article class="principle"><span class="index">02 / 找得到</span><h3>已有文件也能查</h3><p>Word、PDF、Excel、TXT 和图片进入同一资料库。原文件继续保留，正文和识别出的文字都可以搜索。</p></article><article class="principle"><span class="index">03 / 能核对</span><h3>回答有出处可看</h3><p>智能问答展示来源与证据片段。打开原文，核对条件和数字，再决定怎样使用这份回答。</p></article></div></div></section>
-<section id="demo" class="video-section"><div class="wrap">
-  <div class="demo-heading"><div><p class="eyebrow">操作演示</p><h2>打开看看，它怎样帮你整理资料。</h2></div><p id="video-description">记录、导入、提问、核对来源，<br>从一次实际操作开始了解。</p></div>
-  <div class="video-frame player" id="video-player">
-    <video id="product-video" controls playsinline preload="none" poster="static/img/pocket-memory-workbench-demo.png" aria-label="Pocket Memory 产品演示" aria-describedby="video-status"><source src="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/pocket-memory-demo.mp4" type="video/mp4">当前浏览器不支持播放视频，请使用新版 Edge 或 Chrome。</video>
+  <section class="hero" id="top" aria-labelledby="hero-title">
+    <div class="wrap hero-layout">
+      <div class="hero-copy">
+        <p class="eyebrow" data-reveal="up">Pocket Memory · 本地资料工作台</p>
+        <h1 id="hero-title" data-reveal="title" data-delay="90">把零散资料，<br>变成自己的知识库。</h1>
+        <p class="hero-intro" data-reveal="up" data-delay="150">写下想法，放进文档，把有关的笔记连起来。<br>需要时提问、核对出处，或整理一份文稿。</p>
+        <div class="actions" data-reveal="up" data-delay="220"><a class="button" href="#download">下载 Pocket Memory</a><a class="text-link" href="#demo">观看演示</a></div>
+        <p class="hero-package" data-reveal="up"><strong>完整离线包</strong><span>内置本地 4B 模型 · 解压即可启动</span></p>
+        <nav class="hero-capabilities" aria-label="产品能力速览" data-reveal="up" data-delay="240">
+          <div><span>记录与整理</span><p><a href="#workspace">多页签笔记</a><a href="#files">文件与 OCR</a><a href="#graph">双链与图谱</a></p></div>
+          <div><span>查找与使用</span><p><a href="#rag">问答与出处</a><a href="#reports">资料汇编</a></p></div>
+          <div><span>长期掌握</span><p><a href="#data-safety">本地保存与备份</a><a href="#updates">应用内自动更新</a></p></div>
+        </nav>
+      </div>
+      <div class="hero-visual" data-reveal="media" data-delay="120">
+        <div data-drift><a class="image-link hero-screen" data-lightbox href="static/img/workbench-20261116.png" data-caption="Pocket Memory 笔记工作台" aria-label="放大查看笔记工作台"><img src="static/img/workbench-20261116.png" alt="Pocket Memory：分类、笔记列表和多页签编辑工作台" width="1918" height="1142" fetchpriority="high" decoding="async"><span class="image-label">探索工作台 · 查看完整界面</span></a></div>
+      </div>
+    </div>
+    <div class="hero-baseline wrap"><p><strong>笔记、附件和 AI 处理留在本机，</strong>无需配置 API 密钥。敏感资料留在自己手中，数据更安全。</p><a class="text-link" href="#workspace">看看它能做什么</a></div>
+  </section>
+
+  <section class="evidence-section section" id="rag" aria-labelledby="rag-title">
+    <div class="wrap evidence-layout">
+      <figure class="source-figure" data-reveal="media">
+        <a class="image-link source-crop supplied-screen" data-lightbox href="static/img/rag-supplied-20261118.png" data-caption="同屏核对：左侧原文高亮，右侧回答与来源" aria-label="放大查看原文与智能问答"><img src="static/img/rag-supplied-20261118.png" alt="参考笔记《项目复盘》，三段支持回答的原文被高亮" width="1785" height="917" loading="lazy" decoding="async"><span class="image-label">查看完整问答</span></a>
+        <figcaption>原文高亮 / 参考笔记《项目复盘》</figcaption>
+      </figure>
+      <div class="evidence-copy">
+        <div class="evidence-intro">
+        <p class="eyebrow" data-reveal="up">智能问答 · 有据可查</p>
+        <h2 id="rag-title" data-reveal="title">答案，<br>有原文可查。</h2>
+        <p class="section-lead" data-reveal="up">先从自己的笔记和文件中寻找证据，再组织回答。沿着来源编号回到原文，查看支持结论的内容。</p>
+        </div>
+        <div class="evidence-support">
+        <dl class="evidence-points" data-reveal="up">
+          <div><dt>既找关键词，也找相近意思</dt><dd>全文与语义检索结合，覆盖术语、编号、日期和同义表达。</dd></div>
+          <div><dt>从结论回到具体位置</dt><dd>打开参考笔记或原始文档，对照页签、段落、页码或工作表核对。</dd></div>
+        </dl>
+        <a class="text-link" data-lightbox href="static/img/rag-supplied-20261118.png" data-caption="一次真实问答：项目有哪些风险" data-reveal="up">查看一次真实问答</a>
+        <p class="quiet-note" data-reveal="up">复杂问题与扫描件仍可能漏答或错引。重要结论，请多核对一步。</p>
+        <details class="plain-details" data-reveal="up"><summary>一份回答怎样产生</summary><div><p>保留原文及其位置，理解问题，再结合全文与语义检索查找资料。候选内容经过重排，本地模型基于证据组织回答，并提供来源入口。</p><p>支持笔记、多页签、TXT、Word、Excel、PDF 与图片 OCR；问题中的对象和范围越清楚，越方便核对。</p></div></details>
+        </div>
+      </div>
+    </div>
+    <div class="wrap format-line" data-reveal="up"><span>可检索的资料</span><p>笔记与多页签 <i>/</i> Word <i>/</i> Excel <i>/</i> PDF <i>/</i> TXT <i>/</i> 图片 OCR</p></div>
+  </section>
+
+  <section class="demo-section section" id="demo" aria-labelledby="demo-title"><div class="wrap narrow-wrap demo-layout">
+    <div class="demo-copy" data-reveal="up"><p class="eyebrow">看一次实际操作</p><h2 id="demo-title">从记录，<br>到用上。</h2><p class="demo-intro">写笔记、导入文件、提问，<br>再打开原文核对。</p><p class="demo-meta"><span>完整演示</span></p></div>
+    <div class="demo-media" data-reveal="media">  <div class="video-frame player" id="video-player">
+    <video id="product-video" controls playsinline preload="none" poster="static/img/workbench-20261116.png" aria-label="Pocket Memory 产品演示" aria-describedby="video-status"><source src="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/pocket-memory-demo.mp4" type="video/mp4">当前浏览器不支持播放视频，请使用新版 Edge 或 Chrome。</video>
+    <div class="player-launch" hidden><button type="button" class="player-launch-button" aria-label="播放演示"><span class="player-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z"/></svg></span><span class="player-launch-copy"><strong data-launch-label>播放演示</strong></span></button></div>
     <div class="player-controls" hidden>
       <button type="button" class="player-play" aria-label="播放"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="play-symbol" d="m8 5 11 7-11 7Z"/><path class="pause-symbol" d="M7 5h3v14H7zm7 0h3v14h-3z" hidden/></svg></button>
       <span class="player-time" aria-label="播放进度"><span data-time>0:00</span> / <span data-duration>--:--</span></span>
@@ -31,44 +91,59 @@
     </div>
     <p id="video-status" class="video-status" role="status" hidden>视频暂时无法加载，请稍后刷新重试。</p>
   </div>
-</div></section><section id="capabilities" class="section paper"><div class="wrap"><div class="section-head"><p class="eyebrow">CORE CAPABILITIES</p><div><h2>笔记、文件与关联，放进同一个工作台。</h2><p class="section-lead">会议记录、项目资料、学习材料和工作文档，可以在这里持续整理。写下来的内容、导入的文件和笔记之间的联系，都能接着积累。</p></div></div><nav class="feature-nav" aria-label="能力导航"><a href="#notes">多页签笔记</a><a href="#files">文件与 OCR</a><a href="#links">双链阅读</a><a href="#graph">知识图谱</a><a href="#rag">可追溯问答</a><a href="#tools">待办与文字助手</a><a href="#reports">专题报告</a></nav><div id="notes" class="feature-row"><div><span class="feature-kicker">NOTE WORKBENCH</span><h3>笔记不再被一页内容限制。</h3></div><div class="feature-content"><p>同一个主题可拆成多个页签，例如“背景、方案、风险、行动项”。支持富文本、表格、图片、链接、颜色、历史版本，以及分区、收藏与置顶，既适合快速记录，也能承载长期维护。</p><p class="use"><b>怎么用：</b>点击 <em>新建笔记</em> 后直接在右侧工作区写作；需要展开同一主题时，用 <em>新增页签</em> 管理，不必把所有内容塞进一篇超长正文。</p></div></div><div id="files" class="feature-row"><div><span class="feature-kicker">FILE LIBRARY</span><h3>文件保留原貌，也能进入检索。</h3></div><div class="feature-content"><p>导入 TXT、DOCX、XLSX、PDF 和图片后，系统保留原始附件，并按标题、段落、页码、工作表和表格行等结构建立可定位内容。图片与扫描件可使用本地 OCR 提取文字，原件、切片与检索位置可以分别查看。</p><p class="use"><b>怎么用：</b>在 <em>导入文件</em> 中选择多个文件或一个文件夹；文档默认在“文档”视图集中查看，可重建索引、替换原件、下载原件，或从智能问答直接打开命中的位置。</p></div></div><div id="links" class="feature-row"><div><span class="feature-kicker">BIDIRECTIONAL LINKS</span><h3>用双链，把零散笔记接回上下文。</h3></div><div class="feature-content"><p>在笔记中通过链接引用另一篇笔记，阅读时可点击跳转到目标内容。系统同时保留反向关系，因此一篇项目笔记被哪些专题、复盘或行动项引用，不必靠人工回忆。</p><p class="use"><b>怎么用：</b>在正文中插入并选择目标笔记；阅读引用时点击链接进入 <em>只读参考笔记</em>，核对后可返回原笔记继续编辑，避免误改来源内容。</p></div></div><div id="graph" class="feature-row"><div><span class="feature-kicker">LOCAL RELATION MAP</span><h3>把笔记之间的联系看清楚。</h3></div><div class="feature-content"><p>知识图谱以笔记间的双链和共用标签为线索展示关联，也能显示孤立笔记。它适合发现某个项目、主题或标签周边已经积累了什么，以及哪些资料还没有被纳入任何脉络。</p><p class="use"><b>怎么用：</b>打开 <em>知识图谱</em>，按标题或标签筛选；勾选“显示孤立笔记”检查未关联内容。图谱用于浏览与整理，不参与智能问答的默认证据库。</p></div></div><div class="feature-row"><div><span class="feature-kicker">ORGANIZE WITH CONTROL</span><h3>整理有辅助，最终仍由人掌握。</h3></div><div class="feature-content"><p>系统可根据笔记内容给出分类与标签建议，建议由你确认和调整。分类路径、手工移动、排序、收藏和置顶共同解决“资料越来越多以后找不到”的问题。</p><p class="use"><b>怎么用：</b>先用分区表达稳定结构，用收藏表达高频资料；对 AI 建议的标签保持审阅，不需要的标签可以直接删掉，保持标签清晰。</p></div></div></div></section><section id="workspace" class="section soft"><div class="wrap workbench-layout"><div><img class="screen" src="static/img/workbench-20261111.jpg" alt="Pocket Memory 当前三栏工作台，包含笔记分类、资料列表和笔记阅读区" loading="lazy"><p class="caption">一个界面完成资料浏览、笔记编辑、智能问答和证据核对；左右分栏可根据使用习惯调整宽度。</p></div><ul class="detail-list"><li><b><span class="mark">1</span>中间先看资料，再决定是否打开</b>笔记与文档分开呈现，分类路径、摘要、最近更新、收藏和置顶状态帮助快速判断下一步。</li><li><b><span class="mark">2</span>右侧专注编辑或问答</b>同一个区域在笔记编辑、AI 回答、工具之间切换，避免因为开启多个窗口而丢失上下文。</li><li><b><span class="mark">3</span>引用不是装饰，而是核对入口</b>回答中的来源可打开参考笔记或原始文档，核对相应页签、段落、页码或工作表位置。</li><li><b><span class="mark">4</span>数据可迁移、可备份</b>可导出完整 ZIP 备份，也可切换本地资料目录。换电脑或清理资料前，先保存好备份与原文件。</li></ul></div></section><section id="rag" class="section dark"><div class="wrap"><div class="section-head"><p class="eyebrow">TRACEABLE LOCAL RAG</p><div><h2>问自己的资料，答案旁边有出处。</h2><p class="section-lead">Pocket Memory 的智能回答先在用户自己的笔记和文件中检索证据，再用本地模型组织结论。回答里的来源编号连接到原文，重要结论可以逐项核对。</p></div></div><div class="rag-flow"><article><span>01 / 入库</span><h3>保留内容与位置</h3><p>笔记页签、导入文件、图片 OCR 同时保存原文、类型与定位信息。</p></article><article><span>02 / 理解</span><h3>识别问题重点</h3><p>结合问题里的对象、字段和范围，查找相关资料。对象和范围越清楚，越方便核对。</p></article><article><span>03 / 召回</span><h3>混合检索</h3><p>全文检索擅长术语、编号、金额和日期；BGE 向量检索补充同义表达。</p></article><article><span>04 / 重排</span><h3>优先直接证据</h3><p>对候选切片按问题匹配度与结构重排，减少只有相似词却答非所问的情况。</p></article><article><span>05 / 回答</span><h3>来源可打开</h3><p>回答返回证据句、来源与打开参考文档入口；资料不足时应明确提示。</p></article></div><div class="evidence-note"><b>多核对一步：</b>复杂问题与扫描件可能出现漏答或错引。查看证据句，再打开原文，核对主体、条件与数字；重要结论以原资料为准。</div><img class="rag-demo" src="static/img/RAG_demo.png" alt="Pocket Memory 智能问答与来源证据示例"><div class="format-strip"><h3>可进入问答范围的资料</h3><div class="chips"><span>笔记与多页签</span><span>TXT</span><span>Word / DOCX</span><span>Excel / XLSX</span><span>PDF</span><span>图片 OCR</span></div></div></div></section><section class="tools-band" id="tools" aria-labelledby="tools-title"><div class="wrap section">
-  <p class="eyebrow">待办与文字助手</p><div class="section-bar"><h2 id="tools-title">把记录整理成待办，<br>把文字写得更清楚。</h2><span>内置本机小模型 · 结果由你确认</span></div>
-  <div class="tools-layout"><div class="tools-copy"><p class="section-lead">一段会议记录、一条工作消息、一份说明，从已有文字出发，整理下一步要做的事，或把表达调整得更通顺。</p>
-    <ol class="workflow"><li><b>取用文字，直接开始</b><span>使用当前笔记、选中文字，或粘贴一段内容，无需来回整理文件。</span></li><li><b>提取待办，核对后保存</b><span>整理事项、负责人和原文期限。核对并修改待办草稿，保存后按需设置提醒。</span></li><li><b>加工文字，保留原笔记</b><span>润色表达、精简内容、礼貌措辞、纠正错别字。结果可继续编辑、复制，或另存为新笔记。</span></li></ol>
-    <details class="scope-details"><summary>适合处理多长的文字？</summary><p>每次不超过 1000 字，最多提取 8 条待办。原文没写明的负责人或期限留空，提醒时间由你选择。</p><p>处理结果不会覆盖原文。润色后仍请核对原意、姓名、数字和日期。</p></details>
-    <p class="caption">工具中还保留提醒与番茄钟，方便安排当下的工作。</p>
-  </div><figure class="tools-preview"><a href="static/img/text-assistant-20261111.jpg" target="_blank" rel="noopener noreferrer"><img src="static/img/text-assistant-20261111.jpg" alt="文字助手实际界面：RAG与全文搜索的分段润色结果，可编辑、复制或另存为笔记" loading="lazy"></a><figcaption>实际润色结果：将“RAG 与全文搜索”整理为三个段落，核对原意后，可继续编辑或另存。点击图片可放大。</figcaption></figure>
-  </div>
-</div></section><section class="report-section section"><div class="wrap" id="reports" aria-labelledby="reports-title">
-  <p class="eyebrow">专题报告</p><div class="section-bar"><h2 id="reports-title">选好资料，整理成一份带来源的报告。</h2><span>复盘、研究、对比、立项、会议、学习</span></div>
-  <p class="section-lead report-lead">选择 1–8 份相关笔记或文档，生成报告初稿。整理工作进展，梳理观点和行动项；正文便于阅读，来源按需展开核对；补充说明后，导出一个用浏览器就能打开的文件。</p>
-  <div class="report-showcase" data-gallery>
-    <div class="gallery-controls" aria-label="报告样例"><button type="button" aria-pressed="true" aria-controls="report-review" data-view="report-review">项目复盘 / 工作汇报</button><button type="button" aria-pressed="false" aria-controls="report-actions" data-view="report-actions">会议纪要 / 行动跟进</button></div>
-    <article id="report-review" data-panel class="report-spread"><div><h3>工作进展、风险与下一步，<br>放在一份报告里。</h3><p>把完成的工作、做过的取舍和待处理的风险集中呈现。状态图表附有统计依据，关键内容可以沿引用查回原文。</p><ul class="plain-list"><li>工作摘要与产品取舍</li><li>状态分布与统计依据</li><li>风险、责任行动和来源附录</li></ul><a class="button secondary" href="static/samples/project-review.html" target="_blank" rel="noopener noreferrer">打开完整复盘样例 ↗</a><p class="caption">以下样例使用本项目演示资料，可打开完整报告查看图表和引用附录。</p></div><figure><a href="static/samples/project-review.html" target="_blank" rel="noopener noreferrer" aria-label="打开项目复盘完整报告"><img src="static/img/report-review-20261111.jpg" alt="当前导出样例：项目复盘的连续结论、章节与引用" loading="lazy"></a></figure></article>
-    <article id="report-actions" data-panel class="report-spread"><div><h3>把决定与待办，<br>整理成可以跟进的记录。</h3><p>从项目记录中整理已决定的事项、责任和后续行动。没有写明的信息留待确认，方便继续补充。</p><ul class="plain-list"><li>决策条目与行动看板</li><li>风险措施与责任记录</li><li>待确认信息与原文依据</li></ul><a class="button secondary" href="static/samples/action-followup.html" target="_blank" rel="noopener noreferrer">打开行动跟进样例 ↗</a><p class="caption">此样例由项目笔记整理为行动跟进材料，非会议实录。</p></div><figure><a href="static/samples/action-followup.html" target="_blank" rel="noopener noreferrer" aria-label="打开行动跟进完整报告"><img src="static/img/report-actions-20261111.jpg" alt="当前导出样例：行动跟进报告的原文提要、章节与引用" loading="lazy"></a></figure></article>
-  </div>
-  <details class="other-reports"><summary>还有四种用途，适应不同工作</summary><div class="other-report-grid"><article><h3>专题研究 / 知识整理</h3><p>整理观点、依据、分歧与待核实事项。</p></article><article><h3>方案对比 / 辅助决策</h3><p>比较方案的差异、适用条件和需要补充的信息。</p></article><article><h3>方案介绍 / 立项说明</h3><p>说明目标、方案组成、当前进展和实施条件。</p></article><article><h3>学习总结 / 培训材料</h3><p>梳理概念、区别、操作要点与原文依据。</p></article></div></details>
-  <p class="caption">资料中有可识别的状态表时，报告可附统计图表。生成后请核对重要事实和数字，再用于分享或汇报。</p>
-</div></section><section class="section paper data-safety" id="data-safety" aria-labelledby="data-safety-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow">数据安全与自主掌控</p><div><h2 id="data-safety-title">资料留在本机，<br>数据由你掌握。</h2><p class="section-lead">资料保存在你的电脑，AI 处理也在本机完成。从保存、恢复到备份与迁移，每一步都有明确的操作入口。</p></div></div>
-  <div class="data-safety-grid">
-    <article><span class="safety-index">01 / 存在哪里</span><h3>资料本机保存</h3><p>笔记、页签和原始附件保存在你选择的本机资料目录，文件位置清楚，资料可以自行管理。</p></article>
-    <article><span class="safety-index">02 / 如何处理</span><h3>AI 本机处理</h3><p>检索、问答、报告、文字助手和图片识别使用本地组件，不把资料提交给云端模型。</p></article>
-    <article><span class="safety-index">03 / 如何找回</span><h3>草稿与历史版本</h3><p>笔记保留历史版本，未完成内容可从草稿箱继续编辑。切换笔记时保留草稿，恢复遇到版本冲突时可另存副本。</p></article>
-    <article><span class="safety-index">04 / 如何带走</span><h3>备份与迁移</h3><p>可导出包含笔记、页签和附件的 ZIP 备份。解压后，在设置中切换到该资料目录，即可继续使用。</p></article>
-  </div>
-</div></section><section class="download-section" id="download" aria-labelledby="download-title"><div class="wrap">
-  <div class="section-bar"><h2 id="download-title">从一份熟悉的资料开始。</h2><span>Windows 64 位</span></div>
-  <div class="download-row"><div class="download-kind"><h3>完整离线包</h3><span>程序 + 4B 模型 + 运行组件</span></div><div><p>完整解压，运行 <strong>PocketMemory.exe</strong>。无需配置开发环境或 API 密钥。</p><p class="download-meta">版本 1.0.0 · Windows 64 位 · 约 2.74 GB（2.55 GiB）</p></div><a class="button primary-download" href="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip">下载完整离线包</a></div>
-  <ol class="start-steps"><li><b>解压，运行程序</b><span>完整解压到固定文件夹，运行 PocketMemory.exe。</span></li><li><b>放进一份熟悉的资料</b><span>新建笔记，或导入已有文档，再按需要分类、加标签。</span></li><li><b>提问，打开来源核对</b><span>从具体问题开始，看完回答，再对照原文确认。</span></li></ol>
-  <div class="update-note"><strong>支持应用内更新</strong><p>新版本发布后，可在「设置 → 软件更新」更新程序；常规程序更新保留本地模型、资料和配置，无需重新下载完整包。</p></div>
-</div></section><section class="wrap section faq-section" id="questions" aria-labelledby="faq-title"><h2 id="faq-title">常见问题</h2><div class="faq-list">
-<details><summary>资料会发送到云端模型吗？</summary><p>笔记和文件保存在本机，问答与报告使用本地模型，不把资料发送给云端模型。</p></details>
+</div>
+  </div></section>
+
+  <section class="workspace-section section" id="workspace" aria-labelledby="workspace-title"><div class="wrap">
+    <div class="section-heading" data-reveal="up"><div><p class="eyebrow">笔记与文件 · 放进来，也能继续整理</p><h2 id="workspace-title">从随手记，<br>到长期维护的资料库。</h2></div><p>写下来的内容和已经存好的文件，<br>都能按自己的习惯组织。</p></div>
+    <div class="workspace-spread">
+      <div class="workspace-story" data-reveal="up"><h3>一个主题，<br>可以有几个页签。</h3><p>背景、方案、风险和行动分别记录。富文本、表格、图片与链接，容得下日常记录，也方便不断补充。</p><dl class="feature-notes"><div><dt>顺手找到常用资料</dt><dd>分类、标签、收藏与置顶，配合手工移动和排序。</dd></div><div><dt>整理有建议，决定在你</dt><dd>AI 可提供分类与标签建议，仍由你确认、修改和删除。</dd></div></dl></div>
+      <figure class="raised-screen" data-reveal="media">
+<a class="image-link supplied-screen" data-lightbox href="static/img/workspace-tabs-supplied-20261118.png" data-caption="笔记、资料列表与多页签编辑" aria-label="放大查看：笔记、资料列表与多页签编辑"><img src="static/img/workspace-tabs-supplied-20261118.png" alt="笔记、资料列表与多页签编辑" width="1794" height="1035" loading="lazy" decoding="async"><span class="image-label">查看完整界面</span></a><figcaption>左侧组织资料，中间浏览列表，右侧编辑或核对；分栏宽度可以调整。</figcaption></figure>
+    </div>
+    <div class="file-library" id="files" data-reveal="up"><div><p class="eyebrow">已有资料，不必重新抄一遍</p><h3>把文件放进来，<br>把原件留下来。</h3><p class="file-types">DOCX · XLSX · PDF · TXT · 图片</p></div><dl class="file-capabilities"><div><dt>批量导入文件或文件夹</dt><dd>文档与笔记分开呈现；原始附件保留，后续可以替换、下载或重建索引。</dd></div><div><dt>图片和扫描件，本地识别</dt><dd>OCR 将图片中的文字纳入检索。识别不清的内容，仍可打开原件核对。</dd></div><div><dt>找到内容，也知道在哪里</dt><dd>保留段落、页码、工作表与表格行等位置信息，从回答返回对应来源。</dd></div></dl></div>
+  </div></section>
+
+  <section class="graph-section section" id="graph" aria-labelledby="graph-title"><div class="wrap graph-layout">
+    <figure class="graph-figure" data-reveal="media">
+<a class="image-link graph-crop supplied-screen" data-lightbox href="static/img/knowledge-graph-supplied-20261118.png" data-caption="知识图谱：按分类查看笔记与已有联系" aria-label="放大查看：知识图谱：按分类查看笔记与已有联系"><img src="static/img/knowledge-graph-supplied-20261118.png" alt="知识图谱：按分类查看笔记与已有联系" width="1789" height="917" loading="lazy" decoding="async"><span class="image-label">查看完整界面</span></a><figcaption>按分类浏览笔记联系；支持缩放、拖动节点，点击笔记可打开原文。</figcaption></figure>
+    <div class="graph-copy"><p class="eyebrow" data-reveal="up">双链与知识图谱</p><h2 id="graph-title" data-reveal="title">一条笔记，<br>不是一个孤岛。</h2><p class="section-lead" data-reveal="up">把相关笔记连起来，也看看哪些内容引用了它。知识图谱让一个项目、主题或标签周边的积累变得可见。</p><dl class="feature-notes" data-reveal="up"><div><dt>沿着双链阅读</dt><dd>打开只读参考笔记核对，再返回原笔记继续编辑。</dd></div><div><dt>看见联系，也发现空白</dt><dd>按标题或标签筛选，显示孤立笔记，逐步补齐资料脉络。</dd></div></dl><p class="quiet-note" data-reveal="up">图谱呈现已有双链与标签，不自动生成或改写内容，也不作为问答的默认证据库。</p></div>
+  </div></section>
+
+<section class="reports-section section" id="reports" aria-labelledby="reports-title"><div class="wrap" data-gallery>
+    <div class="report-heading"><div data-reveal="up"><p class="eyebrow">资料汇编 · 辅助整理</p><h2 id="reports-title" data-reveal="title">把已有资料，<br>整理成一份文稿。</h2></div><p class="section-lead" data-reveal="up">选择笔记和文档，按要求整理已有内容，保留可核对出处。生成文稿后请补充、调整并核对内容，再导出 HTML。</p></div>
+    <div class="report-stage" data-reveal="media">
+      <aside class="report-index"><p class="small-label">可选择的整理方向</p><dl class="report-type-index"><div><dt>项目复盘</dt><dd>整理已有进展与问题</dd></div><div><dt>专题研究</dt><dd>归拢所选资料中的观点</dd></div><div><dt>方案对比</dt><dd>并列已有方案信息</dd></div><div><dt>方案介绍</dt><dd>梳理目标与主要内容</dd></div><div><dt>会议纪要</dt><dd>整理已有会议记录</dd></div><div><dt>学习总结</dt><dd>归拢概念与学习笔记</dd></div></dl><p class="small-label sample-label">看看整理后的样例</p><div class="gallery-controls vertical" aria-label="选择文稿样例"><button data-view="report-research" aria-controls="report-research" aria-pressed="true">专题研究<span>资料整理示例</span></button><button data-view="report-actions" aria-controls="report-actions" aria-pressed="false">行动跟进<span>行动条目示例</span></button></div></aside>
+      <div class="report-pages">
+        <article id="report-research" data-panel><div class="report-page-top"><span>Agent 的实际功能及现有成果</span><a class="text-link" href="static/samples/agent-capabilities-20261118.html" target="_blank" rel="noopener">打开完整文稿</a></div><iframe class="report-frame" src="static/samples/agent-capabilities-20261118.html" title="Agent 的实际功能及现有成果实际导出文稿" loading="lazy" sandbox="allow-scripts"></iframe><p class="caption">使用本地资料导出的样例，可点击引用编号核对原文。</p></article>
+        <article id="report-actions" data-panel><div class="report-page-top"><span>项目资料 · 行动跟进</span><a class="text-link" href="static/samples/action-followup.html" target="_blank" rel="noopener">打开完整文稿</a></div><iframe class="report-frame" src="static/samples/action-followup.html" title="行动跟进文稿样例" loading="lazy" sandbox></iframe><p class="caption">从项目笔记整理出的行动跟进样例，并非会议实录。未知信息保留待确认。</p></article>
+      </div>
+    </div>
+    <p class="report-footnote">目前更适合已有资料的初步整理；复杂分析和完整论证仍需人工完成。</p>
+  </div></section>
+
+  <section class="continuity-section section" id="data-safety" aria-labelledby="safety-title"><div class="wrap continuity-layout">
+    <div class="continuity-copy"><p class="eyebrow" data-reveal="up">用得久，也由你掌握</p><h2 id="safety-title" data-reveal="title">资料留在本机，<br>安心接着用。</h2><div class="continuity-notes" data-reveal="up"><p><b>本地存储</b>笔记、页签与原始附件放在你选择的本机目录。检索、问答、资料汇编与 OCR 使用本地组件，不把资料提交给云端模型。</p><p><b>草稿与历史版本</b>切换笔记时保留草稿，历史版本方便回看；恢复遇到版本冲突时，可以另存副本。</p><p><b>备份与迁移</b>导出包含笔记、页签和附件的 ZIP 备份。解压后，在设置中切换到该资料目录，继续积累。</p></div></div>
+    <div class="update-feature" id="updates"><div data-reveal="up"><h3>应用内自动更新</h3><p>在「设置 → 软件更新」查看改动并更新重启。<br>常规更新保留已有模型、资料与设置。</p></div><figure data-reveal="media">
+<a class="image-link update-image" data-lightbox href="static/img/auto-update-20261117.png" data-caption="软件更新：版本信息、改动说明和下载进度" aria-label="放大查看：软件更新：版本信息、改动说明和下载进度"><img src="static/img/auto-update-20261117.png" alt="软件更新：版本信息、改动说明和下载进度" width="1892" height="1142" loading="lazy" decoding="async"><span class="image-label">查看完整界面</span></a><figcaption>更新期间暂停编辑，重启后可从草稿箱继续。图中版本与进度为界面示例。</figcaption></figure></div>
+  </div></section>
+
+  <section class="download-section section" id="download" aria-labelledby="download-title"><div class="wrap download-layout">
+    <div data-reveal="up"><p class="eyebrow">从一份熟悉的资料开始</p><h2 id="download-title" data-reveal="title">你的资料。<br>你的 Pocket Memory。</h2><p>下载完整离线包，解压后运行 PocketMemory.exe。<br>内置本地 4B 模型，无需配置 API 密钥。</p><div class="actions"><a class="button primary-download" href="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip">下载 Windows 完整包</a><span class="download-meta">Windows 64 位<br>约 2.74 GB（2.55 GiB）</span></div></div>
+    <div class="getting-started" data-reveal="up"><h3>打开之后，试试这样开始。</h3><p>记一条笔记，或导入一份文档。</p><p>问一个具体问题，看看它找到什么。</p><p>打开来源，对照原文核对答案。</p><a class="text-link" href="#updates">已安装？在应用内检查更新</a></div>
+  </div></section>
+  <section class="faq-section section" id="questions"><div class="wrap faq-layout"><div><p class="eyebrow">开始使用之前</p><h2>你可能还想知道。</h2></div><div class="faq-list">
+<details><summary>资料会发送到云端模型吗？</summary><p>笔记和文件保存在本机，问答与资料汇编使用本地模型，不把资料发送给云端模型。</p></details>
 <details><summary>没有独立显卡，普通办公电脑能用吗？</summary><p>可以，无需独立显卡。回答速度取决于电脑性能、可用内存、资料长度和正在运行的软件。</p></details>
-<details><summary>回答和报告需要人工核对吗？</summary><p>需要。复杂问题或识别不清的扫描件可能漏答、错引；重要结论请通过来源核对，报告初稿审阅后再使用。</p></details>
-<details><summary>待办和文字处理会直接改动原笔记吗？</summary><p>不会。先生成可以核对、修改的结果，待办确认后保存；文字结果可复制或另存为新笔记。润色后仍需核对原意、姓名、数字和日期。</p></details>
-<details><summary>报告导出后，别人能直接看吗？</summary><p>可以导出单文件 HTML，用浏览器打开。报告保留引用及相关依据；接收者不会自动得到整个资料库。分享前请检查报告内的来源和明细是否适合分享。</p></details>
+<details><summary>回答和文稿需要人工核对吗？</summary><p>需要。复杂问题或识别不清的扫描件可能漏答、错引；重要结论请通过来源核对，文稿审阅后再使用。</p></details>
+
+<details><summary>文稿导出后，别人能直接看吗？</summary><p>可以导出单文件 HTML，用浏览器打开。文稿保留引用及相关依据；接收者不会自动得到整个资料库。分享前请检查文稿内的来源和明细是否适合分享。</p></details>
 <details><summary>第一次启动需要额外下载模型吗？</summary><p>完整离线包已经包含现有 4B 模型和所需组件。完整解压后运行 PocketMemory.exe。</p></details>
 <details><summary>后续怎么更新？模型和资料会丢吗？</summary><p>在「设置 → 软件更新」检查并安装新版本。常规程序更新保留本地模型、资料和配置，失败时支持回退。</p></details>
 
-</div></section></main><footer><div class="wrap"><span><b>Pocket Memory 随手记</b><br>记录、查找与整理，留在本机。</span><a href="#top">回到顶部 ↑</a></div></footer></body></html>
+</div></div></section>
+</main>
+<footer><div class="wrap footer-inner"><a class="brand" href="#top"><img src="static/img/pocket-memory-logo.png" width="32" height="36" alt=""><span>Pocket Memory</span></a><p>记录、查找与整理，留在本机。</p><a class="text-link" href="#top">回到顶部</a></div></footer>
+<button class="back-to-top" type="button" aria-label="返回页面顶部" tabindex="-1">返回顶部</button>
+</body>
+</html>

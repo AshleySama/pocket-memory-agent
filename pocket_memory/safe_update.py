@@ -271,9 +271,16 @@ def _verify(path: Path, entry: dict) -> None:
         raise UpdateError(f"Missing or damaged file: {path}")
 
 
-def _verify_components(root: Path, manifest: dict) -> None:
+def _verify_components(root: Path, manifest: dict, *, allow_embedded=False) -> None:
     """Independent required inventory + format + bytes, at every commit boundary."""
     entries = {entry['path']: entry for entry in manifest['files']}
+    from pocket_memory.embedded_update import CAPABILITY_PATH, validate_capability
+    if CAPABILITY_PATH in entries:
+        validate_capability(root, manifest)
+    if allow_embedded and CAPABILITY_PATH in entries and (root / WORKER_RELATIVE_PATH).exists() is False:
+        from pocket_memory.embedded_update import verify_runtime
+        verify_runtime(root, manifest)
+        return
     for relative in REQUIRED_COMPONENT_PATHS:
         if relative not in entries:
             raise UpdateError('更新包缺少必需组件：' + relative)
@@ -724,7 +731,7 @@ class SafeUpdater:
                 self._perform(journal, {"kind": "receipt_install", "path": "installed.json"})
                 self._not_running()
                 self._perform(journal, {"kind": "install", "path": "PocketMemory.exe"})
-                _verify_components(self.install, manifest)
+                _verify_components(self.install, manifest, allow_embedded=True)
                 journal["state"] = "pending_health"
                 self._save(journal)
                 return {**self._status(journal), "health_verified": False,
@@ -775,9 +782,18 @@ class SafeUpdater:
                     raise UpdateError("Live desktop identities changed before confirmation")
             receipt = _read_json(self.receipt_path)
             manifest = validate_manifest(receipt["manifest"])
+            from pocket_memory.update_component import inspect_worker
+            from pocket_memory.embedded_update import CAPABILITY_PATH
+            embedded_missing = (any(e['path'] == CAPABILITY_PATH for e in manifest['files'])
+                                and inspect_worker(self.install / WORKER_RELATIVE_PATH)['status'] == 'missing')
+            if embedded_missing:
+                from pocket_memory.embedded_update import verify_runtime
+                verify_runtime(self.install, manifest)
             for entry in manifest["files"]:
+                if embedded_missing and entry['path'] == WORKER_RELATIVE_PATH:
+                    continue
                 _verify(self.install / entry["path"], entry)
-            _verify_components(self.install, manifest)
+            _verify_components(self.install, manifest, allow_embedded=True)
             journal["state"] = "committed"
             journal["health_note"] = health_note.strip()
             verification = "live_desktop_attestation" if desktop_pids else "caller_attestation"

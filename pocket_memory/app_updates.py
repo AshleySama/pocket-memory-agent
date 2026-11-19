@@ -404,7 +404,8 @@ class AppUpdateService:
     def refresh_installation_integrity(self) -> dict:
         if self.install is None:
             return {'status': 'not_applicable', 'verification': 'source_checkout'}
-        diagnostic = inspect_installed_worker(self.install)
+        from .embedded_update import inspect_executor
+        diagnostic = inspect_executor(self.install)
         diagnostic.update(install_dir=str(self.install), executable=self.executable,
                           server_pid=os.getpid(), current_version=self.current_version)
         recovery = recovery_guidance(diagnostic) if diagnostic['status'] != 'ok' else None
@@ -420,7 +421,7 @@ class AppUpdateService:
         diagnostic = self.refresh_installation_integrity()
         if diagnostic['status'] != 'ok':
             raise UpdateError(component_error(diagnostic))
-        return self.install / WORKER_RELATIVE_PATH
+        return Path(diagnostic['path'])
 
     def _begin(self, target, initial=None):
         with self._lock:
@@ -513,10 +514,9 @@ class AppUpdateService:
                                config_paths=[config_path]).check(source, read_only=True)
         if prepared["previous_transaction"] == "pending_health":
             raise UpdateError("上次程序更新尚未完成健康确认，已停止本次更新。")
-        staged_helper = work / "PocketMemoryUpdateWorker.exe"
-        shutil.copy2(helper, staged_helper)
-        if _hash(helper) != _hash(staged_helper):
-            raise UpdateError("自动更新组件复制校验失败。")
+        from .embedded_update import stage_executor, clean_worker_environment
+        self._set(state="verifying", message="正在准备并校验更新执行环境…")
+        worker_command, staged_helper = stage_executor(self.install, work)
         token = secrets.token_hex(32)
         if (self.data_dir != active_data or self.config.path != config_path
                 or getattr(self.config, "data_dir", None) != configured_data):
@@ -530,8 +530,9 @@ class AppUpdateService:
         _atomic_json(request_path, request)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         with (work / "worker.log").open("ab") as log:
-            worker = subprocess.Popen([str(staged_helper), "--request", str(request_path)],
-                                      cwd=str(work), stdout=log, stderr=subprocess.STDOUT,
+            worker = subprocess.Popen([*worker_command, "--request", str(request_path)],
+                                      cwd=str(staged_helper.parent), stdout=log, stderr=subprocess.STDOUT,
+                                      env=clean_worker_environment(),
                                       creationflags=creationflags, close_fds=True)
         try:
             wait_for_worker_ready(worker, work / "ready.json", token, staged_helper)

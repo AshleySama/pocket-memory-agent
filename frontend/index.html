@@ -6,6 +6,105 @@ SPDX-License-Identifier: Apache-2.0 -->
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Inline intentionally: recovery must work when an external script fails. -->
+    <script id="pocket-startup-guard">
+    (() => {
+      const failures = new Map(), retries = new WeakMap(), steps = new Set();
+      const retryKey = 'pocket-memory-startup-retry-v1';
+      let pending = true, loaded = false, edited = false, wrote = false, runtimeError = false;
+      let banner, reloading = false;
+      window.__PM_DESKTOP_READY__ = false;
+      const touch = () => { if (pending) edited = true; };
+      document.addEventListener('input', touch, true);
+      document.addEventListener('beforeinput', touch, true);
+      // Even journal recovery can write without a user click. Never reload it automatically.
+      const nativeFetch = window.fetch;
+      window.fetch = function(input, options) {
+        const method = String(options?.method || input?.method || 'GET').toUpperCase();
+        if (pending && !['GET', 'HEAD', 'OPTIONS'].includes(method)) wrote = true;
+        return nativeFetch.apply(this, arguments);
+      };
+      function show(message) {
+        if (!document.body) return;
+        if (!banner) {
+          banner = document.createElement('div');
+          banner.id = 'startup-recovery'; banner.setAttribute('role', 'alert');
+          banner.style.cssText = 'position:fixed;z-index:2147483647;top:12px;left:50%;transform:translateX(-50%);width:min(620px,90vw);box-sizing:border-box;padding:16px 20px;background:#fff8ed;color:#463728;border:1px solid #d6b279;border-radius:10px;font:14px/1.6 system-ui;box-shadow:0 4px 20px #0002';
+          const text = document.createElement('span'); text.dataset.startupMessage = '';
+          const button = document.createElement('button'); button.type = 'button'; button.textContent = '重新加载页面';
+          button.style.cssText = 'margin-left:12px;padding:6px 12px;border:1px solid #aaa;border-radius:6px;background:white;color:#234;cursor:pointer';
+          button.onclick = () => {
+            if ((edited || wrote) && !window.confirm('请先确认当前输入和操作已保存。重新加载页面可能丢失未保存的内容，仍要继续吗？')) return;
+            location.reload();
+          };
+          banner.append(text, button); document.body.append(banner);
+        }
+        banner.querySelector('[data-startup-message]').textContent = message;
+      }
+      function finish() {
+        if (!pending || !loaded || failures.size || runtimeError || !steps.has('notes') || !steps.has('drafts')) return;
+        pending = false; window.__PM_DESKTOP_READY__ = true;
+        clearTimeout(watchdog); banner?.remove();
+        try { sessionStorage.removeItem(retryKey); } catch (_) {}
+        document.removeEventListener('input', touch, true);
+        document.removeEventListener('beforeinput', touch, true);
+        if (window.fetch === wrappedFetch) window.fetch = nativeFetch;
+      }
+      function recoverScripts() {
+        if (!pending || !loaded || reloading || ![...failures.values()].includes('SCRIPT')) return;
+        if (!edited && !wrote) {
+          try {
+            if (!sessionStorage.getItem(retryKey)) {
+              sessionStorage.setItem(retryKey, '1'); reloading = true; location.reload(); return;
+            }
+          } catch (_) { /* Storage unavailable: no automatic reload loop. */ }
+        }
+        show('页面组件未加载完整。请重新加载；若仍失败，请保留诊断记录。');
+      }
+      const wrappedFetch = window.fetch;
+      window.addEventListener('error', event => {
+        if (!pending) return;
+        const element = event.target;
+        const kind = element?.tagName;
+        const isStyle = kind === 'LINK' && element.rel === 'stylesheet';
+        const isLogo = kind === 'IMG' && element.classList.contains('app-brand-logo');
+        if (kind === 'SCRIPT' || isStyle || isLogo) {
+          const raw = kind === 'LINK' ? element.href : element.src;
+          if (!raw || new URL(raw, location.href).origin !== location.origin) return;
+          failures.set(element, kind);
+          console.warn('[startup] resource unavailable', new URL(raw, location.href).pathname);
+          if (kind === 'SCRIPT') { recoverScripts(); return; }
+          const attempt = (retries.get(element) || 0) + 1;
+          if (attempt > 2) { show('部分界面资源未加载完成，请重新加载页面。'); return; }
+          retries.set(element, attempt);
+          // Resource load events do not reliably reach Window in WebView2.
+          element.addEventListener('load', () => { failures.delete(element); finish(); }, {once:true});
+          setTimeout(() => {
+            const retryUrl = new URL(raw, location.href); retryUrl.searchParams.set('_startup_retry', String(attempt));
+            if (isStyle) element.href = retryUrl.href; else element.src = retryUrl.href;
+          }, attempt * 300);
+        } else if (event.filename && new URL(event.filename, location.href).origin === location.origin) {
+          runtimeError = true;
+          show('页面初始化未完成，请重新加载页面。');
+        }
+      }, true);
+      window.addEventListener('load', event => {
+        if (failures.delete(event.target)) finish();
+      }, true);
+      window.addEventListener('load', () => { loaded = true; recoverScripts(); finish(); });
+      const watchdog = setTimeout(() => {
+        if (pending) show('页面加载未完成。可以重新加载页面；若已经输入内容，请先确认已保存。');
+      }, 25000);
+      window.PocketStartup = {
+        get pending() { return pending; },
+        step(name, ok) {
+          if (ok) { steps.add(name); finish(); }
+          else show(name === 'drafts' ? '草稿保护连接失败，请确认服务正常后重新加载页面。' : '笔记加载失败，请重新加载页面。');
+        },
+        status: () => ({pending, loaded, edited, wrote, runtimeError, failedResources: [...failures.keys()].map(e => new URL(e.href || e.src, location.href).pathname), steps: [...steps]})
+      };
+    })();
+    </script>
     <link rel="icon" type="image/png" href="/brand/pocket-memory-small-logo.png">
     <link rel="stylesheet" href="/drafts.css?v=20261115-compact">
     <link rel="stylesheet" href="/imports.css?v=20261117-feedback">

@@ -146,8 +146,19 @@ async function request(url, options = {}) {
   }
   const trackedWrite = /^(POST|PUT|DELETE|PATCH)$/i.test(options.method || 'GET') && !/^\/api\/drafts(?:\/|$)/.test(url);
   if (trackedWrite) state.updatePendingWrites += 1;
+  // Bound initial read waits only. Saves, imports and model calls keep their existing contract.
+  const startupRead = window.PocketStartup?.pending && (options.method || 'GET').toUpperCase() === 'GET'
+    && /^\/api\/(notes|drafts|settings|documents(?:\/status)?|taxonomy|folders|embedding\/status|intelligence\/status)(?:\?|$)/.test(url);
+  const controller = startupRead ? new AbortController() : null;
+  let timedOut = false;
+  const forwardAbort = () => controller.abort();
+  if (controller && options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener('abort', forwardAbort, {once:true});
+  }
+  const readTimer = controller ? setTimeout(() => { timedOut = true; controller.abort(); }, 20000) : null;
   try {
-    const response = await fetch(url, { ...options, headers });
+    const response = await fetch(url, { ...options, headers, ...(controller ? {signal:controller.signal} : {}) });
     const payload = await response.json();
     if (!response.ok) {
       const error = new Error(payload.error || "操作失败");
@@ -156,7 +167,12 @@ async function request(url, options = {}) {
       throw error;
     }
     return payload;
+  } catch (error) {
+    if (timedOut) throw new Error('初次读取资料超时，请确认服务正常后重新加载页面');
+    throw error;
   } finally {
+    clearTimeout(readTimer);
+    if (controller && options.signal) options.signal.removeEventListener('abort', forwardAbort);
     if (trackedWrite) state.updatePendingWrites = Math.max(0, state.updatePendingWrites - 1);
   }
 }
@@ -2188,7 +2204,8 @@ async function refresh() {
     setTimeout(() => { if (isCurrent()) scrollToNote(targetId); }, 80);
   }
   scheduleOcrPoll();
-  window.__PM_DESKTOP_READY__ = true;
+  if (window.PocketStartup) window.PocketStartup.step('notes', true);
+  else window.__PM_DESKTOP_READY__ = true;
   return true;
 }
 
@@ -5644,9 +5661,10 @@ request("/api/settings").then((settings) => {
 $("#answer-panel").innerHTML = `<div class="empty-guide"><p class="muted">在搜索框输入问题，点击「智能问答」<br>会基于你的本地笔记生成回答。</p></div>`;
 
 installDraftEvents();
-void draftVault.init();
+void draftVault.init().then(ok => window.PocketStartup?.step('drafts', ok));
 window.__PM_DESKTOP_READY__ = false;
 refresh().catch((err) => {
+  window.PocketStartup?.step('notes', false);
   $("#timeline").innerHTML = `<p class="muted empty-state">加载失败：${escapeHtml(err.message)}。请确认服务已启动。</p>`;
   console.error("初始加载失败", err);
 });

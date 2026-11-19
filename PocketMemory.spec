@@ -68,7 +68,7 @@ rag_datas.extend(collect_data_files(
 # 2. 不打包 runtime/llama.cpp（项目用 llama-cpp-python 包，不调用 runtime 里的 exe/dll）
 # 3. 不收集 rapidocr 包内置模型数据（ocr.py 显式指定 models/rapidocr/ 下的文件）
 # 4. 排除未使用的重型依赖：测试框架、haystack、torch/transformers 等
-datas = [('frontend', 'frontend')]
+datas = [('frontend', 'frontend'), ('pocket_memory/update-runtime.json', '.')]
 if os.environ.get('POCKET_MEMORY_NO_MODELS') != '1':
     datas.extend([
         ('models/bge-small-zh-v1.5', 'models/bge-small-zh-v1.5'),

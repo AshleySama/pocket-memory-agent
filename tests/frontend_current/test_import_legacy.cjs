@@ -1,3 +1,5 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0 */
 const assert = require('node:assert/strict');
 const Queue = require('../../frontend/imports.js');
 const file = (name='test.txt', size=4) => ({name,size,lastModified:1});

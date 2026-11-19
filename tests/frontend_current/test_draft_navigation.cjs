@@ -1,3 +1,5 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0 */
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
 const assert = require('node:assert/strict'), crypto = require('node:crypto');
 const root = path.join(__dirname, '../../frontend');

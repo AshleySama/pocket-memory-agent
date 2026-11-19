@@ -69,7 +69,8 @@ def inspect_installed_worker(install: Path) -> dict:
 def runtime_integrity() -> dict:
     if not getattr(sys, 'frozen', False):
         return {'status': 'not_applicable', 'verification': 'source_checkout'}
-    return inspect_installed_worker(Path(sys.executable).parent)
+    from .embedded_update import inspect_executor
+    return inspect_executor(Path(sys.executable).parent)
 
 
 def inspect_worker(path: Path) -> dict:

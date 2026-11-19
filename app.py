@@ -3,6 +3,18 @@
 
 from __future__ import annotations
 
+import sys
+
+# Dispatch before importing server, note storage, model or desktop modules.
+if __name__ == '__main__' and sys.argv[1:2] == ['--internal-update-worker']:
+    from pocket_memory.embedded_update import main as embedded_update_main
+    try:
+        raise SystemExit(embedded_update_main())
+    except Exception as exc:
+        if sys.stderr is not None:
+            print('Internal updater stopped: ' + str(exc), file=sys.stderr)
+        raise SystemExit(2)
+
 import argparse
 import logging
 import os

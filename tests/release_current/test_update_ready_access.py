@@ -75,7 +75,7 @@ class ReadyAccessTests(unittest.TestCase):
 
     def run_handoff(self, module, *, deny_reads=0, deny_go=False, expect_failure=False):
         install, _, _, request = self.installed_fixture()
-        fixtures.put(install / module.WORKER_RELATIVE_PATH, b'fixture helper, not executed')
+        fixtures.put(install / module.WORKER_RELATIVE_PATH, fixtures.pe_bytes())
         archive = self.zip_fixture()
         offered = self.feed(payload=archive.read_bytes())
         work = self.base / 'receipt-handoff'

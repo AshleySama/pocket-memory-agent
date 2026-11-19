@@ -14,6 +14,7 @@ import copy
 import hashlib
 import json
 import marshal
+import os
 import re
 import sys
 import time
@@ -267,6 +268,7 @@ def organization_request(title, focus, groups, units, previews):
 
 
 def organization_plan(engine, title, focus, groups, units, blocks):
+    groups = _selection_candidates(groups)
     output_tokens = selection_output_tokens(groups)
     for width in PREVIEW_WIDTHS:
         previews = preview_spans(groups, blocks, width)
@@ -279,7 +281,13 @@ def organization_plan(engine, title, focus, groups, units, blocks):
     raise ValueError('全部候选目录和最小首尾预览超过模型预算；请缩小资料范围，未截断候选或编造成稿')
 
 
+def _selection_candidates(groups):
+    """Apply proved explicit row enumeration before generation, not after it."""
+    return [g for g in groups if g.get('scope_eligible', True)]
+
+
 def parse_organization(response, groups, facts):
+    groups = _selection_candidates(groups)
     def unique_keys(pairs):
         obj = {}
         for key, value in pairs:
@@ -443,6 +451,10 @@ def _check_record(record, contract, groups, units, blocks, facts, title, focus, 
     unsigned = {k: v for k, v in record.items() if k != 'integrity_sha256'}
     if record.get('integrity_sha256') != c._hash(unsigned) or record.get('contract') != contract:
         raise ValueError('选材记录或来源、任务、模型契约不一致')
+    from . import report_scope_filter as sr
+    if record.get('protocol') == sr.PROTOCOL:
+        return sr.check(record, contract, groups, units, blocks, facts, focus, n_ctx)
+    groups = _selection_candidates(groups)
     width = record.get('preview_width')
     if type(width) is not int or width not in PREVIEW_WIDTHS:
         raise ValueError('保存的预览预算无效')
@@ -488,8 +500,18 @@ def generate(engine, title, focus, units, register, stage=lambda _: None, cache_
     if outline_override is not None and prepared is None:
         raise ValueError('请先生成并保存选材提纲，再编辑章节')
     from .report_section_inventory import build as section_inventory
-    sectioned = section_inventory(units, register)
-    if sectioned is not None:
+    from . import report_scope_filter as sr
+    exact_plan = None
+    if os.environ.get('POCKET_MEMORY_SCOPE_FILTER') == '1' and focus.strip():
+        eb, ef, ec, es = sr.exact.tsv_inventory(units, register) or c.load_inventory(units, register, cache_dir)
+        eframes, eomissions = sf.source_frames(units)
+        eg = atomic_groups(units, eb, ef, eframes)
+        exact_plan = sr.exact.table_projection(focus, units, eb, ef, eg)
+    sectioned = None if exact_plan else section_inventory(units, register, fallback_groups=atomic_groups)
+    if exact_plan:
+        blocks, inventory, base_contract, source_cache = eb, ef, ec, es
+        frames, omissions, groups = eframes, eomissions, exact_plan['groups']
+    elif sectioned is not None:
         blocks, inventory, base_contract, source_cache = (sectioned[k] for k in ('blocks', 'facts', 'contract', 'source_cache'))
         frames, omissions, groups = (sectioned[k] for k in ('frames', 'omissions', 'groups'))
     else:
@@ -497,9 +519,17 @@ def generate(engine, title, focus, units, register, stage=lambda _: None, cache_
         frames, omissions = sf.source_frames(units)
         groups = atomic_groups(units, blocks, inventory, frames)
     contract = dict(base_contract, brief_structure_sha256=c._hash(dict(frames=frames, omissions=omissions, groups=groups)))
-    output_tokens = selection_output_tokens(groups)
+    output_tokens = selection_output_tokens(_selection_candidates(groups))
     configuration = model_contract(engine)
-    if len(groups) >= COMPACT_MIN_GROUPS:
+    use_rules = (bool(exact_plan) and not exact_plan['needs_model']) or sr.enabled(sectioned, groups, units, focus)
+    if use_rules:
+        configuration.update(response_protocol=sr.PROTOCOL,
+            scope_implementation=_code_digest(sr.__loader__.get_code(sr.__name__)),
+            scope_fields_implementation=_code_digest(sr.fields.__loader__.get_code(sr.fields.__name__)),
+            scope_sql_implementation=_code_digest(sr.sql.__loader__.get_code(sr.sql.__name__)),
+            scope_exact_implementation=_code_digest(sr.exact.__loader__.get_code(sr.exact.__name__)),
+            scope_semantic_implementation=_code_digest(sr.semantic.__loader__.get_code(sr.semantic.__name__)))
+    elif len(groups) >= COMPACT_MIN_GROUPS:
         configuration.update(output_tokens=output_tokens, response_protocol=COMPACT_PROTOCOL)
     plan_contract = dict(protocol=PROTOCOL, source_key=source_cache['key'], source_contract=contract,
         title=title, focus=focus, model=configuration, groups_sha256=c._hash(groups))
@@ -521,7 +551,7 @@ def generate(engine, title, focus, units, register, stage=lambda _: None, cache_
         outline = validate_outline(prepared.get('outline'), selected, groups)
         previews = copy.deepcopy(record['previews']); reused = 1; organization_status = 'complete'
     else:
-        stage('正在扫描完整来源并组织不可拆分的条件、清单和表格；随后一次选择重点')
+        stage('正在扫描完整来源并组织不可拆分的条件、清单和表格')
         key = c._hash(plan_contract)
         path = Path(cache_dir)/PROTOCOL/'organization'/(key+'.json') if cache_dir is not None else None
         if path and path.is_file():
@@ -531,7 +561,20 @@ def generate(engine, title, focus, units, register, stage=lambda _: None, cache_
                 record = cached; reused = 1; organization_status = 'complete'
             except (ValueError, TypeError, KeyError):
                 issues.append(dict(stage='cache', message='选材缓存契约不一致，未复用'))
-        if record is None:
+        if record is None and use_rules:
+            try:
+                record = sr.execute(engine, focus, groups, units, blocks, plan_contract, trace, stage, exact_plan=exact_plan)
+                previews = copy.deepcopy(record['previews'])
+                original, selected, selection = _check_record(record, plan_contract, groups, units, blocks, inventory, title, focus, engine.n_ctx)
+                organization_status = 'complete'
+                if path:
+                    atomic_json(path, record)
+            except (ValueError, TypeError, KeyError, RuntimeError) as exc:
+                issues.append(dict(stage='scope-rules', message=str(exc)))
+                selected = []; original = []; selection = _selection(groups, [], 'failed')
+                previews = [p for t in trace if t.get('model_input_delivered') for p in t.get('previews', [])]
+            calls = sum(bool(t.get('generation_started')) for t in trace)
+        elif record is None:
             messages = []; schema = None; response = None; count = 0; width = None
             began = time.monotonic()
             try:
@@ -556,9 +599,13 @@ def generate(engine, title, focus, units, register, stage=lambda _: None, cache_
         outline = copy.deepcopy(original)
     if reused:
         previews = copy.deepcopy(record['previews'])
-        trace = [dict(phase='brief-selection', cached=prepared is None, reused_from_prepared=prepared is not None,
-            messages=record['messages'], response=record['response'], input_tokens=record['input_tokens'],
-            max_output_tokens=output_tokens, seconds=0, model_input_delivered=True)]
+        if use_rules:
+            trace = sr.replay_trace(record, prepared=prepared is not None)
+            reused = len(trace)
+        else:
+            trace = [dict(phase='brief-selection', cached=prepared is None, reused_from_prepared=prepared is not None,
+                messages=record['messages'], response=record['response'], input_tokens=record['input_tokens'],
+                max_output_tokens=output_tokens, seconds=0, model_input_delivered=True)]
     if outline_override is not None:
         outline = validate_outline(outline_override, selected, groups)
     no_match = organization_status == 'complete' and selection['status'] == 'no_match'
@@ -588,6 +635,7 @@ def generate(engine, title, focus, units, register, stage=lambda _: None, cache_
         planning_contract=plan_contract, organization_status=organization_status, organization_record=record,
         outline_origin='selected_atomic_groups', fallback_group_ids=[], outline=outline, original_outline=original,
         outline_edited=outline != original, groups=groups, chapters=chapters, facts=selected, all_inventory_facts=inventory,
+        source_projection=({k:v for k,v in exact_plan.items() if k!='groups'} if exact_plan else None),
         source_blocks=blocks, source_frames=frames, structural_omissions=omissions, selection=selection,
         model_preview_spans=previews, reading_batches=[], coverage=covered, all_coverage=all_cover, selected_coverage=selected_cover,
         read_block_ids=[b['id'] for b in blocks if all(any(p['source_id'] == b['id'] and p['start'] <= b['start']+i < p['end'] for p in previews)
@@ -605,3 +653,4 @@ def generate(engine, title, focus, units, register, stage=lambda _: None, cache_
     if reading_checkpoint:
         reading_checkpoint(adaptive, receipt)
     return adaptive, claims, receipt
+

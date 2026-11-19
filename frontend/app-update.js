@@ -25,6 +25,7 @@
   let connectionPaused = false;
   let localError = '';
   let suppressActiveNotice = false;
+  let repairNoticeDismissed = false;
   let resume = readStored(RESUME_KEY, true);
   const inertBefore = new Map();
   const disabledBefore = new Map();
@@ -95,17 +96,19 @@
 
   function render() {
     const state = info?.state || 'idle';
+    const needsRepair = info?.recovery?.action === 'replace_full_installation';
+    if (!needsRepair) repairNoticeDismissed = false;
     const active = ACTIVE.has(state) || starting || preparing;
     const failed = Boolean(localError) || state === 'error';
     $('#app-update-panel').dataset.state = failed ? 'error' : state;
-    $('#app-update-state').textContent = preparing ? '保存中' : starting && !ACTIVE.has(state) ? '准备中' : checking ? '检查中' : (LABELS[state] || '读取中');
+    $('#app-update-state').textContent = needsRepair ? '安装需修复' : preparing ? '保存中' : starting && !ACTIVE.has(state) ? '准备中' : checking ? '检查中' : (LABELS[state] || '读取中');
     $('#app-update-current').textContent = info?.current_version ? `v${version(info.current_version)}` : '—';
     $('#app-update-latest').textContent = info?.latest_version ? `v${version(info.latest_version)}` : '—';
     $('#app-update-size').textContent = info?.latest_version ? size(info.package_bytes) : '—';
     let message = info?.message || '可以检查是否有新的正式版本。';
     if (info?.preview && state === 'preview') message = '';
     if (info?.preview && state === 'available') message = '发现新版本。';
-    if (state === 'error') message = '本次更新未完成，可以重试检查。';
+    if (state === 'error') message = needsRepair ? '安装组件检查未通过。可继续使用笔记；请按下方步骤恢复完整安装。' : '本次更新未完成，可以重试检查。';
     if (preparing) message = '正在保存当前编辑和本机草稿…';
     else if (starting && !ACTIVE.has(state)) message = '正在准备更新，请保持应用打开…';
     else if (checking) message = '正在检查发布信息…';
@@ -117,6 +120,14 @@
     $('#app-update-notes').textContent = notes;
     $('#app-update-error').hidden = !failed;
     $('#app-update-error').textContent = String(localError || (state === 'error' ? info.message : '') || '').slice(0, 700);
+    $('#app-update-recovery').hidden = !needsRepair;
+    const recoverySteps = needsRepair ? info.recovery.steps : [];
+    const recoveryList = $('#app-update-recovery-steps');
+    const stepsKey = JSON.stringify(recoverySteps);
+    if (recoveryList.dataset.steps !== stepsKey) {
+      recoveryList.replaceChildren(...recoverySteps.map(text => {const li = document.createElement('li'); li.textContent = text; return li;}));
+      recoveryList.dataset.steps = stepsKey;
+    }
     const lastResult = info?.last_result;
     const lastMessage = lastResult && typeof lastResult.message === 'string' ? lastResult.message.trim() : '';
     const lastElement = $('#app-update-last-result');
@@ -135,7 +146,7 @@
     }
     const installVisible = info?.has_update === true && info?.preview !== true;
     $('#app-update-start').hidden = !installVisible;
-    $('#app-update-start').disabled = info?.can_update !== true || info?.preview === true || active || locked || checking || submitting;
+    $('#app-update-start').disabled = needsRepair || info?.can_update !== true || info?.preview === true || active || locked || checking || submitting;
     $('#app-update-check').disabled = preparing || submitting || checking || (locked && !connectionPaused);
     $('#app-update-check').textContent = connectionPaused ? '重新连接' : failed ? '重试检查' : checking ? '正在检查…' : '检查更新';
     $('#app-update-later').textContent = active || locked ? '收起' : '稍后';
@@ -144,9 +155,9 @@
       : '';
     $('#app-update-protection').hidden = !locked;
     const noticeKey = version(info?.latest_version);
-    const offerNotice = info?.has_update === true && Boolean(noticeKey) && readStored(DISMISS_KEY) !== noticeKey;
+    const offerNotice = needsRepair ? !repairNoticeDismissed : (info?.has_update === true && Boolean(noticeKey) && readStored(DISMISS_KEY) !== noticeKey);
     $('#app-update-notice').hidden = !(locked ? !suppressActiveNotice : offerNotice);
-    $('#update-badge').textContent = locked ? '更新进行中' : `新版本${noticeKey ? ' v' + noticeKey : ''}`;
+    $('#update-badge').textContent = locked ? '更新进行中' : needsRepair ? '安装需修复' : `新版本${noticeKey ? ' v' + noticeKey : ''}`;
     $('#update-badge').title = '打开设置中的软件更新';
   }
 
@@ -164,7 +175,7 @@
   function finishConnection(data) {
     if (resume?.phase !== 'waiting') return false;
     const now = version(data.current_version);
-    const failedResult = ['rolled_back','not_updated','error','recovery_required'].includes(data.last_result?.state);
+    const failedResult = data.recovery?.action === 'replace_full_installation' || ['rolled_back','not_updated','error','recovery_required'].includes(data.last_result?.state);
     if (now && resume.previous && now !== resume.previous && (!resume.target || now === resume.target) && !ACTIVE.has(data.state) && !failedResult) {
       resume = {...resume, phase: 'complete', installed: now};
       store(RESUME_KEY, resume);
@@ -267,6 +278,7 @@
   $('#update-badge').addEventListener('click', openPanel);
   $('#app-update-dismiss').addEventListener('click', () => {
     if (locked) suppressActiveNotice = true;
+    if (info?.recovery?.action === 'replace_full_installation') repairNoticeDismissed = true;
     if (info?.latest_version) store(DISMISS_KEY, version(info.latest_version));
     render();
   });

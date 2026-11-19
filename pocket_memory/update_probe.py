@@ -15,9 +15,13 @@ import secrets
 import sqlite3
 import threading
 from pocket_memory.version import APP_VERSION
+from pocket_memory.update_component import runtime_integrity, component_error
 
 
 def check_inputs(config, data_dir, frontend):
+    integrity = runtime_integrity()
+    if integrity['status'] not in {'ok', 'not_applicable'}:
+        raise ValueError(component_error(integrity))
     data_dir = Path(data_dir).resolve()
     database = data_dir / 'pocket_memory.db'
     if not database.is_file():
@@ -35,6 +39,7 @@ def check_inputs(config, data_dir, frontend):
         if not (Path(frontend) / name).is_file():
             raise ValueError('更新缺少界面资源：' + name)
     return {'ok': True, 'app_version': APP_VERSION, 'pid': os.getpid(),
+            'installation_integrity': integrity,
             'data_dir': str(data_dir), 'config_path': str(config.path.resolve())}
 
 
@@ -62,7 +67,9 @@ def run_probe(config, data_dir, frontend, host, port):
             if self.path != '/api/update-health' or not self.authorized():
                 self.reply(403, {'error': '启动检查期间不可访问资料'})
                 return
-            self.reply(200, dict(result, token=token))
+            integrity = runtime_integrity()
+            self.reply(200, dict(result, token=token, installation_integrity=integrity,
+                                ok=integrity['status'] in {'ok', 'not_applicable'}))
         def do_POST(self):
             try:
                 length = int(self.headers.get('Content-Length', '0'))

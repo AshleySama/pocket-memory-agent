@@ -33,11 +33,12 @@ from pocket_memory.safe_update import (MANIFEST_NAME, SafeUpdater, UpdateError,
     _absolute, _atomic_json, _hash, _no_links, _overlap, _relative, _verify,
     is_program_path, validate_manifest)
 from pocket_memory.version import APP_VERSION
+from pocket_memory.update_component import (WORKER_RELATIVE_PATH, inspect_installed_worker,
+                                            recovery_guidance, component_error)
 
 
 TRUSTED_HOST = "download-files-1312623621.cos.ap-beijing.myqcloud.com"
 FEED_URL = f"https://{TRUSTED_HOST}/PocketMemory-update.json"
-WORKER_RELATIVE_PATH = "_internal/PocketMemoryUpdateWorker.exe"
 MAX_FEED_BYTES = 64 * 1024
 MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
 MAX_EXPANDED_BYTES = 3 * 1024 * 1024 * 1024
@@ -370,6 +371,7 @@ class AppUpdateService:
         version_key(current_version)
         self.current_version = current_version
         self.preview = not getattr(sys, "frozen", False)
+        self.executable = os.path.abspath(sys.executable)
         self.install = _absolute(Path(sys.executable).parent) if not self.preview else None
         self._lock = threading.RLock()
         self._offer = None
@@ -387,6 +389,9 @@ class AppUpdateService:
                         self._state["last_result"] = result
                 except (OSError, ValueError, UpdateError):
                     pass
+            health = self.refresh_installation_integrity()
+            if health['status'] != 'ok':
+                self._set(state='error', message=component_error(health))
 
     def status(self) -> dict:
         with self._lock:
@@ -395,6 +400,27 @@ class AppUpdateService:
     def _set(self, **values):
         with self._lock:
             self._state.update(values)
+
+    def refresh_installation_integrity(self) -> dict:
+        if self.install is None:
+            return {'status': 'not_applicable', 'verification': 'source_checkout'}
+        diagnostic = inspect_installed_worker(self.install)
+        diagnostic.update(install_dir=str(self.install), executable=self.executable,
+                          server_pid=os.getpid(), current_version=self.current_version)
+        recovery = recovery_guidance(diagnostic) if diagnostic['status'] != 'ok' else None
+        self._set(update_component=diagnostic, installation_integrity=diagnostic, recovery=recovery)
+        if diagnostic['status'] == 'ok':
+            logger.debug('Installed update component: %s', json.dumps(diagnostic, ensure_ascii=False))
+        else:
+            logger.error('Installed update component unavailable: %s', json.dumps(diagnostic, ensure_ascii=False))
+            self._set(can_update=False)
+        return diagnostic
+
+    def _require_update_component(self) -> Path:
+        diagnostic = self.refresh_installation_integrity()
+        if diagnostic['status'] != 'ok':
+            raise UpdateError(component_error(diagnostic))
+        return self.install / WORKER_RELATIVE_PATH
 
     def _begin(self, target, initial=None):
         with self._lock:
@@ -407,6 +433,8 @@ class AppUpdateService:
             try:
                 target()
             except Exception as exc:
+                logger.exception('Application update failed (version=%s, executable=%s, install=%s)',
+                                 self.current_version, self.executable, self.install)
                 self._set(state="error", can_update=False, message=str(exc))
             finally:
                 with self._lock:
@@ -417,6 +445,9 @@ class AppUpdateService:
     def check_async(self) -> dict:
         def check():
             self._set(state="checking", can_update=False, message="正在检查官方发布信息…")
+            # Local integrity is independent of network/version availability.
+            if not self.preview:
+                self._require_update_component()
             try:
                 feed = fetch_feed()
             except UpdateFeedUnavailable:
@@ -435,9 +466,12 @@ class AppUpdateService:
                           message="尚未发布可安装的程序更新。")
                 return
             newer = version_key(feed["version"]) > version_key(self.current_version)
-            self._set(state="available" if newer else "current", has_update=newer,
+            self._set(has_update=newer,
                       latest_version=feed["version"], notes=feed["notes"], package_bytes=feed["package"]["size"],
-                      can_update=newer and not self.preview,
+                      can_update=False)
+            if newer and not self.preview:
+                self._require_update_component()
+            self._set(state="available" if newer else "current", can_update=newer and not self.preview,
                       message=("发现新版本。" if self.preview and newer else
                                "发现新版本，可以更新程序。" if newer else "当前版本无需更新。"))
         return self._begin(check, dict(state='checking', can_update=False,
@@ -459,13 +493,11 @@ class AppUpdateService:
 
     def _download_and_handoff(self, offered, context):
         active_data, config_path, configured_data = context
+        # Recheck even after a successful check: files can move/disappear meanwhile.
+        helper = self._require_update_component()
         feed = fetch_feed()
         if feed != offered or not feed["published"] or version_key(feed["version"]) <= version_key(self.current_version):
             raise UpdateError("发布信息已变化，请重新检查更新。")
-        helper = self.install / WORKER_RELATIVE_PATH
-        _no_links(helper)
-        if not helper.is_file():
-            raise UpdateError("当前安装缺少自动更新组件；此候选尚未打包，不能执行程序替换。")
         work = _absolute(tempfile.mkdtemp(prefix="PocketMemory-update-"))
         if _overlap(work, self.install) or _overlap(work, active_data):
             raise UpdateError("自动更新临时目录与安装或资料目录重叠，已停止。")

@@ -19,6 +19,8 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from update_component_fixture import pe_bytes
+from pocket_memory.update_component import WORKER_RELATIVE_PATH
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = ROOT / "pocket_memory/safe_update.py"
@@ -56,6 +58,7 @@ class SafetyTests(unittest.TestCase):
         install, source = base / "install", base / "update"
         put(install / "PocketMemory.exe", b"old exe")
         put(install / "_internal/runtime.bin", b"old runtime")
+        put(install / WORKER_RELATIVE_PATH, pe_bytes() + b'old')
         put(install / "README.txt", b"old readme")
         put(install / "data/notes/keep.txt", b"user note")
         put(install / "custom-user-file.txt", b"unknown root must stay")
@@ -67,6 +70,7 @@ class SafetyTests(unittest.TestCase):
         if not external or both:
             put(install / "_internal/models/bge/model.bin", model)
         files = {"PocketMemory.exe": b"new exe", "_internal/runtime.bin": b"new runtime",
+                 WORKER_RELATIVE_PATH: pe_bytes() + b'new',
                  "_internal/frontend/app.js": b"new frontend", "README.txt": b"new readme",
                  "licenses/example.txt": b"example attribution"}
         for path, value in files.items():
@@ -85,6 +89,7 @@ class SafetyTests(unittest.TestCase):
     def assert_original(self, install, legacy=True):
         self.assertEqual((install / "PocketMemory.exe").read_bytes(), b"old exe")
         self.assertEqual((install / "_internal/runtime.bin").read_bytes(), b"old runtime")
+        self.assertEqual((install / WORKER_RELATIVE_PATH).read_bytes(), pe_bytes() + b'old')
         self.assertEqual((install / "README.txt").read_bytes(), b"old readme")
         if legacy:
             self.assertTrue((install / "_internal/models/bge/model.bin").is_file())

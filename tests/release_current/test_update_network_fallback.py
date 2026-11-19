@@ -15,6 +15,7 @@ from unittest import mock
 
 from pocket_memory import app_updates as updates
 from pocket_memory.safe_update import UpdateError
+from update_component_fixture import pe_bytes
 
 
 class UpdateNetworkFallbackTests(unittest.TestCase):
@@ -97,15 +98,21 @@ class UpdateNetworkFallbackTests(unittest.TestCase):
     def test_unavailable_during_install_is_still_an_install_failure(self):
         self.service.preview = False
         self.service.install = self.root/'install'
+        helper = self.service.install / updates.WORKER_RELATIVE_PATH
+        helper.parent.mkdir(parents=True)
+        helper.write_bytes(pe_bytes())
         self.service._offer = self.feed()
         self.service._set(can_update=True)
-        with mock.patch.object(updates, '_open_https', side_effect=TimeoutError()):
+        with mock.patch.object(updates, '_open_https', side_effect=TimeoutError()) as network:
             self.service.start_update()
             state = self.finish()
         self.assertEqual(state['state'], 'error')
         self.assertFalse(state['can_update'])
+        network.assert_called_once()
+        self.assertEqual(state['update_component']['status'], 'ok')
         self.service.exit_callback.assert_not_called()
-        self.assertFalse(self.service.install.exists())
+        self.assertEqual(helper.read_bytes(), pe_bytes())
+        self.assertFalse((self.service.install / '.pocket-memory-update').exists())
 
 
 if __name__ == '__main__':

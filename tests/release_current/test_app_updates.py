@@ -19,6 +19,7 @@ import urllib.error
 import zipfile
 from pathlib import Path
 from unittest import mock
+from update_component_fixture import pe_bytes
 
 ROOT = Path(__file__).resolve().parents[2]
 CANDIDATE = ROOT / "."
@@ -62,7 +63,9 @@ class AppUpdateTests(unittest.TestCase):
                             "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}}
 
     def manifest(self):
-        files = {"PocketMemory.exe": b"fixture new exe", "_internal/runtime.bin": b"fixture new runtime"}
+        from update_component_fixture import pe_bytes
+        files = {"PocketMemory.exe": b"fixture new exe", "_internal/runtime.bin": b"fixture new runtime",
+                 "_internal/PocketMemoryUpdateWorker.exe": pe_bytes()}
         return files, {"schema_version": 1, "app_id": "pocket-memory", "kind": "program-update", "version": "1.2.1",
                        "files": [record(path, data) for path, data in files.items()],
                        "model_requirements": [record("bge/model.bin", b"tiny model fixture")],
@@ -215,7 +218,7 @@ class AppUpdateTests(unittest.TestCase):
     def test_frozen_app_handoff_reaches_worker_staging_after_real_preflight(self):
         install, _, _, request = self.installed_fixture()
         helper = install / updates.WORKER_RELATIVE_PATH
-        put(helper, b"fixture worker, never executed")
+        put(helper, pe_bytes())
         archive = self.zip_fixture()
         offered = self.feed(payload=archive.read_bytes())
         config = types.SimpleNamespace(path=Path(request["config_path"]), data_dir=Path(request["data_dir"]))

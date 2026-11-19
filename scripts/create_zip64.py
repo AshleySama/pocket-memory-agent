@@ -4,35 +4,74 @@
 """Create a standards-compatible ZIP64 archive for large Pocket Memory releases."""
 from __future__ import annotations
 
+import argparse
+import os
 import sys
+import tempfile
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
+from zipfile import BadZipFile, ZIP_DEFLATED, ZIP_STORED, ZipFile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.check_update_component import check_archive, check_layout
 
 
-def main() -> int:
-    if len(sys.argv) != 3:
-        print("Usage: create_zip64.py <source-directory> <archive.zip>")
-        return 2
-
-    source = Path(sys.argv[1]).resolve()
-    archive_path = Path(sys.argv[2]).resolve()
+def create_archive(source: Path, archive_path: Path, *, expected_worker: Path | None = None) -> None:
+    # Do not resolve input links away before the shared worker/path checks.
+    source = Path(source).absolute()
+    archive_path = Path(archive_path).absolute()
     if not source.is_dir():
-        print(f"Source directory not found: {source}")
-        return 2
-    if archive_path.parent == source or source in archive_path.parents:
-        print("Archive path must not be inside the source directory.")
-        return 2
+        raise ValueError(f'Source directory not found: {source}')
+    if source.resolve() in archive_path.resolve().parents:
+        raise ValueError('Archive path must not be inside the source directory.')
+    before = check_layout(source, expected_worker)
+    if archive_path.exists():
+        raise ValueError(f'Archive already exists: {archive_path}')
 
     files = [path for path in source.rglob("*") if path.is_file()]
-    with ZipFile(archive_path, "w", compression=ZIP_DEFLATED, compresslevel=6, allowZip64=True) as archive:
-        for index, path in enumerate(files, start=1):
-            archive_name = (Path(source.name) / path.relative_to(source)).as_posix()
-            # GGUF weights are already compressed-like binary data and can exceed
-            # the 2 GB legacy ZIP threshold, so retain them as ZIP64 stored entries.
-            compression = ZIP_STORED if path.suffix.lower() == ".gguf" else ZIP_DEFLATED
-            archive.write(path, archive_name, compress_type=compression)
-            if index % 100 == 0 or index == len(files):
-                print(f"Archived {index}/{len(files)} files", flush=True)
+    output_parent = archive_path.parent.resolve()
+    descriptor, temporary_name = tempfile.mkstemp(prefix=archive_path.name + '.', suffix='.part',
+                                                 dir=output_parent)
+    os.close(descriptor)
+    partial = Path(temporary_name).absolute()
+    # Only this uniquely created file can be removed on failure. Never clean up
+    # a caller's archive or recursively remove an output/build directory.
+    if partial.parent != output_parent:
+        raise ValueError('Temporary archive escaped its output directory.')
+    try:
+        with ZipFile(partial, "w", compression=ZIP_DEFLATED, compresslevel=6, allowZip64=True) as archive:
+            for index, path in enumerate(files, start=1):
+                archive_name = (Path(source.name) / path.relative_to(source)).as_posix()
+                # GGUF weights are already compressed-like binary data and can exceed
+                # the 2 GB legacy ZIP threshold, so retain them as ZIP64 stored entries.
+                compression = ZIP_STORED if path.suffix.lower() == ".gguf" else ZIP_DEFLATED
+                archive.write(path, archive_name, compress_type=compression)
+                if index % 100 == 0 or index == len(files):
+                    print(f"Archived {index}/{len(files)} files", flush=True)
+        after = check_archive(partial, expected_worker)
+        if any(after[key] != before[key] for key in ('size', 'sha256')):
+            raise ValueError('ZIP update worker changed after the pre-archive check.')
+        if os.name == 'nt':
+            # Windows rename is atomic and fails if the destination exists.
+            os.rename(partial, archive_path)
+        else:
+            # POSIX rename would overwrite; atomic link creation keeps the same
+            # no-overwrite contract, even if another writer won the race.
+            os.link(partial, archive_path)
+    finally:
+        partial.unlink(missing_ok=True)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('source', type=Path)
+    parser.add_argument('archive', type=Path)
+    parser.add_argument('--expected-worker', type=Path)
+    args = parser.parse_args(argv)
+    try:
+        create_archive(args.source, args.archive, expected_worker=args.expected_worker)
+    except (OSError, ValueError, RuntimeError, BadZipFile) as exc:
+        print(f'ZIP64 packaging failed: {exc}', file=sys.stderr)
+        return 2
     return 0
 
 

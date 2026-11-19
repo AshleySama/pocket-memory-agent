@@ -493,6 +493,9 @@ def open_webview(url: str, debug: bool, *, shutdown=None) -> bool:
 
 
 def main() -> int:
+    # Accepted scope candidate is on for normal desktop and daemon starts.
+    # Explicit 0 remains an operational rollback, including inherited children.
+    os.environ.setdefault('POCKET_MEMORY_SCOPE_FILTER', '1')
     args = parse_args()
 
     # Preserve the exact selected config when an updater restarts the application.

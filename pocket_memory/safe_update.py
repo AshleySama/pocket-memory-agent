@@ -23,6 +23,7 @@ import sys
 import unicodedata
 import uuid
 from pathlib import Path
+from pocket_memory.update_component import REQUIRED_COMPONENT_PATHS, require_worker, WORKER_RELATIVE_PATH
 
 
 MANIFEST_NAME = "update-manifest.json"
@@ -249,6 +250,8 @@ def validate_manifest(manifest: dict) -> dict:
     paths = {entry["path"] for entry in manifest["files"]}
     if "PocketMemory.exe" not in paths or not any(p.startswith("_internal/") for p in paths):
         raise UpdateError("A complete PocketMemory.exe and _internal program inventory is required")
+    if not REQUIRED_COMPONENT_PATHS.issubset(paths):
+        raise UpdateError("更新包缺少必需的自动更新组件清单，已拒绝安装；请使用官方完整包恢复。")
     compat = manifest["data_compat"]
     if (not isinstance(compat, dict)
             or set(compat) != {"accepted_schema_ids", "target_schema_id", "migration"}
@@ -266,6 +269,19 @@ def _verify(path: Path, entry: dict) -> None:
     _no_links(path)
     if not path.is_file() or path.stat().st_size != entry["size"] or _hash(path) != entry["sha256"]:
         raise UpdateError(f"Missing or damaged file: {path}")
+
+
+def _verify_components(root: Path, manifest: dict) -> None:
+    """Independent required inventory + format + bytes, at every commit boundary."""
+    entries = {entry['path']: entry for entry in manifest['files']}
+    for relative in REQUIRED_COMPONENT_PATHS:
+        if relative not in entries:
+            raise UpdateError('更新包缺少必需组件：' + relative)
+        _verify(root / relative, entries[relative])
+    try:
+        require_worker(root / WORKER_RELATIVE_PATH)
+    except ValueError as exc:
+        raise UpdateError(str(exc)) from exc
 
 
 def running_install_processes(install: Path) -> list[int]:
@@ -562,6 +578,7 @@ class SafeUpdater:
             raise UpdateError("Payload differs from its exact manifest whitelist")
         for entry in manifest["files"]:
             _verify(inventory[entry["path"]], entry)
+        _verify_components(source / 'payload', manifest)
         schema = self._schema()
         compat = manifest["data_compat"]
         if schema not in compat["accepted_schema_ids"] or compat["target_schema_id"] != schema:
@@ -665,6 +682,7 @@ class SafeUpdater:
                     writer.flush()
                     os.fsync(writer.fileno())
                 _verify(dst, entry)
+            _verify_components(stage, manifest)
             receipt = {"schema_version": 1, "app_id": "pocket-memory", "version": manifest["version"],
                        "data_schema_id": manifest["data_compat"]["target_schema_id"], "manifest": manifest}
             _atomic_json(tx / "receipt-new.json", receipt)
@@ -706,6 +724,7 @@ class SafeUpdater:
                 self._perform(journal, {"kind": "receipt_install", "path": "installed.json"})
                 self._not_running()
                 self._perform(journal, {"kind": "install", "path": "PocketMemory.exe"})
+                _verify_components(self.install, manifest)
                 journal["state"] = "pending_health"
                 self._save(journal)
                 return {**self._status(journal), "health_verified": False,
@@ -758,6 +777,7 @@ class SafeUpdater:
             manifest = validate_manifest(receipt["manifest"])
             for entry in manifest["files"]:
                 _verify(self.install / entry["path"], entry)
+            _verify_components(self.install, manifest)
             journal["state"] = "committed"
             journal["health_note"] = health_note.strip()
             verification = "live_desktop_attestation" if desktop_pids else "caller_attestation"

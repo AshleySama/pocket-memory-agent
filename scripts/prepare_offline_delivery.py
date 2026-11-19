@@ -20,6 +20,7 @@ import runpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pocket_memory.safe_update import is_program_path, validate_manifest
+from pocket_memory.update_component import WORKER_RELATIVE_PATH, require_worker
 excluded_resource = runpy.run_path(str(Path(__file__).with_name('release_policy.py')))['excluded_resource']
 
 
@@ -74,15 +75,14 @@ def prepare(built_app: Path, model_source: Path, destination: Path, *,
             raise ValueError('交付输出不能与输入目录相交。')
     if destination.exists():
         raise ValueError('交付目录已存在；不覆盖已有交付或用户目录。')
-    if not updater_exe or not updater_exe.is_file():
+    if updater_exe is None:
         raise ValueError('交付需要已构建的内部 PocketMemoryUpdateWorker.exe。')
-    if updater_exe.is_symlink() or getattr(updater_exe.lstat(), 'st_file_attributes', 0) & 0x400:
-        raise ValueError('更新组件不可为链接。')
+    worker = require_worker(updater_exe)
     programs = []
     omitted = []
     for path in regular_files(built_app):
         rel = path.relative_to(built_app).as_posix()
-        if rel == '_internal/PocketMemoryUpdateWorker.exe':
+        if rel.casefold() == WORKER_RELATIVE_PATH.casefold():
             continue
         if rel.startswith(('_internal/models/', 'models/')):
             continue
@@ -109,7 +109,8 @@ def prepare(built_app: Path, model_source: Path, destination: Path, *,
         models.append((path, record(path, rel)))
     if not models or not any(item['path'].lower().endswith('.gguf') for _, item in models):
         raise ValueError('完整资源清单缺少 GGUF；不能生成会缺模型的更新包。')
-    programs.append((updater_exe, record(updater_exe, '_internal/PocketMemoryUpdateWorker.exe')))
+    programs.append((updater_exe, {'path': WORKER_RELATIVE_PATH,
+                                 'size': worker['size'], 'sha256': worker['sha256']}))
     files = [item for _, item in sorted(programs, key=lambda pair: pair[1]['path'])]
     model_records = [item for _, item in sorted(models, key=lambda pair: pair[1]['path'])]
     manifest = dict(schema_version=1, app_id='pocket-memory', kind='program-update',
@@ -126,6 +127,9 @@ def prepare(built_app: Path, model_source: Path, destination: Path, *,
         shutil.copy2(source, target)
         if digest(target) != item['sha256']:
             raise ValueError(f'交付复制校验失败：{item["path"]}')
+    copied_worker = require_worker(program_root / WORKER_RELATIVE_PATH)
+    if any(copied_worker[key] != worker[key] for key in ('size', 'sha256')):
+        raise ValueError('交付更新组件复制校验失败。')
     if mode == 'full':
         for source, item in models:
             target = destination / 'models' / item['path']
@@ -137,7 +141,8 @@ def prepare(built_app: Path, model_source: Path, destination: Path, *,
         receipt = destination / '.pocket-memory-update' / 'installed.json'
         receipt.parent.mkdir()
         receipt.write_text(json.dumps({'schema_version': 1, 'app_id': 'pocket-memory',
-                                      'version': version, 'data_schema_id': schema_id},
+                                      'version': version, 'data_schema_id': schema_id,
+                                      'manifest': manifest},
                                      ensure_ascii=False, indent=2), encoding='utf-8')
         (destination / 'model-resources.json').write_text(
             json.dumps(model_records, ensure_ascii=False, indent=2), encoding='utf-8')

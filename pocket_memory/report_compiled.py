@@ -237,8 +237,8 @@ def compile_chapters(outline,facts,blocks,units,focus):
             is_ocr='ocr' in u['field'].lower()
             if tail.get('kind')=='table_row' and not is_ocr:
                 header=next((b for b in pieces if b.get('kind')=='table_header'),None)
-                columns=_cells(header['text'].splitlines()[0]) if header else []
-                cells=_cells(tail['text'])
+                columns=([v.strip() for v in header['text'].splitlines()[0].split('\t')] if header.get('table_delimiter')=='\t' else _cells(header['text'].splitlines()[0])) if header else []
+                cells=[v.strip() for v in tail['text'].split('\t')] if tail.get('table_delimiter')=='\t' else _cells(tail['text'])
                 if columns and len(columns)==len(cells):
                     if previous and previous[0]=='table' and previous[1]==header['id']:
                         table=out['tables'][-1]

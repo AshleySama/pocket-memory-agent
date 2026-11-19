@@ -504,13 +504,20 @@ class PocketMemoryHandler(BaseHTTPRequestHandler):
             if not expected or not secrets.compare_digest(expected, actual):
                 self._json({'error': '无效的启动检查'}, HTTPStatus.FORBIDDEN)
                 return
-            self._json({'ok': self.server._update_health_ready,
+            integrity = self.server.app_updates.refresh_installation_integrity()
+            self._json({'ok': self.server._update_health_ready and integrity['status'] in {'ok', 'not_applicable'},
+                        'installation_integrity': integrity,
                         'token': expected, 'app_version': APP_VERSION, 'pid': os.getpid(),
                         'data_dir': str(self.server.store.data_dir.resolve()),
                         'config_path': str(self.server.config.path.resolve())})
         elif parsed.path == "/api/status":
             # 健康检查端点：守护进程探测用，返回最小化状态
-            self._json({"ok": True, "pid": os.getpid(), "app_version": APP_VERSION})
+            # Keep liveness separate: a missing updater must not cause daemon
+            # restart loops or prevent saving/backing up notes.
+            integrity = self.server.app_updates.status().get('installation_integrity', {'status': 'not_applicable'})
+            self._json({"ok": True, "pid": os.getpid(), "app_version": APP_VERSION,
+                        "installation_integrity": {'status': integrity['status']},
+                        "update_ready": integrity['status'] == 'ok'})
         elif parsed.path == "/api/ask/source-revision":
             from pocket_memory.rag.source_preview import revision_token
             self._json({"revision": revision_token(self.server)})

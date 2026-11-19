@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from update_component_fixture import pe_bytes
 
 ROOT = Path(__file__).resolve().parents[2]
 CANDIDATE = ROOT / '.'
@@ -49,7 +50,7 @@ class DeliveryTests(unittest.TestCase):
         (self.models / 'Qwen3-4B/model.gguf').write_bytes(b'FAKE-MODEL')
         (self.models / 'tokenizer.json').write_bytes(b'{}')
         self.helper = self.root / 'fake-updater.exe'
-        self.helper.write_bytes(b'NOT-EXECUTED')
+        self.helper.write_bytes(pe_bytes())
 
     def tearDown(self):
         self.temp.cleanup()
@@ -63,7 +64,7 @@ class DeliveryTests(unittest.TestCase):
         self.prepare('full', dest)
         self.assertEqual((dest / 'models/Qwen3-4B/model.gguf').read_bytes(), b'FAKE-MODEL')
         self.assertFalse((dest / '_internal/models').exists())
-        self.assertEqual((dest / '_internal/PocketMemoryUpdateWorker.exe').read_bytes(), b'NOT-EXECUTED')
+        self.assertEqual((dest / '_internal/PocketMemoryUpdateWorker.exe').read_bytes(), pe_bytes())
         self.assertFalse((dest / 'PocketMemoryUpdate.exe').exists())
         self.assertFalse((dest / 'data').exists())
         self.assertFalse((dest / 'config.json').exists())
@@ -80,6 +81,20 @@ class DeliveryTests(unittest.TestCase):
         # Check against the real update consumer rather than another schema copy.
         checked = SafeUpdater(full).check(update)
         self.assertIsNotNone(checked)
+
+    def test_fresh_full_receipt_matches_startup_and_detects_worker_change(self):
+        from pocket_memory.update_component import inspect_installed_worker, WORKER_RELATIVE_PATH
+        full, update = self.root / 'full', self.root / 'update'
+        self.prepare('full', full)
+        self.prepare('update', update)
+        receipt = json.loads((full / '.pocket-memory-update/installed.json').read_text('utf8'))
+        manifest = json.loads((update / 'update-manifest.json').read_text('utf8'))
+        self.assertEqual(receipt['manifest'], manifest)
+        checked = inspect_installed_worker(full)
+        self.assertEqual(checked['status'], 'ok')
+        self.assertEqual(checked['verification'], 'installed_manifest')
+        (full / WORKER_RELATIVE_PATH).write_bytes(pe_bytes() + b'changed')
+        self.assertEqual(inspect_installed_worker(full)['status'], 'integrity_mismatch')
 
     def test_duplicate_rapidocr_weights_omitted_external_resources_still_verified(self):
         weights = (
@@ -148,6 +163,27 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             delivery.prepare(self.build, self.models, self.root/'update',
                              version='fixture', mode='update', schema_id='legacy-unversioned')
+
+    def test_invalid_worker_rejected_before_creating_either_layout(self):
+        for mode in ('full', 'update'):
+            for data in (b'', b'MZ', b'NOT-AN-EXECUTABLE'):
+                with self.subTest(mode=mode, data=data):
+                    self.helper.write_bytes(data)
+                    dest = self.root / 'invalid-worker-output'
+                    with self.assertRaises(ValueError):
+                        self.prepare(mode, dest)
+                    self.assertFalse(dest.exists())
+
+    def test_worker_copy_corruption_blocks_delivery(self):
+        original_copy = delivery.shutil.copy2
+        def corrupt_worker(source, target):
+            result = original_copy(source, target)
+            if Path(target).name == 'PocketMemoryUpdateWorker.exe':
+                Path(target).write_bytes(pe_bytes()[:-1] + b'\x01')
+            return result
+        with mock.patch.object(delivery.shutil, 'copy2', side_effect=corrupt_worker):
+            with self.assertRaisesRegex(ValueError, '复制校验失败'):
+                self.prepare('full', self.root / 'corrupt-copy')
 
 
 if __name__ == '__main__':

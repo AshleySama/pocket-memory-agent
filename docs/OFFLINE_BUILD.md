@@ -1,3 +1,13 @@
+# 当前1.0.16构建说明
+
+当前完整包和新版程序包默认使用 `--executor main-exe-v1`（schema 2），不需要独立worker；源码中的旧单步打包入口已停止，以spec和prepare_offline_delivery.py为准。
+
+面向原版13/14的程序更新包必须单独使用 `--mode update --executor legacy-bridge`，传入实际构建的双协议worker和 `--bridge-worker-receipt`。凭据绑定主EXE/worker SHA256及真实 `--describe-capabilities` 探针结果；不允许仅修改schema或跳过探针。旧通道不能指向无worker的schema 2 ZIP。
+
+下面保留旧布局说明供参考；示例版本和standalone组件方式不作为1.0.16完整包命令。当前升级与恢复验证见[1.0.16验收记录](VALIDATION_1.0.16.md)。
+
+---
+
 # 构建完整离线包和小程序更新包
 
 Windows x64、Python 3.11，安装 `requirements-dev.txt`。准备已核验的模型目录（含GGUF、BGE、OCR、MultiBERT和NLTK数据），不要把个人资料目录当模型目录。先完成代码回归，再构建一次；布局/ZIP检查失败时只重做受影响步骤。

@@ -1,6 +1,6 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-"""Receipt-verified alternate executor. Never restore a quarantined helper.
+"""Receipt-verified built-in executor, with explicit v2 worker-free delivery.
 
 The downloaded update supplies no executable hooks. Only the currently installed
 program is copied and executed; normal update transaction guards remain in force.
@@ -26,12 +26,21 @@ def validate_capability(root: Path, manifest):
         raise UpdateError('当前安装没有内置更新能力声明')
     _verify(root / CAPABILITY_PATH, entries[CAPABILITY_PATH])
     capability = _read_json(root / CAPABILITY_PATH)
-    if (set(capability) != {'schema_version', 'executor', 'python_dll'}
-            or type(capability['schema_version']) is not int or capability['schema_version'] != 1
+    capability_schema = capability.get('schema_version')
+    fields = {'schema_version', 'executor', 'python_dll'}
+    if capability_schema == 2:
+        fields.add('manifest_schemas')
+    if (set(capability) != fields
+            or type(capability_schema) is not int or capability_schema not in (1, 2)
             or capability['executor'] != 'main-exe-v1'
             or not isinstance(capability['python_dll'], str)
             or not re.fullmatch(r'python3\d{1,2}\.dll', capability['python_dll'])):
         raise UpdateError('内置更新能力声明无效')
+    if capability_schema == 2 and (capability['manifest_schemas'] != [1, 2]
+                                   or any(type(v) is not int for v in capability['manifest_schemas'])):
+        raise UpdateError('内置更新清单协议能力声明无效')
+    if manifest['schema_version'] == 2 and capability_schema != 2:
+        raise UpdateError('主程序尚未声明支持新版内置更新协议；不能把旧程序重编清单后作为新版交付')
     required = {'PocketMemory.exe', '_internal/base_library.zip',
                 '_internal/' + capability['python_dll']}
     if not required.issubset(entries):
@@ -62,7 +71,7 @@ def verify_runtime(root: Path, manifest=None):
     if worker['status'] != 'missing':
         raise UpdateError('备用更新只适用于独立组件确实缺失，不接受损坏或不可读组件')
     for relative, entry in entries.items():
-        if relative != WORKER_RELATIVE_PATH:
+        if manifest['schema_version'] == 2 or relative != WORKER_RELATIVE_PATH:
             _verify(root / relative, entry)
     if inspect_worker(root / 'PocketMemory.exe')['status'] != 'ok':
         raise UpdateError('主程序不是完整的 Windows 可执行文件')
@@ -91,10 +100,12 @@ def inspect_executor(root: Path) -> dict:
         manifest = verify_runtime(root)
     except (OSError, ValueError, KeyError, TypeError, UpdateError) as exc:
         return dict(diagnostic, fallback_error=str(exc))
+    declared = manifest['schema_version'] == 2
     return dict(status='ok', executor='embedded', verification='installed_manifest_full_runtime',
-                path=str(Path(root) / 'PocketMemory.exe'), legacy_component_status='missing',
-                verified_files=len(manifest['files']) - 1,
-                message='独立更新组件缺失，已验证并启用主程序内置更新方式。')
+                path=str(Path(root) / 'PocketMemory.exe'),
+                legacy_component_status='not_required' if declared else 'missing',
+                verified_files=len(manifest['files']) - (0 if declared else 1),
+                message='已验证主程序内置更新方式。' if declared else '独立更新组件缺失，已验证并启用主程序内置更新方式。')
 
 
 def stage_executor(root: Path, work: Path):

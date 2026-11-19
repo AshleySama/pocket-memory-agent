@@ -170,6 +170,29 @@ class DesktopReadinessTests(unittest.TestCase):
         self.assertEqual(window.evaluate_js.call_count, 2)
         self.assertEqual(self.read()['state'], 'ready')
 
+    def test_transient_health_timeout_retries_without_skipping_validation(self):
+        monitor, window = self.create()
+        window.events.shown.fire(); window.events.loaded.fire()
+        with mock.patch.object(monitor, '_health', side_effect=[TimeoutError(), self.health()]) as health:
+            monitor.run(timeout=1, poll_interval=.001)
+        self.assertEqual(health.call_count, 2)
+        self.assertLessEqual(health.call_args.kwargs['timeout'], 1)
+        self.assertEqual(self.read()['state'], 'ready')
+
+    def test_persistent_timeout_is_bounded_and_http_denial_is_not_retried(self):
+        from urllib.error import HTTPError
+        for error, retries in ((TimeoutError(), True), (HTTPError(URL, 403, 'denied', {}, None), False)):
+            with self.subTest(error=type(error).__name__):
+                if self.receipt.exists(): self.receipt.unlink()
+                monitor, window = self.create()
+                window.events.shown.fire(); window.events.loaded.fire()
+                with mock.patch.object(monitor, '_health', side_effect=error) as health:
+                    monitor.run(timeout=.02, poll_interval=.001)
+                self.assertEqual(self.read()['state'], 'error')
+                if retries: self.assertGreater(health.call_count, 1)
+                else: self.assertEqual(health.call_count, 1)
+                window.destroy.assert_called_once()
+
     def test_wrong_server_version_token_pid_or_storage_cannot_pass(self):
         changes = ({'token': 'b' * 64}, {'app_version': '0.0.0'}, {'pid': os.getpid()},
                    {'pid': '123'}, {'ok': False}, {'data_dir': str(self.install)},

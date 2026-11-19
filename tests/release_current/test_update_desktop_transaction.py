@@ -56,6 +56,10 @@ class DesktopTransactionTests(unittest.TestCase):
         with mock.patch.object(worker, '_local_request', return_value=Response(json.dumps(health).encode())) as http:
             self.assertEqual(worker.verify_desktop(request, process, path.parent), good)
             self.assertEqual(http.call_args.args[0]['port'], 51323)
+        with mock.patch.object(worker, '_local_request', side_effect=[TimeoutError(), Response(json.dumps(health).encode())]) as http, mock.patch.object(worker.time, 'sleep'):
+            self.assertEqual(worker.verify_desktop(request, process, path.parent, timeout=1), good)
+            self.assertEqual(http.call_count, 2)
+            self.assertLessEqual(http.call_args.kwargs['timeout'], 1)
         for change in ({'token':'b'*64}, {'pid':125}, {'app_version':'0.0.0'},
                        {'shown':False}, {'page_ready':False}, {'state':'error', 'reason':'DLL'},
                        {'url':'http://outside.example:51323'}):
@@ -74,6 +78,14 @@ class DesktopTransactionTests(unittest.TestCase):
                     updater.commit('native window and data confirmed', desktop_pids=[123,124])
         with mock.patch('pocket_memory.safe_update.running_install_processes', return_value=[124,123]):
             self.assertEqual(updater.commit('native window and data confirmed', desktop_pids=[123,124])['state'], 'committed')
+
+    def test_complete_health_scan_has_longer_budget_than_shutdown(self):
+        _, _, _, request = self.installed_fixture()
+        with mock.patch.object(worker.urllib.request, 'build_opener') as opener:
+            worker._local_request(request, '/api/update-health')
+            self.assertEqual(opener.return_value.open.call_args.kwargs['timeout'], 30)
+            worker._local_request(request, '/api/shutdown', method='POST')
+            self.assertEqual(opener.return_value.open.call_args.kwargs['timeout'], 2)
 
     def test_exited_launcher_still_shuts_down_authenticated_owned_daemon(self):
         _, _, _, request = self.installed_fixture()

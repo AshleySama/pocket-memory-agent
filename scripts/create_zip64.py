@@ -12,11 +12,12 @@ from pathlib import Path
 from zipfile import BadZipFile, ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.check_update_component import check_archive, check_layout
+from scripts.check_update_component import check_archive, check_layout, _inventory
+from pocket_memory.safe_update import _no_links
 
 
 def create_archive(source: Path, archive_path: Path, *, expected_worker: Path | None = None) -> None:
-    # Do not resolve input links away before the shared worker/path checks.
+    # Do not resolve input links away before the shared executor/inventory checks.
     source = Path(source).absolute()
     archive_path = Path(archive_path).absolute()
     if not source.is_dir():
@@ -27,7 +28,7 @@ def create_archive(source: Path, archive_path: Path, *, expected_worker: Path | 
     if archive_path.exists():
         raise ValueError(f'Archive already exists: {archive_path}')
 
-    files = [path for path in source.rglob("*") if path.is_file()]
+    files = [path for _, path in sorted(_inventory(source).items())]
     output_parent = archive_path.parent.resolve()
     descriptor, temporary_name = tempfile.mkstemp(prefix=archive_path.name + '.', suffix='.part',
                                                  dir=output_parent)
@@ -40,6 +41,7 @@ def create_archive(source: Path, archive_path: Path, *, expected_worker: Path | 
     try:
         with ZipFile(partial, "w", compression=ZIP_DEFLATED, compresslevel=6, allowZip64=True) as archive:
             for index, path in enumerate(files, start=1):
+                _no_links(path)
                 archive_name = (Path(source.name) / path.relative_to(source)).as_posix()
                 # GGUF weights are already compressed-like binary data and can exceed
                 # the 2 GB legacy ZIP threshold, so retain them as ZIP64 stored entries.
@@ -48,8 +50,13 @@ def create_archive(source: Path, archive_path: Path, *, expected_worker: Path | 
                 if index % 100 == 0 or index == len(files):
                     print(f"Archived {index}/{len(files)} files", flush=True)
         after = check_archive(partial, expected_worker)
-        if any(after[key] != before[key] for key in ('size', 'sha256')):
-            raise ValueError('ZIP update worker changed after the pre-archive check.')
+        if before['verification'] == 'manifest_inventory':
+            identity_keys = ('verification', 'executor', 'manifest_schema', 'layout',
+                             'manifest_sha256', 'verified_files')
+        else:
+            identity_keys = ('verification', 'executor', 'size', 'sha256')
+        if any(after.get(key) != before.get(key) for key in identity_keys):
+            raise ValueError('ZIP update executor or inventory changed after the pre-archive check.')
         if os.name == 'nt':
             # Windows rename is atomic and fails if the destination exists.
             os.rename(partial, archive_path)
@@ -65,7 +72,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('archive', type=Path)
-    parser.add_argument('--expected-worker', type=Path)
+    parser.add_argument('--expected-worker', type=Path, help='Legacy standalone releases only.')
     args = parser.parse_args(argv)
     try:
         create_archive(args.source, args.archive, expected_worker=args.expected_worker)

@@ -1,1 +1,1 @@
-{"schema_version":1,"executor":"main-exe-v1","python_dll":"python311.dll"}
+{"schema_version":2,"executor":"main-exe-v1","python_dll":"python311.dll","manifest_schemas":[1,2]}

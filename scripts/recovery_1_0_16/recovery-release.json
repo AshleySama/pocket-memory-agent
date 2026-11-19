@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "app_id": "pocket-memory",
+  "version": "1.0.16",
+  "package": {
+    "filename": "PocketMemory-1.0.16-Program.zip",
+    "size": 141866685,
+    "sha256": "ba60bc7551e6c7b1437c17ec5735c4412fc21cfd3cb9c61d69e50762d84958a9"
+  },
+  "allowed_previous": [
+    {
+      "version": "1.0.13",
+      "sha256": "807fb18a32db8fbe60bdc1715e7731b70abf78ee0a0afefe870be32caa0af4fc"
+    },
+    {
+      "version": "1.0.14",
+      "sha256": "66c2606d70fc95b918652c832e65c0ecf45f6617c0dfd9ed33554cde24bcf42c"
+    }
+  ]
+}

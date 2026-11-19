@@ -149,7 +149,9 @@ def _inventory(root: Path) -> dict[str, Path]:
     if not root.is_dir():
         raise UpdateError(f"Directory missing: {root}")
     files, seen = {}, set()
-    for base, directories, names in os.walk(root, followlinks=False):
+    def enumeration_error(error):
+        raise UpdateError(f"无法读取更新文件目录：{error.filename}；{type(error).__name__}") from error
+    for base, directories, names in os.walk(root, followlinks=False, onerror=enumeration_error):
         for name in directories + names:
             path = Path(base) / name
             _no_links(path)
@@ -237,9 +239,14 @@ def _entries(values, program: bool) -> list[dict]:
 def validate_manifest(manifest: dict) -> dict:
     required = {"schema_version", "app_id", "kind", "version", "files",
                 "model_requirements", "data_compat"}
+    if not isinstance(manifest, dict):
+        raise UpdateError("Manifest must be an object")
+    schema_version = manifest.get('schema_version')
+    if schema_version == 2:
+        required.add('update_executor')
     if set(manifest) != required:
         raise UpdateError("Unsupported manifest fields; hooks and migrations are not supported")
-    if (type(manifest["schema_version"]) is not int or manifest["schema_version"] != 1
+    if (type(schema_version) is not int or schema_version not in (1, 2)
             or manifest["app_id"] != "pocket-memory" or manifest["kind"] != "program-update"):
         raise UpdateError("Unsupported application/package/schema")
     if not isinstance(manifest["version"], str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}", manifest["version"]):
@@ -250,7 +257,15 @@ def validate_manifest(manifest: dict) -> dict:
     paths = {entry["path"] for entry in manifest["files"]}
     if "PocketMemory.exe" not in paths or not any(p.startswith("_internal/") for p in paths):
         raise UpdateError("A complete PocketMemory.exe and _internal program inventory is required")
-    if not REQUIRED_COMPONENT_PATHS.issubset(paths):
+    if schema_version == 2:
+        if manifest['update_executor'] != 'main-exe-v1':
+            raise UpdateError('Unsupported built-in update executor')
+        required_runtime = {'PocketMemory.exe', '_internal/update-runtime.json', '_internal/base_library.zip'}
+        if (not required_runtime.issubset(paths)
+                or not any(re.fullmatch(r'_internal/python3\d{1,2}\.dll', p) for p in paths)
+                or any(p.casefold() == WORKER_RELATIVE_PATH.casefold() for p in paths)):
+            raise UpdateError('内置更新清单须包含完整主程序运行库，且不得包含独立更新器')
+    elif not REQUIRED_COMPONENT_PATHS.issubset(paths):
         raise UpdateError("更新包缺少必需的自动更新组件清单，已拒绝安装；请使用官方完整包恢复。")
     compat = manifest["data_compat"]
     if (not isinstance(compat, dict)
@@ -275,6 +290,10 @@ def _verify_components(root: Path, manifest: dict, *, allow_embedded=False) -> N
     """Independent required inventory + format + bytes, at every commit boundary."""
     entries = {entry['path']: entry for entry in manifest['files']}
     from pocket_memory.embedded_update import CAPABILITY_PATH, validate_capability
+    if manifest['schema_version'] == 2:
+        from pocket_memory.embedded_update import verify_runtime
+        verify_runtime(root, manifest)
+        return
     if CAPABILITY_PATH in entries:
         validate_capability(root, manifest)
     if allow_embedded and CAPABILITY_PATH in entries and (root / WORKER_RELATIVE_PATH).exists() is False:
@@ -581,8 +600,15 @@ class SafeUpdater:
             self._require_external_helper()
         manifest = validate_manifest(_read_json(source / MANIFEST_NAME))
         inventory = _inventory(source / "payload")
-        if set(inventory) != {entry["path"] for entry in manifest["files"]}:
-            raise UpdateError("Payload differs from its exact manifest whitelist")
+        expected = {entry["path"] for entry in manifest["files"]}
+        if set(inventory) != expected:
+            missing, extra = sorted(expected - set(inventory)), sorted(set(inventory) - expected)
+            def brief(paths):
+                return ', '.join(paths[:6]) + (f'（共{len(paths)}项）' if len(paths) > 6 else '')
+            detail = ('缺少：' + brief(missing) if missing else '')
+            if extra:
+                detail += ('；' if detail else '') + '多出：' + brief(extra)
+            raise UpdateError('更新文件与清单不一致。' + detail + '。本次已停止，原程序未替换。')
         for entry in manifest["files"]:
             _verify(inventory[entry["path"]], entry)
         _verify_components(source / 'payload', manifest)
@@ -784,7 +810,8 @@ class SafeUpdater:
             manifest = validate_manifest(receipt["manifest"])
             from pocket_memory.update_component import inspect_worker
             from pocket_memory.embedded_update import CAPABILITY_PATH
-            embedded_missing = (any(e['path'] == CAPABILITY_PATH for e in manifest['files'])
+            embedded_missing = (manifest['schema_version'] == 1
+                                and any(e['path'] == CAPABILITY_PATH for e in manifest['files'])
                                 and inspect_worker(self.install / WORKER_RELATIVE_PATH)['status'] == 'missing')
             if embedded_missing:
                 from pocket_memory.embedded_update import verify_runtime

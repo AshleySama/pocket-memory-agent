@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from urllib.parse import urlsplit
+from urllib.error import URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from .config import app_directory
@@ -108,12 +109,14 @@ class DesktopReadiness:
     def _on_loaded(self, *args):
         self.loaded.set()
 
-    def _health(self):
+    def _health(self, timeout=30):
         request = Request(self.url + '/api/update-health',
                           headers={'X-Pocket-Update-Token': self.token})
         # Corporate HTTP proxies must not intercept the local receipt handshake.
         opener = build_opener(ProxyHandler({}), _NoRedirect())
-        with opener.open(request, timeout=3) as response:
+        # Embedded executor health hashes the complete runtime. Keep validation
+        # intact; a short identity-only timeout cannot cover that disk work.
+        with opener.open(request, timeout=timeout) as response:
             body = response.read(65537)
         if len(body) > 65536:
             raise UpdateError('Desktop health response is too large')
@@ -154,7 +157,13 @@ class DesktopReadiness:
             while not self.stopped.is_set() and time.monotonic() < deadline:
                 if self.shown.is_set() and self.loaded.is_set():
                     if self.window.evaluate_js('window.__PM_DESKTOP_READY__ === true') is True:
-                        health = self._health()
+                        try:
+                            health = self._health(timeout=min(30, max(.001, deadline - time.monotonic())))
+                        except (TimeoutError, URLError) as exc:
+                            if not (isinstance(exc, TimeoutError) or isinstance(getattr(exc, 'reason', None), TimeoutError)):
+                                raise
+                            self.stopped.wait(poll_interval)
+                            continue
                         self._validate_health(health)
                         self._write('ready', server_pid=health['pid'], page_ready=True)
                         return

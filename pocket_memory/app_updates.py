@@ -3,7 +3,7 @@
 
 """Application-owned update checks and downloads. No user-selected URLs or paths.
 
-Only the installed worker is executed. Downloaded code is never used as an update
+Only the verified installed executor is used. Downloaded code is never used as an update
 hook. The HTTPS feed is a trusted publisher boundary, not a signed-feed scheme.
 Source checkouts can preview availability but cannot install or exit the app.
 """
@@ -38,7 +38,9 @@ from pocket_memory.update_component import (WORKER_RELATIVE_PATH, inspect_instal
 
 
 TRUSTED_HOST = "download-files-1312623621.cos.ap-beijing.myqcloud.com"
-FEED_URL = f"https://{TRUSTED_HOST}/PocketMemory-update.json"
+# Old 1.0.13/1.0.14 clients cannot consume worker-free v2 manifests. Keep their
+# feed intact; a future v2 full installation subscribes to this separate channel.
+FEED_URL = f"https://{TRUSTED_HOST}/PocketMemory-update-v2.json"
 MAX_FEED_BYTES = 64 * 1024
 MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024
 MAX_EXPANDED_BYTES = 3 * 1024 * 1024 * 1024

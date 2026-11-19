@@ -177,13 +177,15 @@ def spawn_application(request: dict, work: Path, *, probe=False, desktop=False):
                                 stderr=subprocess.STDOUT, creationflags=flags, close_fds=True)
 
 
-def _local_request(request: dict, path: str, *, method="GET"):
+def _local_request(request: dict, path: str, *, method="GET", timeout=None):
     url = f"http://127.0.0.1:{request['port']}{path}"
     headers = {"X-Pocket-Update-Token": request["health_token"], "Content-Type": "application/json",
                "Origin": f"http://127.0.0.1:{request['port']}"}
     req = urllib.request.Request(url, data=b"{}" if method == "POST" else None, headers=headers, method=method)
     # Do not let HTTP_PROXY route local identity/shutdown requests off-machine.
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect()).open(req, timeout=2)
+    if timeout is None:
+        timeout = 30 if path == '/api/update-health' else 2
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect()).open(req, timeout=timeout)
 
 
 def verify_health(request: dict, process, timeout=150.0) -> dict:
@@ -192,7 +194,7 @@ def verify_health(request: dict, process, timeout=150.0) -> dict:
         if process.poll() is not None:
             raise UpdateError("新程序在健康检查前退出。")
         try:
-            with _local_request(request, "/api/update-health") as response:
+            with _local_request(request, "/api/update-health", timeout=min(30, max(.001, deadline - time.monotonic()))) as response:
                 raw = response.read(64 * 1024 + 1)
             if len(raw) > 64 * 1024:
                 raise UpdateError("健康响应过大。")
@@ -270,8 +272,14 @@ def verify_desktop(request: dict, process, work: Path, timeout=150.0) -> dict:
                         or parsed.username or parsed.password or parsed.path not in ('', '/')
                         or parsed.query or parsed.fragment or not parsed.port):
                     raise UpdateError('桌面服务地址不是本机端点。')
-                with _local_request(dict(request, port=parsed.port), '/api/update-health') as response:
-                    health = json.loads(response.read(65537))
+                try:
+                    with _local_request(dict(request, port=parsed.port), '/api/update-health', timeout=min(30, max(.001, deadline - time.monotonic()))) as response:
+                        health = json.loads(response.read(65537))
+                except (TimeoutError, urllib.error.URLError) as exc:
+                    if not (isinstance(exc, TimeoutError) or isinstance(getattr(exc, 'reason', None), TimeoutError)):
+                        raise
+                    time.sleep(.25)
+                    continue
                 if (health.get('ok') is True and health.get('pid') == value['server_pid']
                         and health.get('token') == request['health_token']
                         and health.get('app_version') == request['target_version']
@@ -515,9 +523,23 @@ def finalize_existing(request_path: Path) -> dict:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Pocket Memory internal update worker")
-    parser.add_argument("--request", type=Path, required=True)
+    entry = parser.add_mutually_exclusive_group(required=True)
+    entry.add_argument("--request", type=Path)
+    entry.add_argument('--describe-capabilities', type=Path,
+                       help='Write build-verification metadata to a new file; no update is performed.')
     parser.add_argument('--finalize-existing', action='store_true')
     args = parser.parse_args(argv)
+    if args.describe_capabilities is not None:
+        if args.finalize_existing:
+            parser.error('--finalize-existing requires --request')
+        from pocket_memory.version import APP_VERSION
+        target = _absolute(args.describe_capabilities)
+        _no_links(target.parent)
+        value = dict(schema_version=1, app_id='pocket-memory', version=APP_VERSION,
+                     manifest_schemas=[1, 2], executor='standalone')
+        with target.open('x', encoding='utf-8') as output:
+            json.dump(value, output, ensure_ascii=False)
+        return 0
     try:
         result = finalize_existing(args.request) if args.finalize_existing else run_worker(args.request)
         print(json.dumps(result, ensure_ascii=False))

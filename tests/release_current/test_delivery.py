@@ -57,7 +57,7 @@ class DeliveryTests(unittest.TestCase):
 
     def prepare(self, mode, dest):
         return delivery.prepare(self.build, self.models, dest, version='fixture.2',
-                                mode=mode, updater_exe=self.helper, schema_id='legacy-unversioned')
+                                mode=mode, updater_exe=self.helper, schema_id='legacy-unversioned', executor='standalone')
 
     def test_full_layout_preserves_source_excludes_user_data(self):
         dest = self.root / 'full'
@@ -162,7 +162,7 @@ class DeliveryTests(unittest.TestCase):
     def test_update_requires_standalone_helper(self):
         with self.assertRaises(ValueError):
             delivery.prepare(self.build, self.models, self.root/'update',
-                             version='fixture', mode='update', schema_id='legacy-unversioned')
+                             version='fixture', mode='update', schema_id='legacy-unversioned', executor='standalone')
 
     def test_invalid_worker_rejected_before_creating_either_layout(self):
         for mode in ('full', 'update'):

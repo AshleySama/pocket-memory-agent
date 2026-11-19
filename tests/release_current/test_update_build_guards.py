@@ -145,117 +145,18 @@ POWERSHELL = shutil.which('pwsh') or shutil.which('powershell')
 
 @unittest.skipUnless(POWERSHELL, 'PowerShell is needed to exercise the legacy build entry.')
 class LegacyBuildEntryTests(unittest.TestCase):
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='worker-build-fixture-')
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.source = self.root / 'isolated-source'
-        self.scripts = self.source / 'scripts'
-        self.scripts.mkdir(parents=True)
-        python_stub = self.source / '.venv/Scripts/python.exe'
-        python_stub.parent.mkdir(parents=True)
-        python_stub.write_bytes(b'NEVER-EXECUTED')
-        for name in ('check_update_component.py', 'create_zip64.py', 'PACKAGE_README_NO_MODELS.txt',
-                     'MODELS_README.txt'):
-            shutil.copy2(ROOT / 'scripts' / name, self.scripts / name)
-        self.fixture = self.root / 'worker-fixture.exe'
-        self.fixture.write_bytes(worker_bytes())
-        self.output = self.root / 'release'
-        self.calls = self.root / 'python-calls.jsonl'
-        (self.root / 'temp').mkdir()
-        script = (ROOT / 'scripts/build_release.ps1').read_text(encoding='utf-8-sig')
-        marker = '& $python -m PyInstaller --version | Out-Null'
-        self.assertEqual(script.count(marker), 1)
-        # Keep actual build control flow and scripts. Only replace the Python
-        # command dispatcher so no invocation can reach real PyInstaller.
-        script = script.replace(marker, "$python = 'Invoke-FakePython'\n" + marker)
-        (self.scripts / 'build_release.ps1').write_text(script, encoding='utf-8-sig')
-        harness = r'''
-function Invoke-FakePython {
-    $call = @{ argv = @($args); cwd = (Get-Location).Path }
-    Add-Content -LiteralPath $env:PM_TEST_CALLS -Value (ConvertTo-Json -InputObject $call -Compress)
-    if ($args[0] -eq '-c') {
-        Write-Output '0.0.1-guard-fixture'
-        $global:LASTEXITCODE = 0
-        return
-    }
-    if ($args[0] -eq '-m') {
-        if ($args[1] -ne 'PyInstaller') { throw 'Unexpected Python module in mock build.' }
-        if ($args -contains '--version') {
-            Write-Output 'mock-pyinstaller'
-            $global:LASTEXITCODE = 0
-            return
-        }
-        $dist = $args[[array]::IndexOf($args, '--distpath') + 1]
-        if ($args -contains '--onefile') {
-            if ($env:PM_TEST_MODE -eq 'worker-build-failed') {
-                $global:LASTEXITCODE = 19
-                return
-            }
-            New-Item -ItemType Directory -Path $dist -Force | Out-Null
-            $worker = Join-Path $dist 'PocketMemoryUpdateWorker.exe'
-            if ($env:PM_TEST_MODE -eq 'worker-empty') {
-                [IO.File]::WriteAllBytes($worker, [byte[]]@())
-            } elseif ($env:PM_TEST_MODE -ne 'worker-missing') {
-                Copy-Item -LiteralPath $env:PM_TEST_WORKER -Destination $worker
-            }
-        } else {
-            $app = Join-Path $dist 'PocketMemory'
-            New-Item -ItemType Directory -Path (Join-Path $app '_internal') -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $app 'PocketMemory.exe') -Value 'FAKE-APP-NEVER-EXECUTED'
-            Set-Content -LiteralPath (Join-Path $app '_internal/runtime.dll') -Value 'FAKE-RUNTIME'
-        }
-        $global:LASTEXITCODE = 0
-        return
-    }
-    if ($env:PM_TEST_MODE -eq 'copy-corrupt' -and
-        (Split-Path -Leaf $args[0]) -eq 'check_update_component.py' -and
-        (Split-Path -Leaf $args[1]) -eq 'PocketMemory') {
-        $copied = Join-Path $args[1] '_internal/PocketMemoryUpdateWorker.exe'
-        $bytes = [IO.File]::ReadAllBytes($copied)
-        $bytes[$bytes.Length - 1] = 1
-        [IO.File]::WriteAllBytes($copied, $bytes)
-    }
-    & $env:PM_TEST_PYTHON @args
-    $global:LASTEXITCODE = $LASTEXITCODE
-}
-& $env:PM_TEST_BUILD -SkipTests -WithoutModels -OutputDir $env:PM_TEST_OUTPUT
-'''
-        self.harness = self.root / 'mock-build.ps1'
-        self.harness.write_text(harness, encoding='utf-8-sig')
-
-    def run_build(self, mode):
-        environment = dict(os.environ, PM_TEST_MODE=mode, PM_TEST_WORKER=str(self.fixture),
-                           PM_TEST_PYTHON=sys.executable, PM_TEST_OUTPUT=str(self.output),
-                           PM_TEST_CALLS=str(self.calls),
-                           PM_TEST_BUILD=str(self.scripts / 'build_release.ps1'),
-                           PYTHONPATH=str(ROOT), TEMP=str(self.root / 'temp'), TMP=str(self.root / 'temp'))
-        return subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
-                               '-File', str(self.harness)], cwd=self.root, env=environment,
-                              capture_output=True, text=True, errors='replace', timeout=60)
-
-    def test_skip_tests_still_builds_and_checks_worker_before_success(self):
-        result = self.run_build('ok')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        package = self.output / 'PocketMemory-0.0.1-guard-fixture-no-models'
-        self.assertEqual((package / WORKER_RELATIVE_PATH).read_bytes(), worker_bytes())
-        check.check_archive(Path(str(package) + '.zip'), self.fixture)
-        calls = [json.loads(line) for line in self.calls.read_text(encoding='utf-8-sig').splitlines()]
-        worker_build = [call for call in calls if '--onefile' in call['argv']]
-        self.assertEqual(len(worker_build), 1)
-        for flag in ('--noconsole', '--noupx', '--paths', '--specpath'):
-            self.assertIn(flag, worker_build[0]['argv'])
-        self.assertTrue(all(Path(call['cwd']) == self.source for call in calls))
-        self.assertGreaterEqual(sum(Path(call['argv'][0]).name == 'check_update_component.py'
-                                    for call in calls), 4)
-
-    def test_skip_tests_cannot_bypass_worker_build_or_copy_failure(self):
-        for mode in ('worker-build-failed', 'worker-missing', 'worker-empty', 'copy-corrupt'):
-            with self.subTest(mode=mode):
-                result = self.run_build(mode)
-                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertFalse(list(self.output.glob('*.zip')))
-                self.assertFalse(list(self.output.glob('*-SHA256.txt')))
+    def test_retired_entry_stops_before_build_even_with_skip_tests(self):
+        with tempfile.TemporaryDirectory(prefix='retired-build-') as folder:
+            root=Path(folder); script=root/'build_release.ps1'
+            shutil.copy2(ROOT/'scripts/build_release.ps1',script)
+            output=root/'must-not-be-created'
+            result=subprocess.run([POWERSHELL,'-NoProfile','-ExecutionPolicy','Bypass','-File',str(script),
+                                   '-SkipTests','-WithoutModels','-OutputDir',str(output)],
+                                  cwd=root,capture_output=True,text=True,errors='replace',timeout=15)
+            self.assertNotEqual(result.returncode,0)
+            self.assertIn('prepare_offline_delivery',result.stdout+result.stderr)
+            self.assertFalse(output.exists())
+            self.assertEqual([p.name for p in root.iterdir()],['build_release.ps1'])
 
 
 if __name__ == '__main__':

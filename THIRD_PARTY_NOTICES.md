@@ -17,6 +17,7 @@ Pocket Memory source attribution: Copyright 2026 AshleySama / Pocket Memory cont
 | RapidOCR | 3.8.1 | OCR inference implementation; Apache-2.0. |
 | ONNX Runtime | 1.26.0 | BGE/OCR/reranker execution; MIT with additional bundled third-party notices. |
 | PyMuPDF / MuPDF | 1.28.2 | Document parsing/rendering; AGPLv3 or a separate Artifex commercial license. No commercial entitlement was found in the reviewed files. See [SOURCE_DISTRIBUTION.md](SOURCE_DISTRIBUTION.md). |
+| markdown-it-py / mdurl | 4.0.0 / 0.1.2 | Deterministic source Markdown rendering and URL parsing; MIT. Installed upstream license notices are retained under `licenses/python-packages/`. |
 | NLTK | 3.10.4 | NLP software; Apache-2.0. Its data resources have separate terms, discussed below. |
 
 Pillow, NumPy, pywebview, python-docx, openpyxl and other dependencies retain the notices captured under `licenses/python-packages/`. That collection includes nested binary-library notices, for example NumPy's numerical libraries and Shapely's LGPLv2.1 GEOS notice. It also contains build-tool notices when present in the environment. Consult the inventory for exact installed versions and paths. A package with multiple license texts is not reduced to a single permissive license by the table above. Where a wheel omits license text, upstream supplements are retained in `licenses/supplements/` or the named top-level license file. Texts obtained from a moving branch are identified by retrieval URL and content hash, not represented as version-pinned wheel contents.

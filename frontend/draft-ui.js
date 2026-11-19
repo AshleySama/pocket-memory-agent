@@ -33,8 +33,10 @@ function currentDraftKey() {
 function paintDraftProtection() {
   const label=document.querySelector('#draft-protection-status'),button=document.querySelector('#open-drafts');
   if(!label || !button)return;
-  label.textContent=draftVault.status(currentDraftKey());
-  label.dataset.error=String(Boolean(draftVault.error || [...draftVault.jobs.values()].some(e=>e.status==='error'&&!e.closed)));
+  const hasError=Boolean(draftVault.error || [...draftVault.jobs.values()].some(e=>e.status==='error'&&!e.closed));
+  label.textContent=hasError?draftVault.status(currentDraftKey()):'';
+  label.dataset.error=String(hasError);
+  const bar=label.closest('.draft-protection-bar');if(bar)bar.hidden=!hasError;
   button.textContent=`草稿箱${draftVault.records.size?`（${draftVault.records.size}）`:''}`;
   document.querySelector('#retry-drafts').hidden=label.dataset.error!=='true';
   const status=document.querySelector('.new-note-editor .note-save-status');

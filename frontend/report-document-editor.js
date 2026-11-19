@@ -53,6 +53,14 @@ window.PocketReportEditor = class PocketReportEditor {
     const box=document.createElement('div');box.innerHTML=html;
     box.querySelectorAll('.report-edited-body').forEach(x=>x.replaceWith(...x.childNodes));
     box.querySelectorAll('.report-heading,.adaptive-intro,.report-toc,.appendix,#report-source-appendix,button,[data-edit],.document-edit-notice').forEach(x=>x.remove());
+    // Old local drafts can still carry visible citation labels. Keep their
+    // identities for server validation, without inserting them into the prose.
+    box.querySelectorAll('a.cite[data-ref]').forEach(a=>{
+      if(/^[1-9][0-9]*$/.test(a.dataset.ref)&&a.getAttribute('href')===`#source-${a.dataset.ref}`){a.textContent='';a.hidden=true;}
+    });
+    [...box.querySelectorAll('.source-citation,.chapter-citations')].reverse().forEach(x=>{
+      if(!x.textContent.trim()&&!x.querySelector('img,svg,table,hr,br'))x.hidden=true;
+    });
     // Strip only presentation controls; retained paragraphs, tables and quotes
     // remain editable in their original order.
     return box.innerHTML;
@@ -76,7 +84,7 @@ window.PocketReportEditor = class PocketReportEditor {
     const label=document.createElement('label');label.className='document-title-label';label.textContent='文稿标题';
     this.title=document.createElement('input');this.title.className='document-title-input';this.title.maxLength=100;this.title.setAttribute('aria-label','文稿标题');this.title.value=draft?.title??this.originalTitle;label.append(this.title);head.append(label);
     this.body=document.createElement('div');this.body.id='document-editor';this.body.className='document-editor';this.body.contentEditable='true';this.body.setAttribute('role','textbox');this.body.setAttribute('aria-label','全文正文');this.body.setAttribute('aria-multiline','true');this.body.spellcheck=false;
-    this.body.innerHTML=draft?.document_html??this.cleanBody(this.originalHTML);this.body.querySelectorAll('[data-ref]').forEach(a=>a.contentEditable='false');
+    this.body.innerHTML=this.cleanBody(draft?.document_html??this.originalHTML);this.body.querySelectorAll('[data-ref]').forEach(a=>a.contentEditable='false');
     this.host.replaceChildren(head,this.body);this.bar.hidden=false;this.dirty=!!draft;this.baseline=JSON.stringify({title:this.originalTitle,document_html:this.cleanBody(this.originalHTML)});
     this.body.addEventListener('input',()=>this.changed());this.title.addEventListener('input',()=>this.changed());
     this.body.addEventListener('paste',e=>{e.preventDefault();document.execCommand('insertText',false,e.clipboardData?.getData('text/plain')||'');this.changed();});

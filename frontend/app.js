@@ -123,7 +123,7 @@ const importQueue = new PocketImportQueue({api:request, read:readFileAsDataUrl, 
   }, storage:(() => { try { return window.localStorage; } catch (_) { return null; } })()});
 
 function switchPane(paneId) {
-  document.querySelectorAll(".detail-tab").forEach((tab) => {
+  document.querySelectorAll(".detail-tab[data-pane]").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.pane === paneId);
   });
   document.querySelectorAll(".detail-pane").forEach((pane) => {
@@ -131,7 +131,7 @@ function switchPane(paneId) {
   });
 }
 
-document.querySelectorAll(".detail-tab").forEach((tab) => {
+document.querySelectorAll(".detail-tab[data-pane]").forEach((tab) => {
   tab.addEventListener("click", () => switchPane(tab.dataset.pane));
 });
 

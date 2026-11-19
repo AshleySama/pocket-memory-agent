@@ -424,3 +424,8 @@ body.export-document{padding:35px 24px 42px;background:#edf3f0;color:#253439}
   .report-wrap .source-segment>p,.report-wrap .compiled-excerpt>p,.report-wrap .chapter-paragraph,.report-wrap .source-steps{font-size:11pt}
   .report-wrap .appendix:not([open]) article{display:none}.report-wrap .appendix article:target{outline:0}
 }
+
+/* Citation identities stay in the document for provenance, never in the reading flow. */
+.report-wrap a.cite[data-ref][hidden],
+.report-wrap .source-citation[hidden],
+.report-wrap .chapter-citations[hidden]{display:none!important}

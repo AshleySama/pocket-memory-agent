@@ -118,7 +118,11 @@ class ReportWorkspace:
         with self.lock:
             p = self.path(report_id)
             if not p.exists(): raise KeyError(report_id)
-            return json.loads(p.read_text('utf-8'))
+            report = json.loads(p.read_text('utf-8'))
+            # Project old, unedited compilations on read without rewriting
+            # their evidence, saved file or any user's full-document edits.
+            from .report_reading_view import attach_compiled_layout
+            return attach_compiled_layout(report, self.store)
 
     def write(self, report):
         target = self.path(report['id']); tmp = target.with_suffix('.tmp')
@@ -350,7 +354,7 @@ class ReportWorkspace:
             if self.worker and self.worker.is_alive(): raise ValueError('已有文稿正在生成，请等待完成')
             selected, units = self.snapshot(body.get('sources'))
             job_id = uuid.uuid4().hex
-            job = {'id':job_id,'status':'queued','stage':'资料快照已保存，等待本地模型','started':requested_at}
+            job = {'id':job_id,'status':'queued','stage':'资料快照已保存，准备整理','started':requested_at}
             self.jobs[job_id] = job
             self.worker = threading.Thread(target=self._run,args=(job_id,title,template,selected,units,focus,phase=='outline',composition_mode),daemon=True)
             self.worker.start()
@@ -515,14 +519,17 @@ class ReportWorkspace:
             # Saved reports retain their protocol. A request cannot silently
             # reinterpret a full-reading receipt as the faster compilation mode.
             saved=prepared if prepared is not None else resume_reading
-            # Do not invent a business outline for an already structured,
-            # single-source guide. This conservative path is disabled for
-            # explicit user writing requirements and saved legacy drafts.
+            # No content range means compile all selected sources, not ask the
+            # model to infer exclusions from the title. Explicit requirements
+            # and saved legacy drafts retain their existing selection contract.
             if composition_mode=='source_compiled' and saved is None and not stop_after_outline:
-                from .report_structured import plan as structure_plan
-                structure=structure_plan(units,focus)
+                from .report_complete import plan as complete_plan
+                started=time.monotonic()
+                structure=complete_plan(units,focus)
                 if structure is not None:
-                    started=time.monotonic();stage('按原文标题组织内容并核对跨页引用')
+                    stage('按原文结构编排全部所选资料并核对来源')
+                    from .report_reading_view import collect as collect_reading_layout
+                    reading_layout=collect_reading_layout(self.store,selected,units)
                     by_unit={u['unit_id']:u for u in units};chapters=[]
                     for i,chapter in enumerate(structure['chapters'],1):
                         segments=[]
@@ -531,7 +538,10 @@ class ReportWorkspace:
                             if u['body'][segment['start']:segment['end']]!=segment['text']:
                                 raise ValueError('原文结构与引用范围不一致')
                             segments.append(dict(segment,ref=register(u,segment['start'],segment['end'])))
-                        chapters.append(dict(id=f'C{i}',title=chapter['title'],segments=segments))
+                        chapters.append(dict(id=f'C{i}',title=chapter['title'],segments=segments,
+                                             source_label=chapter.get('source_label','')))
+                    if any(not valid_ref(r,units) for r in refs):
+                        raise ValueError('引用身份核对失败，文稿未保存')
                     created=now()
                     return dict(id=uuid.uuid4().hex,version=1,created=created,updated=created,
                         title=title,template=template,template_label=TEMPLATES[template][0],
@@ -539,6 +549,7 @@ class ReportWorkspace:
                         notes={},edited=False,reviewed=False,focus=focus,model='原文结构整理 / 未调用4B',
                         generation=dict(calls=0,seconds=round(time.monotonic()-started,3)),composition_mode=composition_mode,
                         adaptive=dict(reading_mode='source_structured_v1',status='complete',chapters=chapters,
+                            reading_layout=reading_layout,
                             outline=[dict(id=c['id'],title=c['title'],purpose='',fact_ids=[]) for c in chapters],
                             coverage=structure['coverage'],omissions=structure['omissions'],issues=[]),
                         limitations=['按已有标题整理原文，不代表新增综合分析或外部专业核验。'])
@@ -576,7 +587,8 @@ class ReportWorkspace:
             adaptive, claims, generation = generate(self.engine,title,focus,units,register,stage,self.directory/'.adaptive-cache',
                                                    stop_after_outline=stop_after_outline,prepared=prepared,outline_override=outline_override,
                                                    resume_reading=resume_reading,reading_checkpoint=checkpoint if on_checkpoint else None)
-            return envelope(adaptive,claims,generation)
+            from .report_reading_view import attach_compiled_layout
+            return attach_compiled_layout(envelope(adaptive,claims,generation), self.store)
         for u in units:
             if u['field']=='content':
                 for t in markdown_tables(u['body']):
@@ -714,6 +726,12 @@ def chart_svg(chart):
     return f'<svg viewBox="0 0 520 {h}" role="img" aria-label="{esc(chart["title"])}">'+''.join(bars)+'</svg>'
 
 def render_report(r, appendix=False):
+    from .report_citation_presentation import citation_free_body
+    # Build/validate provenance first, including export appendices. Rendering
+    # then suppresses numbered labels only; stored refs and source text remain.
+    return citation_free_body(_render_report(r, appendix=appendix))
+
+def _render_report(r, appendix=False):
     if any(not valid_ref(ref,r['units']) for ref in r['refs']):
         raise ValueError('文稿快照引用不一致，请重新生成')
     if 'document_html' in r:

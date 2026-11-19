@@ -2,24 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Read an already structured source as a report, without inventing a topic."""
 from html import escape
-from html.parser import HTMLParser
 import re
-
-
-class Inline(HTMLParser):
-    def __init__(self):
-        super().__init__(convert_charrefs=True);self.out=[]
-    def handle_starttag(self,tag,attrs):
-        if tag in ('strong','b','em','i','u'):self.out.append('<'+tag+'>')
-        elif tag=='br':self.out.append('<br>')
-    def handle_endtag(self,tag):
-        if tag in ('strong','b','em','i','u'):self.out.append('</'+tag+'>')
-    def handle_data(self,data):self.out.append(escape(data))
+from .report_source_markup import format_outside_code, render_body, render_inline
 
 
 def inline(text):
-    text=re.sub(r'\[\[([^\[\]\r\n]+)\]\]',r'《\1》',text)
-    p=Inline();p.feed(text);p.close();return ''.join(p.out)
+    return render_inline(text)
 
 
 def citation_html(ref):
@@ -49,7 +37,7 @@ def prose_paragraph(text):
 
 
 def body_html(text,title=''):
-    heading=re.match(r'^\s*#{1,6}\s+([^\n]+)\n?',text)
+    heading=re.match(r'^(?:[ \t]*\r?\n)* {0,3}#{1,6}[ \t]+([^\n]+)\n?',text)
     if heading and title:
         value=heading[1].strip();end=heading.end()
         if re.fullmatch(r'\d+[.、)]',value):
@@ -57,41 +45,15 @@ def body_html(text,title=''):
             if continuation:value+=' '+continuation[0].strip();end+=continuation.end()
         normalize=lambda s:re.sub(r'\s+','',re.sub(r'^\d+[.、)]\s*','',s))
         if normalize(value)==normalize(title):text=text[end:]
-    # A numeric line wrap inside explicit emphasis is formatting, not a new
-    # recipe measurement. Only the presentation joins it; the source stays exact.
-    text=re.sub(r'(<(?:strong|b)>\s*\d+)\.\s*\n\s*(\d+(?:[～~–—-]\d+)?\s*(?:小时|分钟|秒|℃|g|kg|ml|厘米))',r'\1.\2',text)
-    text=re.sub(r'(<(?:strong|b)>[^<>\n]*)\n\s*(</(?:strong|b)>)',r'\1\2',text)
-    text=re.sub(r'(?m)^(\s*\d+[.)、])\s*\n(?=\S)',r'\1 ',text)
-    # A broken numbered Markdown heading remains one heading on the page.
-    text=re.sub(r'(?m)^(#{1,6}[ \t]+\d+[.、)])\s*\n(?=([^#>\n][^\n]{0,119})(?:\n|$))',
-                lambda m:m[1]+' ' if not re.search(r'[：:。；]',m[2]) else m[0],text)
-    lines=text.splitlines();result=[];paragraph=[];items=[];current=None;start=1
-    def flush_paragraph():
-        if paragraph:result.append(prose_paragraph(' '.join(paragraph)));paragraph.clear()
-    def flush_list():
-        nonlocal current
-        if current is not None:items.append(current);current=None
-        if items:
-            result.append(f'<ol class="source-steps" start="{start}">'+''.join(
-                f'<li value="{number}">'+inline(' '.join(parts))+'</li>' for number,parts in items)+'</ol>');items.clear()
-    for line in lines:
-        line=line.strip()
-        if not line:flush_paragraph();flush_list();continue
-        heading=re.match(r'^(#{1,6})\s+(.+)',line)
-        item=re.match(r'^(\d+)[.)、]\s+(.+)',line)
-        if heading:
-            flush_paragraph();flush_list();level=max(3,min(5,len(heading[1])))
-            result.append(f'<h{level}>'+inline(heading[2])+f'</h{level}>')
-        elif item:
-            flush_paragraph()
-            if current is not None:items.append(current)
-            if not items:start=int(item[1])
-            current=(int(item[1]),[item[2]])
-        elif line.startswith('>'):
-            flush_paragraph();flush_list();result.append('<p class="source-tip">'+inline(line.lstrip('> '))+'</p>')
-        elif current is not None:current[1].append(line)
-        else:paragraph.append(line)
-    flush_paragraph();flush_list();return ''.join(result)
+    def repair_wraps(value):
+        # Preserve the established display repairs; literal code stays untouched.
+        value=re.sub(r'(<(?:strong|b)>\s*\d+)\.\s*\n\s*(\d+(?:[～~–—-]\d+)?\s*(?:小时|分钟|秒|℃|g|kg|ml|厘米))',r'\1.\2',value)
+        value=re.sub(r'(<(?:strong|b)>[^<>\n]*)\n\s*(</(?:strong|b)>)',r'\1\2',value)
+        value=re.sub(r'(?m)^(\s*\d+[.)、])\s*\n(?=\S)',r'\1 ',value)
+        value=re.sub(r'(?m)^(#{1,6}[ \t]+\d+[.、)])\s*\n(?=([^#>\n][^\n]{0,119})(?:\n|$))',
+                    lambda m:m[1]+' ' if not re.search(r'[：:。；]',m[2]) else m[0],value)
+        return value
+    return render_body(format_outside_code(text,repair_wraps))
 
 
 def render_structured(r,appendix=False):
@@ -103,17 +65,30 @@ def render_structured(r,appendix=False):
     if len(a['chapters'])>1:
         out+='<nav class="adaptive-intro" aria-label="汇编目录"><ul class="report-toc">'
         for ch in a['chapters']:
-            out+='<li><a href="#section-chapter-'+escape(str(ch['id']),quote=True)+'">'+escape(ch['title'])+'</a></li>'
+            label=(str(ch['source_label'])+' · ' if ch.get('source_label') else '')+ch['title']
+            out+='<li><a href="#section-chapter-'+escape(str(ch['id']),quote=True)+'">'+escape(label)+'</a></li>'
         out+='</ul></nav>'
     for ch in a['chapters']:
         key='chapter-'+str(ch['id']);safe_key=escape(key,quote=True)
-        out+=f'<section class="section adaptive-chapter" id="section-{safe_key}"><div class="section-head"><h2>'+escape(ch['title'])+f'</h2><button class="edit" data-edit="{safe_key}">编辑说明</button></div>'
+        source_label=('<p class="source-note-label">'+escape(str(ch['source_label']))+'</p>') if ch.get('source_label') else ''
+        out+=f'<section class="section adaptive-chapter" id="section-{safe_key}">'+source_label+'<div class="section-head"><h2>'+escape(ch['title'])+f'</h2><button class="edit" data-edit="{safe_key}">编辑说明</button></div>'
         if r.get('notes',{}).get(key):out+='<p class="edited-copy">'+escape(r['notes'][key]).replace('\n','<br>')+'</p><small class="source-note-label">人工补充</small>'
+        layout=a.get('reading_layout')
+        units={u['unit_id']:u for u in r['units']}
+        document_layout=(layout and all(units[s['unit_id']]['kind']=='document' for s in ch['segments'])
+                         and len({(units[s['unit_id']]['source_id'],units[s['unit_id']]['field']) for s in ch['segments']})==1)
+        citations=[]
         for segment in ch['segments']:
             ref=refs[segment['ref']]
             if segment['text']!=ref['quote']:raise ValueError('本章内容与引用不同')
             used.add(ref['id'])
-            out+='<div class="source-segment">'+body_html(segment['text'],ch['title'])+'<p class="source-citation">'+citation_html(ref)+'</p></div>'
+            if document_layout:
+                citations.append('<p class="source-citation">'+citation_html(ref)+'</p>')
+            else:
+                out+='<div class="source-segment">'+body_html(segment['text'],ch['title'])+'<p class="source-citation">'+citation_html(ref)+'</p></div>'
+        if document_layout:
+            from .report_reading_view import chapter_text
+            out+='<div class="source-segment source-reading">'+body_html(chapter_text(ch,units,layout),ch['title'])+''.join(citations)+'</div>'
         out+='</section>'
     if appendix:
         out+=evidence_html([ref for ref in refs.values() if ref['id'] in used])

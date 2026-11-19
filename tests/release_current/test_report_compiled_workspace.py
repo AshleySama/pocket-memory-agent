@@ -50,7 +50,9 @@ class CompiledWorkspaceTests(unittest.TestCase):
 
     def test_export_keeps_source_order_when_background_precedes_main(self):
         with patch('pocket_memory.report_brief.generate',side_effect=self.generate_fixture):
-            r=self.ws.build('原文顺序','auto',self.selected,self.units,composition_mode='source_compiled')
+            # Exercise the selector fixture, not the new no-range whole-source
+            # route. This test protects legacy compiled rendering order.
+            r=self.ws.build('原文顺序','auto',self.selected,self.units,focus='按原文顺序组织',composition_mode='source_compiled')
         c=r['adaptive']['chapters'][0]
         c['paragraphs']=[dict(text='原文开头需要先读',refs=[1],placement='supplement'),dict(text='接着读取条件与结论',refs=[1],placement='main')]
         c['content_order']=[dict(kind='paragraph',index=0),dict(kind='paragraph',index=1)]

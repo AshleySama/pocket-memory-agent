@@ -74,18 +74,28 @@ def render_compiled(r, appendix=False):
             if guidance.get('kind')!='editorial':raise ValueError('导读身份无效')
             if re.sub(r'^编写建议[：:]\s*','',guidance['text']).strip()==c.get('purpose','').strip():continue
             text+='<aside class="compiled-guidance"><small>编写建议 · 非原文规定</small><p>'+esc(guidance['text'])+'</p></aside>'
-        runs=[]
+        from .report_reading_view import selected_span, append_selected_span, chapter_text
+        layout=a.get('reading_layout') or {}
+        units={u['unit_id']:u for u in r['units']}
+        pending=[];pending_refs=[];pending_placement=None
+        def flush():
+            if not pending:return ''
+            result=('<div class="compiled-excerpt">'+body_html(chapter_text(dict(segments=pending),units,layout))
+                    +'<p class="source-citation">'+cites(pending_refs)+'</p></div>')
+            pending.clear();pending_refs.clear()
+            return result
         for order in c.get('content_order',[]):
             kind=order['kind'];item=c['paragraphs' if kind=='paragraph' else 'tables'][order['index']]
             placement=item.get('placement','main')
-            if not runs or runs[-1][0]!=placement:runs.append((placement,[]))
-            runs[-1][1].append(item_html(kind,item))
-        # Keep the incoming source order: separating all "main" excerpts first
-        # can show a sentence ending before the source paragraph that starts it.
-        for placement,parts in runs:
-            # A saved chapter keeps its content. No second full-document
-            # reading area is appended merely because a source was long.
-            text+=''.join(parts)
+            segment=selected_span(item,units,refs,layout) if kind=='paragraph' else None
+            if segment is None:
+                text+=flush()+item_html(kind,item)
+                continue
+            if pending and (placement!=pending_placement or not append_selected_span(pending,segment,units,layout)):
+                text+=flush()
+            if not pending:pending.append(segment)
+            pending_refs.extend(item['refs']);pending_placement=placement
+        text+=flush()
         text+='</section>'
     issues=[issue for issue in a.get('issues',[]) if not isinstance(issue,dict) or issue.get('kind')!='empty_chapters']
     if issues:

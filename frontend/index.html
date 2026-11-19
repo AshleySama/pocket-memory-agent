@@ -106,7 +106,7 @@ SPDX-License-Identifier: Apache-2.0 -->
     })();
     </script>
     <link rel="icon" type="image/png" href="/brand/pocket-memory-small-logo.png">
-    <link rel="stylesheet" href="/drafts.css?v=20261115-compact">
+    <link rel="stylesheet" href="/drafts.css?v=20261119-toolbar">
     <link rel="stylesheet" href="/imports.css?v=20261117-feedback">
     <link id="notification-icon" rel="prefetch" href="/brand/pocket-memory-small-logo.png">
     <title>Pocket Memory</title>
@@ -232,10 +232,11 @@ SPDX-License-Identifier: Apache-2.0 -->
           <button class="detail-tab active" data-pane="editor-pane">笔记</button>
           <button class="detail-tab ai-answer-tab" data-pane="answer-pane"><span class="ai-answer-spark" aria-hidden="true">✦</span>AI 回答</button>
           <button class="detail-tab" data-pane="tool-pane">工具</button>
+          <button id="open-drafts" class="detail-tab" type="button" aria-haspopup="dialog" aria-controls="draft-dialog">草稿箱</button>
         </div>
         <div class="detail-content">
           <div id="editor-pane" class="detail-pane active">
-            <div class="draft-protection-bar"><span id="draft-protection-status" role="status" aria-live="polite">正在连接草稿保护…</span><button id="retry-drafts" class="ghost" type="button" hidden>重试</button><button id="open-drafts" class="ghost" type="button">草稿箱</button></div>
+            <div class="draft-protection-bar" hidden><span id="draft-protection-status" role="status" aria-live="polite"></span><button id="retry-drafts" class="ghost" type="button" hidden>重试</button></div>
             <section id="editor-dock" class="editor-dock" aria-label="当前笔记阅读与编辑">
               <div id="editor-dock-content" class="editor-dock-content"></div>
             </section>
@@ -593,11 +594,11 @@ SPDX-License-Identifier: Apache-2.0 -->
   </dialog>
   <script src="/ask-scope.js?v=20261118-default-all"></script>
   <script src="/drafts.js?v=20261108"></script>
-  <script src="/draft-ui.js?v=20261116-autosave"></script>
+  <script src="/draft-ui.js?v=20261119-toolbar"></script>
   <script src="/import-cache.js?v=20261108"></script>
   <script src="/imports.js?v=20261117-feedback"></script>
   <script src="/editor-color-palette.js?v=20261118-office-compact-3"></script>
-  <script src="/app.js?v=compilation-20261118-color-palette"></script>
+  <script src="/app.js?v=20261119-draft-toolbar"></script>
   <script src="/graph-light.js?v=20261117-graph-140"></script>
   <script src="/office-tools.js?v=20261111-feedback2"></script>
   <script src="/app-update.js?v=20261111-copy"></script>

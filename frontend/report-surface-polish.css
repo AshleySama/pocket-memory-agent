@@ -1,0 +1,221 @@
+/* Copyright 2026 AshleySama
+ * SPDX-License-Identifier: Apache-2.0
+ * Workbench surfaces only. Keep the source-picker layout and report paper intact.
+ */
+@media screen {
+  .rail,
+  #create-dialog {
+    --surface-edge: color-mix(in srgb, var(--work-button) 75%, transparent);
+    --surface-shadow: color-mix(in srgb, var(--work-text) 9%, transparent);
+    --surface-shadow-soft: color-mix(in srgb, var(--work-text) 5%, transparent);
+    --surface-dialog-shadow: color-mix(in srgb, var(--work-text) 22%, transparent);
+    --surface-focus: color-mix(in srgb, var(--work-accent) 25%, transparent);
+    --surface-raised: color-mix(in srgb, var(--work-button) 88%, var(--work-surface));
+  }
+  :root[data-theme="midnight-focus"] :is(.rail, #create-dialog) {
+    --surface-edge: color-mix(in srgb, var(--work-muted) 16%, transparent);
+    --surface-shadow: color-mix(in srgb, var(--work-to) 58%, transparent);
+    --surface-shadow-soft: color-mix(in srgb, var(--work-to) 35%, transparent);
+    --surface-dialog-shadow: color-mix(in srgb, var(--work-to) 78%, transparent);
+  }
+
+  /* A quiet edge separates the rail from the workspace without taking more room. */
+  .rail {
+    background: linear-gradient(160deg, var(--work-rail), var(--work-surface));
+    box-shadow: inset -1px 0 var(--surface-edge), 4px 0 16px var(--surface-shadow-soft);
+  }
+  .rail .rail-label { font-weight: 600; }
+  .rail .rail-divider {
+    border-color: color-mix(in srgb, var(--work-border) 80%, transparent);
+    box-shadow: 0 1px var(--surface-edge);
+  }
+  .rail .type-list {
+    padding: 4px;
+    border: 1px solid var(--work-border);
+    border-radius: 11px;
+    background: linear-gradient(155deg, var(--surface-raised), color-mix(in srgb, var(--work-button) 50%, var(--work-surface)));
+    box-shadow: inset 0 1px var(--surface-edge), 0 3px 9px var(--surface-shadow);
+  }
+  .rail .report-kind { border-radius: 8px; }
+  .rail .report-kind:hover {
+    background: color-mix(in srgb, var(--work-button) 68%, var(--work-active));
+    box-shadow: inset 0 0 0 1px var(--work-border), 0 2px 5px var(--surface-shadow-soft);
+  }
+  .rail .report-kind.active {
+    background: linear-gradient(160deg, color-mix(in srgb, var(--work-active) 74%, var(--work-button)), var(--work-active));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--work-accent) 24%, var(--work-border)),
+      inset 0 1px var(--surface-edge), 0 2px 5px var(--surface-shadow);
+  }
+  .rail .report-kind.active .icon { filter: drop-shadow(0 1px 0 var(--surface-edge)); }
+  .rail .outline a:hover {
+    background: color-mix(in srgb, var(--work-button) 50%, var(--work-active));
+  }
+  .rail .outline a[aria-current="location"] {
+    background: linear-gradient(90deg, var(--work-active), color-mix(in srgb, var(--work-active) 65%, var(--work-button)));
+    box-shadow: inset 0 1px var(--surface-edge), 0 1px 3px var(--surface-shadow-soft);
+  }
+  .rail .history-row {
+    margin-top: 4px;
+    border-radius: 7px;
+    border-bottom-color: color-mix(in srgb, var(--work-border) 80%, transparent);
+    background: color-mix(in srgb, var(--work-button) 46%, transparent);
+    box-shadow: inset 0 1px var(--surface-edge);
+  }
+  .rail .history-row:hover,
+  .rail .history-row:focus-within,
+  .rail .history-row:has(.history-select:checked) {
+    background: color-mix(in srgb, var(--work-button) 65%, var(--work-active));
+    box-shadow: inset 0 0 0 1px var(--work-border), 0 2px 5px var(--surface-shadow-soft);
+  }
+  .rail .history-row:has(.history-select:checked) {
+    background: var(--work-active);
+    box-shadow: inset 2px 0 var(--work-accent), inset 0 1px var(--surface-edge);
+  }
+  .rail .history-batch-actions,
+  .rail .history-undo {
+    background: var(--surface-raised);
+    box-shadow: inset 0 1px var(--surface-edge), 0 2px 5px var(--surface-shadow-soft);
+  }
+  .rail .history-undo { border: 1px solid var(--work-border); }
+
+  /* Keep the established wide dialog and the full-height source list. */
+  #create-dialog {
+    background: linear-gradient(135deg, var(--work-surface), color-mix(in srgb, var(--work-surface) 58%, var(--work-button)));
+    box-shadow: 0 26px 72px var(--surface-dialog-shadow),
+      0 6px 20px var(--surface-shadow), inset 0 1px var(--surface-edge);
+  }
+  #create-dialog .dialog-head {
+    background: linear-gradient(180deg, var(--surface-raised), var(--work-surface));
+    box-shadow: inset 0 1px var(--surface-edge), 0 2px 7px var(--surface-shadow-soft);
+  }
+  #create-dialog .dialog-footer {
+    background: linear-gradient(180deg, var(--surface-raised), var(--work-surface));
+    box-shadow: inset 0 1px var(--surface-edge), 0 -2px 7px var(--surface-shadow-soft);
+  }
+  #create-dialog .report-settings {
+    padding: 14px 12px;
+    border: 1px solid var(--work-border);
+    border-radius: 10px;
+    background: linear-gradient(155deg, var(--surface-raised), color-mix(in srgb, var(--work-button) 54%, var(--work-surface)));
+    box-shadow: inset 0 1px var(--surface-edge), 0 3px 10px var(--surface-shadow);
+  }
+  #create-dialog .create-fields { border-color: var(--work-border); }
+  #create-dialog :is(.create-fields label, .report-focus-field) {
+    color: var(--work-text);
+  }
+  #create-dialog :is(input:not([type="checkbox"]), select, textarea) {
+    background: var(--work-button);
+    border-color: var(--work-border);
+    border-radius: 7px;
+    box-shadow: inset 0 1px 3px var(--surface-shadow), 0 1px var(--surface-edge);
+  }
+  #create-dialog :is(input:not([type="checkbox"]), select, textarea):hover {
+    border-color: color-mix(in srgb, var(--work-accent) 45%, var(--work-border));
+  }
+  #create-dialog :is(input:not([type="checkbox"]), select, textarea):focus {
+    border-color: var(--work-accent);
+    outline: 2px solid var(--surface-focus);
+    outline-offset: 1px;
+    box-shadow: inset 0 1px 2px var(--surface-shadow-soft), 0 0 0 3px var(--surface-focus);
+  }
+  #create-dialog #selected-count {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--work-active);
+    box-shadow: inset 0 0 0 1px var(--work-border), inset 0 1px var(--surface-edge);
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  #create-dialog #source-picker {
+    border-radius: 8px;
+    background: var(--work-button);
+    box-shadow: inset 0 1px 4px var(--surface-shadow), 0 2px 5px var(--surface-shadow-soft);
+  }
+  #create-dialog .source-option {
+    border-color: color-mix(in srgb, var(--work-border) 70%, var(--work-button));
+  }
+  #create-dialog .source-option:hover {
+    background: color-mix(in srgb, var(--work-active) 50%, var(--work-button));
+  }
+  #create-dialog .source-option:has(input:checked) {
+    background: linear-gradient(90deg, var(--work-active), color-mix(in srgb, var(--work-active) 65%, var(--work-button)));
+    box-shadow: inset 3px 0 var(--work-accent), inset 0 1px var(--surface-edge);
+  }
+  #create-dialog .source-option:focus-within {
+    outline: 2px solid var(--work-accent);
+    outline-offset: -2px;
+  }
+  #create-dialog .selected-source {
+    border-radius: 6px;
+    box-shadow: inset 0 1px var(--surface-edge), 0 1px 3px var(--surface-shadow-soft);
+  }
+
+  /* Small existing controls gain a tactile edge, with no added toolbar height. */
+  .rail :is(.history-tools, .history-batch-actions, .history-undo) button,
+  #create-dialog button {
+    background: linear-gradient(180deg, var(--work-button), var(--surface-raised));
+    border-color: var(--work-border);
+    box-shadow: inset 0 1px var(--surface-edge), 0 1px 2px var(--surface-shadow);
+  }
+  .rail :is(.history-tools, .history-batch-actions, .history-undo) button:enabled:hover,
+  #create-dialog button:enabled:hover {
+    background: color-mix(in srgb, var(--work-active) 55%, var(--work-button));
+    border-color: color-mix(in srgb, var(--work-accent) 50%, var(--work-border));
+    box-shadow: inset 0 1px var(--surface-edge), 0 2px 4px var(--surface-shadow);
+  }
+  .rail #new-report,
+  #create-dialog button.primary {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--work-accent) 90%, var(--work-button)), var(--work-accent));
+    border-color: var(--work-accent);
+    color: var(--work-on-accent);
+    box-shadow: inset 0 1px color-mix(in srgb, var(--work-button) 25%, transparent),
+      0 3px 6px color-mix(in srgb, var(--work-accent) 20%, transparent);
+  }
+  .rail #new-report:enabled:hover,
+  #create-dialog button.primary:enabled:hover {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--work-accent) 82%, var(--work-button)), var(--work-accent));
+    border-color: var(--work-accent);
+    box-shadow: inset 0 1px color-mix(in srgb, var(--work-button) 30%, transparent),
+      0 4px 8px color-mix(in srgb, var(--work-accent) 25%, transparent);
+  }
+  #create-dialog .dialog-head > button,
+  #create-dialog .selected-source > button {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .rail button:enabled:active,
+  #create-dialog button:enabled:active {
+    box-shadow: inset 0 2px 4px var(--surface-shadow);
+  }
+  .rail button:disabled,
+  #create-dialog button:disabled {
+    background: var(--work-surface);
+    border-color: var(--work-border);
+    color: var(--work-muted);
+    box-shadow: none;
+    opacity: .6;
+  }
+  .rail :is(button, a):focus-visible,
+  #create-dialog button:focus-visible {
+    outline: 2px solid var(--work-accent);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 900px) {
+    #create-dialog .report-settings { padding: 12px 10px; }
+  }
+  @media (max-width: 650px) {
+    #create-dialog .report-settings { padding: 10px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #create-dialog :is(input, select, textarea) {
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rail *,
+    #create-dialog * { transition: none; }
+  }
+}

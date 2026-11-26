@@ -89,3 +89,30 @@ backup*/
 # Local review pages contain real note excerpts, never product assets.
 frontend/polish-review.html
 frontend/tool-review.html
+
+# Private development conversations, execution reports and temporary artifacts.
+/.codex/
+/.agents/
+/tmp/
+/temp/
+/work/
+/review_output/
+/docs/CODEX_HANDOFF.md
+/docs/DELIVERY_POLICY.md
+/docs/GITHUB_CLEANUP_*.md
+/docs/*_VALIDATION_*.md
+/docs/VALIDATION_*.md
+/docs/HOTFIX_*.md
+/docs/*_REVIEW_*.md
+/docs/*_PROMPT*.md
+/tests/fixtures/*_SMOKE_REPORT.md
+/tests/fixtures/rag_regression_real_feedback.json
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.tmp
+*.bak
+*.orig
+*.rej

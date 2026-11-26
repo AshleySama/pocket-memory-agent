@@ -4,13 +4,9 @@ This is an evaluation Beta with the existing local 4B model, not a new RAG
 optimization round or a general factual-accuracy guarantee. Source and packaged
 code share the reviewed runtime; private data and model weights are not in Git.
 
-567 distinct Python checks and 36 frontend checks passed locally. Historical
-RAG evidence is reused for unchanged input paths; replay equality is not accuracy.
-The packaged runtime successfully loaded its local models, OCR and XLSX parser.
-One disclosed quality limitation is that a correct table answer can show source
-evidence containing an adjacent row. The strict evidence-scope check remains
-failed; it was not converted to a quality pass. Full package mechanics results
-and final hashes are in the local release receipt, not private evaluation logs.
+A correct table answer can still show source evidence containing an adjacent
+row. Verify important facts and their supporting source passages; this Beta
+does not certify evidence-scope accuracy.
 
 Use Start-Beta.bat for isolated data-beta and beta-profile; stop with
 Stop-Beta.bat. Retain old stable program files and a separate data backup.

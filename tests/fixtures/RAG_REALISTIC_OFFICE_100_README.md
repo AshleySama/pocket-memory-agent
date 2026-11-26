@@ -52,7 +52,7 @@ python scripts/evaluate_rag.py --fixture tests/fixtures/rag_eval_realistic_offic
   --output reports/rag_realistic_api.json
 ```
 
-在办公电脑上，先跑 16 条冒烟集，再跑完整 100 条：
+先选择代表题检查；是否扩大回归范围取决于改动影响。以下示例选择 10 条：
 
 ```powershell
 .venv\Scripts\python.exe scripts/evaluate_rag_api.py `
@@ -61,10 +61,6 @@ python scripts/evaluate_rag.py --fixture tests/fixtures/rag_eval_realistic_offic
   --case ocr-002 --case ocr-003 --case distractor-004 --case refusal-002 `
   --case ambiguous-004 --case followup-001
 ```
-
-### 最近接口烟测记录
-
-2026-09-06 使用 Qwen3-4B-Instruct-2507 Q4_K_M 对参数、同义改写、多资料、长文、OCR、相近概念、拒答、澄清和连续追问共 10 条执行 `/api/ask`，评分器 10/10 通过，平均分 `1.000`，P95 `6.11s`。这是一轮回归烟测，不是该 100 条全集的结果，更不是脱敏真实业务资料的上线验收。
 
 ## 判读规则
 

@@ -6,8 +6,8 @@
 
 完整离线包归档名PocketMemory-1.0.0.zip；腾讯云稳定入口名PocketMemory-latest.zip，两者内容及SHA256相同。包内目录和EXE版本均为1.0.0。程序更新包PocketMemory-1.0.0-Program.zip不含模型，更新清单不引用latest完整包。
 
-官方源码：https://github.com/AshleySama/pocket-memory-agent 。本次不发布腾讯云或公司网站。旧内部包、资料和备份保持原样。
+官方源码：https://github.com/AshleySama/pocket-memory-agent 。
 
-## 验证边界
+## 使用边界
 
-本批只修改统计行、发布身份及下载配置。Python运行逻辑与已验收候选做AST对照，除版本信息外保持一致；版权注释保留。复用上一批模块、前端和真实封装OCR/问答/报告/备份结果，另验证当前UI、版本、更新清单及新EXE启动。无需重新生成百题。复杂跨资料问答仍需核对，部分Excel引用仍含相邻行上下文，未声称性能或质量因此提升。
+复杂跨资料问答仍需核对，部分Excel引用可能包含相邻行上下文。版本号不代表答案准确率保证。

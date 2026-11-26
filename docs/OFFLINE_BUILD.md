@@ -4,7 +4,7 @@
 
 面向原版13/14的程序更新包必须单独使用 `--mode update --executor legacy-bridge`，传入实际构建的双协议worker和 `--bridge-worker-receipt`。凭据绑定主EXE/worker SHA256及真实 `--describe-capabilities` 探针结果；不允许仅修改schema或跳过探针。旧通道不能指向无worker的schema 2 ZIP。
 
-下面保留旧布局说明供参考；示例版本和standalone组件方式不作为1.0.16完整包命令。当前升级与恢复验证见[1.0.16验收记录](VALIDATION_1.0.16.md)。
+下面保留旧布局说明供参考；示例版本和standalone组件方式不作为1.0.16完整包命令。已知升级限制见[安装与更新说明](INSTALL_WINDOWS.md#software-updates)。
 
 ---
 

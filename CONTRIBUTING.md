@@ -19,3 +19,9 @@ Thanks for helping improve Pocket Memory.
 ## RAG changes
 
 For changes to chunking, query rewriting, reranking, evidence selection, or answer gating, include a synthetic regression case. State whether the change affects retrieval recall, evidence precision, refusal behavior, source opening, or latency.
+
+## Public repository contents
+
+Keep reusable application code, tests, synthetic/public fixtures, user and contributor documentation, release notes and license notices in Git. Keep assistant conversations, review prompts, development handoff notes, internal delivery policies, dated execution reports, raw user feedback, temporary libraries, screenshots containing private material and generated test results local.
+
+Use ignored `outputs/` or `reports/` directories for run artifacts. New public fixtures must declare their provenance and contain no exported user data. Review the staged file list before pushing; `.gitignore` does not remove files that are already tracked. Test a change at the appropriate scope; documentation cleanup alone does not require model runs or packaging.

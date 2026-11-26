@@ -19,7 +19,17 @@ For **1.2.0-beta.1**, extract the complete package to a new folder. Keep the pre
 - To try an existing library, make a complete backup, stop the Beta, and restore that backup into a separate test copy. For the default launcher, the restored database, notes and attachments should sit directly inside `data-beta`. Keep the original library unchanged.
 - In-app switching can select another backup copy for a session. The next `Start-Beta.bat` launch explicitly selects `data-beta` again.
 
-This Beta freezes the existing 4B model choice. Do not replace weights to compare source changes. Packaged local-model Q&A, OCR, document parsing, child-tab writes and backup/restore were exercised. The strict historical quality smoke remains failed: a correct table answer includes an adjacent row in displayed evidence; a correct missing-field refusal cites the inspected table rather than returning zero sources. No RAG code was changed to make these checks pass. Target-machine and business acceptance remain pending.
+This historical Beta uses the local 4B model. A correct answer may still have imprecise evidence scope; verify important facts in the original source. See [RAG limitations](RAG_LIMITATIONS_AND_EVALUATION.md).
+
+## Software updates
+
+Complete offline packages include the model assets. Program-only update packages reuse the installed models and keep the existing library and configuration. Do not use a program-only ZIP as a fresh installation or manually copy individual runtime files over an existing installation.
+
+Before an upgrade, save edits and create a complete backup from the data settings. Keep the original installation, notes, attachments, models and transaction backups until the upgraded version is confirmed to work.
+
+Some enterprise SentinelOne installations quarantine the staged update component. This remains a known compatibility issue; local upgrade and rollback checks do not establish approval by an enterprise security policy. If a security alert appears, stop repeated attempts, keep the diagnostic and ask the security administrator to review it. Do not disable protection or repeatedly restore and execute quarantined files. If a file is missing, unreadable or fails its manifest/hash check, the application must stop the update rather than install incomplete files.
+
+A normal change to valid release information before execution requires a fresh update check. It is distinct from a component-integrity failure. Updating this source repository does not automatically publish a new installer or change the download feed.
 
 ## Desktop runtime
 

@@ -26,3 +26,5 @@ jobs:
         run: |
           $env:PYTHONDONTWRITEBYTECODE='1'
           python -m unittest discover -s tests -q
+      - name: Verify note citation highlights
+        run: node tests/frontend/test_note_citation_spans.cjs

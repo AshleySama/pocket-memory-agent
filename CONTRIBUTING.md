@@ -22,6 +22,4 @@ For changes to chunking, query rewriting, reranking, evidence selection, or answ
 
 ## Public repository contents
 
-Keep reusable application code, tests, synthetic/public fixtures, user and contributor documentation, release notes and license notices in Git. Keep assistant conversations, review prompts, development handoff notes, internal delivery policies, dated execution reports, raw user feedback, temporary libraries, screenshots containing private material and generated test results local.
-
-Use ignored `outputs/` or `reports/` directories for run artifacts. New public fixtures must declare their provenance and contain no exported user data. Review the staged file list before pushing; `.gitignore` does not remove files that are already tracked. Test a change at the appropriate scope; documentation cleanup alone does not require model runs or packaging.
+Public tests should reproduce a core behavior with a small synthetic example and run from a fresh checkout. Keep benchmark banks, release rehearsals, assistant conversations, review prompts and results in your local development workspace. Put user-facing changes in [CHANGELOG.md](CHANGELOG.md).

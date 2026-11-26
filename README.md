@@ -47,19 +47,14 @@ cd pocket-memory-agent
 
 ## 构建与验证
 
-1.0.16增加旧版本升级兼容和失败回滚保护，保留4B和原资料；企业安全软件环境仍有上述限制。见[版本说明](docs/RELEASE_1.0.16.md)。
+开发者可查看[程序结构](docs/ARCHITECTURE.md)、[离线构建说明](docs/OFFLINE_BUILD.md)和[版本记录](CHANGELOG.md)。
 
-1.0.10修复打包后的资料汇编生成及更新交接问题，见[版本说明](docs/RELEASE_1.0.10.md)。
-
-见 [1.0.16发布说明](docs/RELEASE_1.0.16.md) 和 [离线交付流程](docs/OFFLINE_BUILD.md)。功能代码和当前保护测试在同一仓库；`scripts/release_policy.py`统一剔除视频FFmpeg DLL、未用的下载加速/推理后端、第三方测试样例和废弃设计素材。
+以下测试覆盖笔记保存、文档导入、问答引用、汇编导出和旧版本更新交接。使用临时数据即可运行。
 
 ```powershell
 .venv\Scripts\python.exe -m unittest discover -s tests -v
-.venv\Scripts\python.exe -m unittest discover -s tests/release_current -v
-node tests/frontend_current/run.cjs  # 草稿与导入的 5 项前端脚本
+node tests/frontend/test_note_citation_spans.cjs
 ```
-
-自动测试验证工程约束，不代表人工事实准确率。[评测与限制](docs/RAG_LIMITATIONS_AND_EVALUATION.md)保留历史口径；发布时不把历史成绩冒充新模型实测。
 
 ## 开源组件与许可
 

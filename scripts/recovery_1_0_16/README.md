@@ -1,13 +1,6 @@
 # 1.0.16一次性恢复控制器
 
-恢复逻辑和测试与已验证冻结EXE的源码逐字一致。信任文件只绑定本批官方13/14 EXE及特定16程序ZIP，不可用修改版本号代替重新验收。仅冻结模式读取内嵌信任身份，不接受外部运行时信任文件。
-
-在仓库根目录执行测试（Python3.11）：
-
-```powershell
-$env:PYTHONPATH = ".;tests/release_current"
-.venv/Scripts/python.exe -m unittest discover -s scripts/recovery_1_0_16 -p test_recovery_tool.py -v
-```
+信任文件绑定本批官方 1.0.13、1.0.14 EXE 及特定 1.0.16 程序 ZIP。冻结模式读取内嵌信任身份。
 
 冻结时使用仓库根作为模块搜索路径：
 

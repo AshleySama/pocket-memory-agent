@@ -85,7 +85,7 @@ if os.environ.get('POCKET_MEMORY_NO_MODELS') != '1':
 # 排除主应用运行时不需要的包（减少体积，不影响功能）
 # - 测试框架：仅 tests/ 目录用，打包不含 tests
 # - haystack：仅独立实验使用；LlamaIndex core/BM25 已是本地候选运行依赖
-# - matplotlib：仅 scripts/evaluate_rag.py 画图用
+# - matplotlib：主应用无需绘图库
 # 注意：不排除 distutils/lib2to3 等，PyInstaller 自身钩子依赖它们会崩溃
 excludes = [
     'hf_xet', 'nltk.test',

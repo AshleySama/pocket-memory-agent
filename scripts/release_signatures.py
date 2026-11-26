@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Optional maintainer-side Authenticode gate; never modifies trust or signs binaries.
 
 This is a release quality check, not endpoint-policy approval or a replacement

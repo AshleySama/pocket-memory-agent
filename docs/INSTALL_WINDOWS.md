@@ -9,17 +9,9 @@
 
 The first launch creates a local data directory. Development runs can use `--data-dir .\dev-data` to avoid mixing test content with personal content.
 
-## Separate Windows Beta package
+## Complete Windows package
 
-For **1.2.0-beta.1**, extract the complete package to a new folder. Keep the previous stable installation and original library in place.
-
-- Start with `Start-Beta.bat`. It sets `LOCALAPPDATA` to the package-local `beta-profile` and runs the app with `--data-dir` pointing to package-local `data-beta`.
-- Use `Stop-Beta.bat` to stop the Beta background process. Closing the desktop window does not necessarily stop the service.
-- Directly double-clicking `PocketMemory.exe` bypasses this profile isolation and can reuse the current Windows user's previous configuration.
-- To try an existing library, make a complete backup, stop the Beta, and restore that backup into a separate test copy. For the default launcher, the restored database, notes and attachments should sit directly inside `data-beta`. Keep the original library unchanged.
-- In-app switching can select another backup copy for a session. The next `Start-Beta.bat` launch explicitly selects `data-beta` again.
-
-This historical Beta uses the local 4B model. A correct answer may still have imprecise evidence scope; verify important facts in the original source. See [RAG limitations](RAG_LIMITATIONS_AND_EVALUATION.md).
+Extract the full offline ZIP to a new folder, then run `PocketMemory.exe` from that folder. Keep the executable, its runtime directory and its models together. To try an existing library safely, restore a complete backup into a separate data folder.
 
 ## Software updates
 

@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 """Failure facts and an allowlisted diagnostic. Never repairs or executes files."""
 from __future__ import annotations
 

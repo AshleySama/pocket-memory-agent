@@ -1,3 +1,6 @@
+# Copyright 2026 AshleySama
+# SPDX-License-Identifier: Apache-2.0
+
 param(
     [Parameter(Mandatory=$true)][string]$ProgramExe,
     [Parameter(Mandatory=$true)][ValidatePattern('^[a-fA-F0-9]{40}$')][string]$ExpectedSignerThumbprint,

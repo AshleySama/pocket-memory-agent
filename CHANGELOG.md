@@ -52,16 +52,12 @@
 - Recover explicitly dated actions from empty to-do extraction results, and bind complete copied lists to a uniquely supported original source without dropping their conditions.
 - Preserve the current 4B model, data, settings, accepted themes and update mechanism.
 
-See [release notes](docs/RELEASE_1.0.8.md) for verification scope and limits.
-
 ## 1.0.7 - 2026-11-16
 
 - Extend deterministic answers to complete, source-bounded lists and explicitly requested source sections, while retaining conditions, source identity and the existing 4B fallback.
 - Restore original-sentence highlighting for supported inline/suffix citations and conservative, lightly rewritten multi-clause answers. Preserve full context, existing citation numbers and original source coordinates.
 - Remove the repeated tray notification on closing the window; tray restore and exit remain available.
 - Keep models, saved notes, preferences, accepted themes and the updater unchanged. New installations retain AI organization and warmup defaults; updates keep saved settings.
-
-See [release notes](docs/RELEASE_1.0.7.md).
 
 ## 1.0.6 - 2026-11-15
 
@@ -70,8 +66,6 @@ See [release notes](docs/RELEASE_1.0.7.md).
 - Reduce the draft status row from 47px to 31px while retaining the draft box and retry controls.
 - Preserve all five themes and existing 4B, RAG, storage, desktop and updater behavior. New installs retain AI organization and warmup defaults; upgrades retain saved preferences.
 
-See [release notes](docs/RELEASE_1.0.6.md).
-
 ## 1.0.5 - 2026-11-15
 
 - Improve PDF citation display and original-text highlighting while retaining source identities and full evidence for verification.
@@ -79,8 +73,6 @@ See [release notes](docs/RELEASE_1.0.6.md).
 - Add native notification-area restore/quit controls and restore the Windows folder picker owned by the desktop window.
 - Synchronize the intervening 1.0.1–1.0.4 desktop DLL, Windows short-path, model-load diagnostics and update handoff fixes into the public source. Retain the existing 4B model, data/configuration preservation and failed-start rollback design.
 - New installs default to AI organization and background model warmup; upgrades retain saved preferences.
-
-See [release notes](docs/RELEASE_1.0.5.md) for known limitations.
 
 ## 1.0.0 - 2026-11-11
 

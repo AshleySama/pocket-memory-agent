@@ -122,3 +122,13 @@ htmlcov/
 /CODE_WIKI.md
 /REGRESSION_CHECKLIST.md
 /STATUS.md
+
+# Private benchmarks, release rehearsals and per-version working notes.
+/tests/fixtures/
+/tests/rag_eval/
+/tests/release_current/
+/tests/frontend_current/
+/docs/RELEASE_*.md
+/docs/BETA_*.md
+/docs/OPEN_SOURCE_RELEASE_CHECKLIST.md
+/docs/PRODUCT_SITE_SYNC.md

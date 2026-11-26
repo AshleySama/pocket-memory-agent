@@ -56,7 +56,7 @@ cd pocket-memory-agent
 ```powershell
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 .venv\Scripts\python.exe -m unittest discover -s tests/release_current -v
-node tests/frontend_current/run.cjs
+node tests/frontend_current/run.cjs  # 草稿与导入的 5 项前端脚本
 ```
 
 自动测试验证工程约束，不代表人工事实准确率。[评测与限制](docs/RAG_LIMITATIONS_AND_EVALUATION.md)保留历史口径；发布时不把历史成绩冒充新模型实测。

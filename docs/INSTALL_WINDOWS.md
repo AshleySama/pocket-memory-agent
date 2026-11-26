@@ -41,7 +41,7 @@ Basic note editing, local files, backups, and keyword search work without local 
 
 ## Reading, editing and save recovery
 
-A note initially opens for reading. Choose Edit to change content and Done when finished. The formatting toolbar appears while editing. Check the displayed saving/saved/error state before leaving; after a save failure, retry from the same page. Failed drafts are retained in page memory only, so avoid refreshing or closing the page before a successful save. Deletion requires confirmation.
+A note initially opens for reading. Choose Edit to change content and Read when finished. The formatting toolbar appears while editing. Existing notes autosave after a short pause. Check the save status after editing. If a save fails, retry or open the draft box to recover a locally retained draft. Deletion requires confirmation.
 
 ## Data location and backups
 

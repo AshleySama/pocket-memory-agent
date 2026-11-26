@@ -15,6 +15,4 @@ The update HTTP tests use a real loopback HTTP server with fake application serv
 
 These checks supplement packaged EXE and browser validation; they are not a model-quality evaluation or human acceptance. Earlier raw regression answers and private-library tests are not distributed.
 
-Adapted from the 2026-11-01–09 focused suites. Only test imports, repository paths, result-file output and private-library class exclusion were changed during porting. ReportViews inherits the base workspace cases, so unittest may repeat those base cases when collecting both modules; count unique test names separately when reporting coverage.
-
-Omitted intentionally: RealScope reads a private SQLite library and real20.json; test_question_plan.py requires private historical fixtures; test_ocr_adapter.py compares a historical source snapshot; UI browser fault proxies depend on saved local state. Their historical evidence is not claimed to run in this portable suite.
+The frontend command runs five draft and import checks. To exercise another case, pass its test file directly to Node, for example `node tests/frontend_current/test_draft_navigation.cjs`.

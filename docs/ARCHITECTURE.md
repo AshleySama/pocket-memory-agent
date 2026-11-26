@@ -44,7 +44,7 @@ For numeric, date, authorization, policy, quality, safety, or other high-impact 
 
 ## Reading and editing
 
-Notes open in reading mode. Edit/Done controls expose formatting only while editing. Saves are serialized by the body tab's identity; the UI reports actual save status and retains a failed draft in the current page for retry. Switching libraries clears the previous editing state. Draft retention is in page memory: refreshing or closing the page is not a durable draft-recovery mechanism. Existing themes, animated hover effects and keyboard question submission are preserved.
+Notes open in reading mode. Edit and Read controls switch between editing and reading. Saves are serialized by the body tab's identity; the UI reports actual save status and retains a failed draft in the current page for retry. Switching libraries clears the previous editing state. Draft recovery uses browser storage and a library-specific draft store. The draft box lets users recover saved drafts after reopening. Existing themes, animated hover effects and keyboard question submission are preserved.
 
 ## Extensibility boundaries
 

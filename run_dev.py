@@ -3,7 +3,7 @@
 
 """Pocket Memory 开发模式启动器。
 
-用 Python 脚本替代 .bat，避免企业杀毒软件（如 SentinelOne）误报隔离。
+使用项目虚拟环境启动应用，并将命令行参数传递给 app.py。
 启动方式（任选其一）：
   1. 终端：python run_dev.py
   2. 终端（先激活虚拟环境）：

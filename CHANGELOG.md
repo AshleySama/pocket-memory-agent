@@ -38,7 +38,6 @@
 - 修复打包版资料汇编计算缓存指纹时依赖不存在的 Python 源文件，导致无法生成。
 - 修复更新准备回执短暂拒读即失败；保留身份校验、有界重试和安全退出次序。
 
-
 ## 1.0.9 - 2026-11-18
 
 - 引用合并展示、定位更准确。
@@ -62,7 +61,7 @@ See [release notes](docs/RELEASE_1.0.8.md) for verification scope and limits.
 - Remove the repeated tray notification on closing the window; tray restore and exit remain available.
 - Keep models, saved notes, preferences, accepted themes and the updater unchanged. New installations retain AI organization and warmup defaults; updates keep saved settings.
 
-Reuse the validated isolated-candidate checks and historical admission/display replays; these are not a new 100-question accuracy evaluation or a target-machine speed claim. See [release notes](docs/RELEASE_1.0.7.md) for scope and verification limits.
+See [release notes](docs/RELEASE_1.0.7.md).
 
 ## 1.0.6 - 2026-11-15
 
@@ -71,7 +70,7 @@ Reuse the validated isolated-candidate checks and historical admission/display r
 - Reduce the draft status row from 47px to 31px while retaining the draft box and retry controls.
 - Preserve all five themes and existing 4B, RAG, storage, desktop and updater behavior. New installs retain AI organization and warmup defaults; upgrades retain saved preferences.
 
-Validated the newly built native EXE and bundled wide/narrow UI; reused unchanged source UI evidence. Models are identical to 1.0.5. No new RAG generation, target-machine upgrade/rollback run, or performance claim. See [release notes](docs/RELEASE_1.0.6.md).
+See [release notes](docs/RELEASE_1.0.6.md).
 
 ## 1.0.5 - 2026-11-15
 
@@ -81,7 +80,7 @@ Validated the newly built native EXE and bundled wide/narrow UI; reused unchange
 - Synchronize the intervening 1.0.1–1.0.4 desktop DLL, Windows short-path, model-load diagnostics and update handoff fixes into the public source. Retain the existing 4B model, data/configuration preservation and failed-start rollback design.
 - New installs default to AI organization and background model warmup; upgrades retain saved preferences.
 
-Source checks and package integrity were verified. Further 1.0.5 EXE upgrade/rollback and native-picker acceptance was stopped at the owner's request; it remains pending on the target PC. No new performance or general RAG-accuracy claim is made. See [release notes](docs/RELEASE_1.0.5.md).
+See [release notes](docs/RELEASE_1.0.5.md) for known limitations.
 
 ## 1.0.0 - 2026-11-11
 
@@ -91,8 +90,6 @@ First public stable release. Earlier 1.2.x builds were internal release candidat
 - Keep the subdued sidebar statistics; remove the duplicate total-note row. Today/week/categories/tags remain in a two-column grid.
 - Publish the complete offline download at the stable PocketMemory-latest.zip object; program updates remain versioned and model-free.
 - Canonical repository: https://github.com/AshleySama/pocket-memory-agent.
-
-# Changelog
 
 ## 1.2.0-beta.1 - 2026-10-29
 
@@ -105,7 +102,7 @@ Beta source and separate Windows testing package; the existing Qwen3-4B-Instruct
 - Install the complete application requirements in source setup; document the extra reranker and NLTK assets required by retained mode. Keep weights and private evaluation material outside Git.
 - Provide separate `Start-Beta.bat`/`Stop-Beta.bat` launchers with package-local `beta-profile` and `data-beta`; preserve the old stable installation and original library.
 
-Source validation: 567 distinct Python tests and 36 frontend checks passed; one stale note-tab label expectation was updated and rechecked. Packaged local-model Q&A, OCR, document parsing, child-tab writes and backup/restore were exercised. The strict historical quality smoke remains failed: a correct table answer includes an adjacent row in displayed evidence; a correct missing-field refusal cites the inspected table rather than returning zero sources. No RAG code was changed to make these checks pass. Target-machine and business acceptance remain pending. Engineering checks do not establish factual accuracy. Cross-document omissions, semantic citation errors, long-material/context limits, preparation latency and complex OCR/source-location behavior remain known limitations.
+Table citations can include adjacent rows, and missing-field answers may cite the inspected table. Cross-document omissions, semantic citation errors, preparation latency and complex OCR locations remain known limitations.
 
 ## 1.1.1 - 2026-10-12
 

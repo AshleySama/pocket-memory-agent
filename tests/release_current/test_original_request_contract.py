@@ -1,10 +1,6 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-"""Full-query and conservative-context regressions; no model or user database.
-
-The real failing note is an exposed development fixture, not a blind sample.
-Other domains below are mechanism probes, not accuracy measurements.
-"""
+"""Full-query and conservative-context regressions with fictional office notes."""
 import copy
 from pathlib import Path
 import sys
@@ -19,15 +15,13 @@ def note(i, title, content, parent=None, tab=''):
     return dict(id=i, title=title, content=content, parent_note_id=parent, tab_name=tab)
 
 
-INTRO = ('本周完成了三项可演示工作。第一，整理了笔记、图片、TXT、Word、Excel 和 PDF 的导入路径，并确认文档与可编辑笔记在列表中分开显示。'
-         '第二，针对智能问答增加了“证据句、来源位置、打开参考文档”的核对动作，使用户不必只相信一段自然语言回答。'
-         '第三，完成了专题报告的资料选择与 HTML 导出流程，报告只在用户勾选的资料范围内生成，正文仍可继续编辑。\n\n'
-         '下周的重点不是继续叠加入口，而是用一组真实感资料验证三个问题：能否稳定找到正确片段、来源是否打开到正确位置、回答是否真的回答了提问。'
-         '这样做比单纯追求模型“会说更多”更接近可使用的产品标准。')
+INTRO = ('本周完成了会场的三项准备工作。行政组画好了入口示意图，逐层标注了会议室和茶水间的位置。'
+         '会务组打印了入场券样张，每一张都留有姓名栏和场次栏。排练组拍摄了空场照片供布置人员比对。\n\n'
+         '下周的重点是整理会务手册。前台组将汇总接待用语，场务组将整理座位示意图，两组还会交换版面样张。')
 RISKS = [
-    '风险一：导入资料主题过杂，会让检索命中很多相似词，却缺少能够直接回答问题的证据。处理动作：录制数据按“AI 赋能制造业”和“本地知识管理”两条主题整理，删除历史发布日志和无关网页摘录；负责人：演示人；完成时间：录制前一天。',
-    '风险二：长 Excel 或扫描 PDF 的原文很难阅读，用户即使打开来源也看不出答案在哪里。处理动作：保留工作表、行范围、页码和证据句高亮；对重要数字和 OCR 识别结果人工复核；负责人：演示人；完成时间：导入后立即检查。',
-    '风险三：本地 4B 模型冷启动需要加载，首次问答可能较慢。处理动作：录制前先完成一次智能问答并保持模型已加载；同时准备关键词搜索作为可解释的备用路径；负责人：演示人；完成时间：录制开始前。',
+    '风险一：两个入口的引导牌颜色相同，来宾可能走错会场。处理动作：给各入口标出楼层和厅号；负责人：场务组；完成时间：布展前一天。',
+    '风险二：纸质胸牌遇雨可能模糊，接待员无法辨认场次。处理动作：将胸牌放进透明套，另备一份纸质签到表；负责人：前台组；完成时间：开门前。',
+    '风险三：两场会议交接时共用一台投影仪，后一场可能延迟开场。处理动作：登记设备交接时间并预留备用机；负责人：设备组；完成时间：彩排当日。',
 ]
 
 
@@ -59,7 +53,7 @@ class OriginalRequestContractBehavior(unittest.TestCase):
                 self.assertEqual([p['quote'] for p in response['context_passages']],
                                  [p['quote'] for p in plan['dependencies']])
                 self.assertNotIn('原文说明', response['answer'])
-                self.assertNotIn('本周完成了三项', response['answer'])
+                self.assertNotIn('本周完成了会场', response['answer'])
                 self.assertNotIn('下周的重点', response['answer'])
                 for risk in RISKS:
                     self.assertIn(risk, response['answer'])

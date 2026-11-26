@@ -116,3 +116,9 @@ htmlcov/
 *.bak
 *.orig
 *.rej
+
+# Local project history and working notes at the repository root.
+/AGENTS.md
+/CODE_WIKI.md
+/REGRESSION_CHECKLIST.md
+/STATUS.md

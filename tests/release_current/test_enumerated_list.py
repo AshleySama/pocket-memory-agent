@@ -1,6 +1,6 @@
 # Copyright 2026 AshleySama
 # SPDX-License-Identifier: Apache-2.0
-"""Frozen behavior cases before implementation; exposed developer checks, no LLM."""
+"""Enumerated-list regression cases with fictional inventory notes."""
 from pathlib import Path
 import copy
 import sys
@@ -9,10 +9,10 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pocket_memory.rag.retained.enumerated_list import EnumeratedList, validate_list
 
-R1 = '风险一：导入资料主题过杂，会让检索命中很多相似词，却缺少能够直接回答问题的证据。处理动作：按主题整理资料；负责人：演示人。'
-R2 = '风险二：长 Excel 或扫描 PDF 的原文很难阅读，用户即使打开来源也看不出答案在哪里。处理动作：保留行范围和页码；负责人：演示人。'
-R3 = '风险三：本地 4B 模型冷启动需要加载，首次问答可能较慢。处理动作：提前加载模型；负责人：演示人。'
-BODY = '本周完成了三项可演示工作。\n\n下周将继续验证资料。\n\n' + '\n\n'.join((R1, R2, R3))
+R1 = '风险一：相邻展柜里的样品外观接近，盘点时可能记错柜号。处理动作：逐柜登记样品；负责人：清点员。'
+R2 = '风险二：两批样品使用相同型号，只看外观无法区分批次。处理动作：核对每件样品的批次标签；负责人：登记员。'
+R3 = '风险三：备用货架空间有限，返库时可能没有空位。处理动作：预留临时存放区；负责人：库管员。'
+BODY = '本周完成了展柜的首次登记。\n\n下周将继续整理样品图册。\n\n' + '\n\n'.join((R1, R2, R3))
 
 
 def note(i, title, content, parent=None, tab=''):
@@ -40,20 +40,18 @@ class EnumeratedListBehavior(unittest.TestCase):
                 self.assertEqual(len(r['sources']), 5)
                 for p in (R1, R2, R3):
                     self.assertIn(p.split('处理动作')[0], r['answer'])
-                # Review tightened this contract before HTTP/model testing:
-                # arbitrary ancillary fields may carry conditions, so preserve
-                # complete records instead of silently hiding their tails.
+                # Ancillary fields can carry conditions; keep whole records.
                 self.assertIn('处理动作', r['answer'])
                 self.assertTrue(r['citation_validation']['passed'])
                 for s in r['sources'][:3]:
                     self.assertIn('处理动作', s['evidence'])
                     self.assertEqual(len(s['raw_evidence']), 1)
-                    self.assertNotIn('本周完成了三项', s['evidence'])
+                    self.assertNotIn('本周完成了展柜', s['evidence'])
                 # Progress narrative retains exact citations in expandable
                 # context instead of becoming the main answer. Unknown or
                 # qualifying prose has separate preservation tests below.
                 self.assertNotIn('原文说明', r['answer'])
-                self.assertNotIn('本周完成了三项', r['answer'])
+                self.assertNotIn('本周完成了展柜', r['answer'])
                 self.assertEqual(len(r['trace']['enumerated_list']['plan']['background']), 2)
                 self.assertEqual(len(r['context_passages']), 2)
                 self.assertEqual([p['source_index'] for p in r['context_passages']], [4, 5])
@@ -79,19 +77,19 @@ class EnumeratedListBehavior(unittest.TestCase):
 
     def test_gap_duplicate_and_unterminated_record_fall_back(self):
         for body in [BODY.replace('风险二', '风险四'), BODY.replace('风险二', '风险一'),
-                     BODY.replace('风险三：', '风险三 '), BODY.replace('风险三：本地', '风险三：') + '\n\n风险四：']:
+                     BODY.replace('风险三：', '风险三 '), BODY + '\n\n风险四：']:
             ns = copy.deepcopy(self.notes); ns[27]['content'] = body
             with self.subTest(body=body):
                 self.assertIsNone(self.ask('项目复盘项目有哪些风险', ns))
 
     def test_existing_conditions_stay_verbatim(self):
-        body = '仅在演示环境下适用，生产环境须另行评估。\n\n' + '\n\n'.join((R1, R2, R3))
-        body = body.replace('风险二：', '风险二：如果没有行范围，则')
+        body = '仅在展期盘点时适用，日常收货须另行登记。\n\n' + '\n\n'.join((R1, R2, R3))
+        body = body.replace('风险二：', '风险二：如果没有批次标签，则')
         ns = {27: note(27, '项目复盘', body)}
         r = self.ask('项目复盘项目有哪些风险', ns)
         self.assertIsNotNone(r)
-        self.assertIn('仅在演示环境下适用，生产环境须另行评估。', r['answer'])
-        self.assertIn('如果没有行范围，则', r['answer'])
+        self.assertIn('仅在展期盘点时适用，日常收货须另行登记。', r['answer'])
+        self.assertIn('如果没有批次标签，则', r['answer'])
 
     def test_multiple_tabs_are_not_silently_chosen(self):
         ns = copy.deepcopy(self.notes)
@@ -100,9 +98,9 @@ class EnumeratedListBehavior(unittest.TestCase):
 
     def test_subordinate_condition_field_not_hidden(self):
         ns = copy.deepcopy(self.notes)
-        ns[27]['content'] = BODY.replace('处理动作：按主题整理资料', '前提：仅限未归档资料')
+        ns[27]['content'] = BODY.replace('处理动作：逐柜登记样品', '前提：仅限借展样品')
         r = self.ask('项目复盘项目有哪些风险', ns)
-        self.assertIn('前提：仅限未归档资料',r['answer'])
+        self.assertIn('前提：仅限借展样品',r['answer'])
 
     def test_unparsed_label_in_other_tab_blocks_completeness(self):
         ns = copy.deepcopy(self.notes)

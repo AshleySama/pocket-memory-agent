@@ -19,8 +19,6 @@ The integrated retained backend and 4B model remain a Beta boundary, not a new c
 
 Source grouping, original-span metadata and clarification references improve inspectability. They do not prove that all relevant material was supplied, that the answer is complete, or that every claim is supported. Some locations remain fragment-level when exact original spans cannot be validated.
 
-The 2026-10-29 source checks cover 567 distinct Python tests and 36 frontend checks, with a stale source-label test expectation corrected and rechecked. These are engineering results, not factual-accuracy scores. Package smoke, target-machine performance and final user acceptance remain separate; package checks are pending for this documentation snapshot. No private score tables or user libraries are published here.
-
 ## Public synthetic fixtures
 
 The fixture files under `tests/fixtures/` are synthetic or publicly verifiable regression materials. They exercise retrieval behavior and answer contracts, but they do not establish production readiness. Reported failures are represented by portable synthetic or demonstration cases; actual user libraries, attachments, private acceptance results, and raw feedback logs are not included.

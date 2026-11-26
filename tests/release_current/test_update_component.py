@@ -83,6 +83,7 @@ class ServiceTests(unittest.TestCase):
         self.install = self.root / 'installed-A'; self.install.mkdir()
         self.helper = self.install / WORKER_RELATIVE_PATH
         self.helper.parent.mkdir()
+        self.helper.write_bytes(pe_bytes())
         self.data = self.root/'notes';self.data.mkdir()
         (self.data/'keep.txt').write_text('user notes unchanged', encoding='utf8')
         self.config = SimpleNamespace(path=self.root/'config.json', data_dir=self.data)
@@ -108,36 +109,39 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(self.config.path.read_text('utf8'), '{}')
         self.service.exit_callback.assert_not_called()
 
-    def test_check_reports_missing_before_offering_install_and_records_path(self):
+    def test_check_reports_missing_before_offering_install_without_exposing_path(self):
+        self.helper.unlink()
         with self.assertLogs(updates.logger, level='ERROR') as logs, patch.object(updates,'download_package') as dl:
             result = self.check()
         self.assertEqual(result['state'], 'error');self.assertFalse(result['can_update'])
         # Local missing-component diagnosis precedes even a release-feed fetch.
         self.assertFalse(result['has_update']);self.assertNotIn('latest_version',result)
-        self.assertIn('官方完整包', result['message']);self.assertNotIn('候选尚未打包', result['message'])
-        self.assertIn(str(self.helper), result['message'])
+        self.assertIn('缺失', result['message']);self.assertNotIn('候选尚未打包', result['message'])
+        self.assertNotIn(str(self.helper), result['message'])
         self.assertEqual(result['update_component']['status'],'missing')
         self.assertEqual(result['update_component']['server_pid'],os.getpid())
-        self.assertIn(str(self.install), '\n'.join(logs.output));dl.assert_not_called()
+        self.assertNotIn(str(self.install), '\n'.join(logs.output));dl.assert_not_called()
         self.assert_unchanged()
 
-    def test_recheck_after_restoring_file_becomes_available(self):
+    def test_recheck_after_restoring_file_does_not_clear_failure_pause(self):
+        self.helper.unlink()
         self.assertEqual(self.check()['state'],'error')
         self.helper.write_bytes(pe_bytes())
         result=self.check()
-        self.assertEqual(result['state'],'available');self.assertTrue(result['can_update'])
+        self.assertEqual(result['state'],'error');self.assertFalse(result['can_update'])
         self.assertEqual(result['update_component']['status'],'ok')
-        self.assertNotIn('缺少',result['message']);self.assert_unchanged()
+        self.assertTrue(result['retry_blocked']);self.assert_unchanged()
 
     def test_disappears_after_check_blocks_download_and_shutdown(self):
         self.helper.write_bytes(pe_bytes());self.check();self.helper.unlink()
         with patch.object(updates,'download_package') as dl, patch.object(updates,'fetch_feed') as fetch:
             self.service.start_update();result=self.wait()
         dl.assert_not_called();fetch.assert_not_called()
-        self.assertEqual(result['state'],'error');self.assertIn('缺少',result['message'])
+        self.assertEqual(result['state'],'error');self.assertIn('缺失',result['message'])
         self.assert_unchanged()
 
     def test_existing_other_install_is_not_silently_used(self):
+        self.helper.unlink()
         other=self.root/'installed-B'/WORKER_RELATIVE_PATH;other.parent.mkdir(parents=True);other.write_bytes(pe_bytes())
         result=self.check()
         self.assertEqual(result['update_component']['path'],str(self.helper))
@@ -149,7 +153,8 @@ class ServiceTests(unittest.TestCase):
         self.helper.write_bytes(pe_bytes())
         with patch('pocket_memory.update_component.Path.open', side_effect=PermissionError(13,'denied')):
             result=self.check()
-        self.assertIn('无法读取',result['message'])
+        # First failure remains recorded; read-only recheck reports the new observation.
+        self.assertTrue(result['retry_blocked'])
         self.assertEqual(result['update_component']['status'],'unreadable');self.assert_unchanged()
 
     def test_known_good_component_reaches_downloader(self):
@@ -163,7 +168,8 @@ class ServiceTests(unittest.TestCase):
                 self.service._download_and_handoff(self.feed,(self.data,self.config.path,self.data))
         dl.assert_called_once();self.assert_unchanged()
 
-    def test_http_check_returns_actionable_error_then_recovers_without_new_service(self):
+    def test_http_recheck_keeps_pause_even_if_file_reappears(self):
+        self.helper.unlink()
         from pocket_memory.server import PocketMemoryHandler
         from test_update_integration import http
         server=ThreadingHTTPServer(('127.0.0.1',0),PocketMemoryHandler)
@@ -178,11 +184,12 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(code,200);self.wait()
                 code,result=http(server.server_port,'/api/app-update')
                 self.assertEqual(code,200);self.assertEqual(result['state'],'error')
-                self.assertIn('当前检查位置',result['message']);self.assertFalse(result['can_update'])
+                self.assertIn('停止重复',result['message']);self.assertFalse(result['can_update'])
+                self.assertEqual(result['diagnostic']['failure']['code'],'missing')
                 self.helper.write_bytes(pe_bytes())
                 http(server.server_port,'/api/app-update/check',method='POST',body=b'{}',headers={'X-PocketMemory-Update':'1'})
                 self.wait();_,result=http(server.server_port,'/api/app-update')
-                self.assertTrue(result['can_update']);dl.assert_not_called()
+                self.assertFalse(result['can_update']);self.assertTrue(result['retry_blocked']);dl.assert_not_called()
         finally:
             server.shutdown();server.server_close();thread.join(3)
         self.assert_unchanged()

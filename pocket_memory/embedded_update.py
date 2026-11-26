@@ -68,10 +68,14 @@ def verify_runtime(root: Path, manifest=None):
     manifest = validate_capability(root, manifest)
     entries = {e['path']: e for e in manifest['files']}
     worker = inspect_worker(root / WORKER_RELATIVE_PATH)
-    if worker['status'] != 'missing':
-        raise UpdateError('备用更新只适用于独立组件确实缺失，不接受损坏或不可读组件')
+    if worker['status'] not in {'missing', 'ok'}:
+        raise UpdateError('独立更新组件损坏或不可读，不能忽略异常继续更新')
+    if worker['status'] == 'ok':
+        if manifest['schema_version'] != 1 or WORKER_RELATIVE_PATH not in entries:
+            raise UpdateError('内置更新安装中出现未声明的独立更新组件')
+        _verify(root / WORKER_RELATIVE_PATH, entries[WORKER_RELATIVE_PATH])
     for relative, entry in entries.items():
-        if manifest['schema_version'] == 2 or relative != WORKER_RELATIVE_PATH:
+        if relative != WORKER_RELATIVE_PATH or worker['status'] != 'missing':
             _verify(root / relative, entry)
     if inspect_worker(root / 'PocketMemory.exe')['status'] != 'ok':
         raise UpdateError('主程序不是完整的 Windows 可执行文件')
@@ -90,22 +94,33 @@ def verify_runtime(root: Path, manifest=None):
 
 def inspect_executor(root: Path) -> dict:
     from .update_component import inspect_installed_worker
-    from .safe_update import UpdateError
+    from .safe_update import UpdateError, _read_json, _no_links
     diagnostic = inspect_installed_worker(root)
-    if diagnostic['status'] == 'ok':
+    # A declared embedded runtime is authoritative. Do not fall back to a
+    # standalone binary if that runtime/receipt fails verification.
+    marked = os.path.lexists(Path(root) / CAPABILITY_PATH)
+    receipt = Path(root) / '.pocket-memory-update/installed.json'
+    if diagnostic['status'] == 'ok' and not marked and os.path.lexists(receipt):
+        try:
+            _no_links(receipt)
+            marked = any(e['path'] == CAPABILITY_PATH for e in _read_json(receipt)['manifest']['files'])
+        except (OSError, ValueError, KeyError, TypeError, UpdateError) as exc:
+            return dict(diagnostic, status='invalid_receipt', fallback_error=str(exc))
+    if diagnostic['status'] == 'ok' and not marked:
         return dict(diagnostic, executor='standalone')
-    if diagnostic['status'] != 'missing':
+    if diagnostic['status'] not in {'missing', 'ok'}:
         return diagnostic
     try:
         manifest = verify_runtime(root)
     except (OSError, ValueError, KeyError, TypeError, UpdateError) as exc:
-        return dict(diagnostic, fallback_error=str(exc))
+        return dict(diagnostic, status='integrity_mismatch' if diagnostic['status'] == 'ok' else diagnostic['status'],
+                    fallback_error=str(exc))
     declared = manifest['schema_version'] == 2
     return dict(status='ok', executor='embedded', verification='installed_manifest_full_runtime',
                 path=str(Path(root) / 'PocketMemory.exe'),
-                legacy_component_status='not_required' if declared else 'missing',
-                verified_files=len(manifest['files']) - (0 if declared else 1),
-                message='已验证主程序内置更新方式。' if declared else '独立更新组件缺失，已验证并启用主程序内置更新方式。')
+                legacy_component_status='not_required' if declared else diagnostic['status'],
+                verified_files=len(manifest['files']) - (1 if not declared and diagnostic['status'] == 'missing' else 0),
+                message='已完整核验安装，使用主程序内置更新方式。')
 
 
 def stage_executor(root: Path, work: Path):

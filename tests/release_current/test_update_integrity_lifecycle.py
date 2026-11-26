@@ -145,8 +145,8 @@ class StartupIntegrityTests(unittest.TestCase):
             service, install, _ = self.service()
             status = service.status()
             self.assertEqual(status['state'], 'error')
-            self.assertEqual(status['recovery']['action'], 'replace_full_installation')
-            self.assertIn('不要覆盖或删除旧安装目录', ''.join(status['recovery']['steps']))
+            self.assertEqual(status['recovery']['action'], 'pause_and_diagnose')
+            self.assertIn('保留原安装', ''.join(status['recovery']['steps']))
             service.check_async()
             for _ in range(300):
                 if not service._busy: break
@@ -156,7 +156,7 @@ class StartupIntegrityTests(unittest.TestCase):
             fetch.assert_not_called()
         (install/REL).write_bytes(pe_bytes())
         self.assertEqual(service.refresh_installation_integrity()['status'], 'ok')
-        self.assertIsNone(service.status()['recovery'])
+        self.assertEqual(service.status()['recovery']['action'],'pause_and_diagnose')
         service.exit_callback.assert_not_called()
 
     def test_liveness_and_authenticated_health_are_separate_and_detect_late_loss(self):

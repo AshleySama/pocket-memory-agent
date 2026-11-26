@@ -46,6 +46,12 @@ class UpdateError(RuntimeError):
     pass
 
 
+class UpdateValidationError(UpdateError):
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.failure_code = code
+
+
 def _relative(value: str) -> str:
     if not isinstance(value, str) or not value or len(value) > 240:
         raise UpdateError("Invalid or overlong relative path")
@@ -282,8 +288,16 @@ def validate_manifest(manifest: dict) -> dict:
 
 def _verify(path: Path, entry: dict) -> None:
     _no_links(path)
-    if not path.is_file() or path.stat().st_size != entry["size"] or _hash(path) != entry["sha256"]:
-        raise UpdateError(f"Missing or damaged file: {path}")
+    try:
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise UpdateValidationError('更新所需路径不是普通文件。', 'not_file')
+        if info.st_size != entry['size'] or _hash(path) != entry['sha256']:
+            raise UpdateValidationError('文件大小或 SHA256 与清单记录不一致。', 'integrity_mismatch')
+    except FileNotFoundError as exc:
+        raise UpdateValidationError('更新所需文件缺失。', 'missing') from exc
+    except OSError as exc:
+        raise UpdateValidationError('更新所需文件无法读取。', 'unreadable') from exc
 
 
 def _verify_components(root: Path, manifest: dict, *, allow_embedded=False) -> None:
@@ -608,7 +622,7 @@ class SafeUpdater:
             detail = ('缺少：' + brief(missing) if missing else '')
             if extra:
                 detail += ('；' if detail else '') + '多出：' + brief(extra)
-            raise UpdateError('更新文件与清单不一致。' + detail + '。本次已停止，原程序未替换。')
+            raise UpdateValidationError('更新文件与清单不一致。' + detail + '。本次已停止，原程序未替换。', 'inventory_mismatch')
         for entry in manifest["files"]:
             _verify(inventory[entry["path"]], entry)
         _verify_components(source / 'payload', manifest)

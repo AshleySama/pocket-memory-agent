@@ -441,14 +441,14 @@ SPDX-License-Identifier: Apache-2.0 -->
           <div id="app-update-progress-wrap" class="app-update-progress-wrap" hidden><progress id="app-update-progress" max="100" aria-label="软件更新进度"></progress><span id="app-update-progress-text"></span></div>
           <p id="app-update-error" class="app-update-error" role="alert" hidden></p>
           <section id="app-update-recovery" class="app-update-last-result" hidden aria-labelledby="app-update-recovery-heading">
-            <h4 id="app-update-recovery-heading">使用完整包恢复安装</h4>
+            <h4 id="app-update-recovery-heading">处理更新异常</h4>
             <ol id="app-update-recovery-steps"></ol>
             <p>请使用官方发布渠道的完整包，不要使用程序更新包或单独补组件。</p>
             <a href="https://download-files-1312623621.cos.ap-beijing.myqcloud.com/PocketMemory-latest.zip" target="_blank" rel="noopener noreferrer">下载官方完整包</a>
           </section>
           <p id="app-update-last-result" class="app-update-last-result" role="status" hidden></p>
           <p id="app-update-protection" class="app-update-protection" hidden></p>
-          <div class="app-update-actions"><button id="app-update-check" type="button" class="ghost">检查更新</button><button id="app-update-start" type="button" hidden disabled>更新并重启</button><button id="app-update-later" type="button" class="ghost">稍后</button></div>
+          <div class="app-update-actions"><button id="app-update-check" type="button" class="ghost">检查更新</button><button id="app-update-start" type="button" hidden disabled>更新并重启</button><button id="app-update-diagnostic" type="button" class="ghost" hidden>导出最小诊断</button><button id="app-update-later" type="button" class="ghost">稍后</button></div>
         </section>
 
         <section class="settings-panel-tab" data-tab="help">
@@ -601,6 +601,6 @@ SPDX-License-Identifier: Apache-2.0 -->
   <script src="/app.js?v=20261119-draft-toolbar"></script>
   <script src="/graph-light.js?v=20261117-graph-140"></script>
   <script src="/office-tools.js?v=20261111-feedback2"></script>
-  <script src="/app-update.js?v=20261111-copy"></script>
+  <script src="/app-update.js?v=20261122-failure"></script>
   </body>
 </html>

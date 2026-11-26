@@ -295,8 +295,9 @@ class SafetyTests(unittest.TestCase):
             with self.assertRaisesRegex(up.UpdateError, "configured data/config"):
                 up.SafeUpdater(install, protected_data_dirs=[install / "_internal"]).check(source, read_only=True)
             put(source / "payload/PocketMemory.exe", b"corrupt payload")
-            with self.assertRaisesRegex(up.UpdateError, "Missing or damaged"):
+            with self.assertRaises(up.UpdateValidationError) as rejected:
                 up.SafeUpdater(install).check(source, read_only=True)
+            self.assertEqual(rejected.exception.failure_code, 'integrity_mismatch')
         self.assert_original(install)
 
     def test_read_only_preflight_does_not_disable_external_worker_process_guards(self):

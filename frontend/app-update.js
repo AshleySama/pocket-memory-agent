@@ -8,7 +8,7 @@
   const hooks = window.PocketMemoryUpdateHooks;
   if (!hooks || !$('#app-update-panel')) return;
   const ACTIVE = new Set(['downloading', 'verifying', 'ready', 'restarting']);
-  const LABELS = {preview: '待检查', idle: '待检查', checking: '检查中', unpublished: '尚未发布', available: '可更新', current: '无需更新', unavailable: '暂无更新', downloading: '下载中', verifying: '校验中', ready: '准备就绪', restarting: '正在重启', error: '未完成'};
+  const LABELS = {preview: '待检查', idle: '待检查', checking: '检查中', unpublished: '尚未发布', available: '可更新', current: '无需更新', unavailable: '连接未完成', downloading: '下载中', verifying: '校验中', ready: '准备就绪', restarting: '正在重启', error: '未完成'};
   const RESUME_KEY = 'pocket-memory-update-resume-v1';
   const DISMISS_KEY = 'pocket-memory-update-dismissed-version';
   const UPDATE_CONTROLS = '#app-update-panel, #settings-dialog .dialog-header, #settings-button, #app-update-notice, [data-tab-target="app-update"]';
@@ -96,19 +96,22 @@
 
   function render() {
     const state = info?.state || 'idle';
-    const needsRepair = info?.recovery?.action === 'replace_full_installation';
+    const paused = info?.retry_blocked === true;
+    const needsRepair = paused || info?.recovery?.action === 'replace_full_installation';
     if (!needsRepair) repairNoticeDismissed = false;
     const active = ACTIVE.has(state) || starting || preparing;
     const failed = Boolean(localError) || state === 'error';
     $('#app-update-panel').dataset.state = failed ? 'error' : state;
-    $('#app-update-state').textContent = needsRepair ? '安装需修复' : preparing ? '保存中' : starting && !ACTIVE.has(state) ? '准备中' : checking ? '检查中' : (LABELS[state] || '读取中');
+    $('#app-update-state').textContent = paused ? '更新已暂停' : needsRepair ? '安装需修复' : preparing ? '保存中' : starting && !ACTIVE.has(state) ? '准备中' : checking ? '检查中' : (LABELS[state] || '读取中');
     $('#app-update-current').textContent = info?.current_version ? `v${version(info.current_version)}` : '—';
     $('#app-update-latest').textContent = info?.latest_version ? `v${version(info.latest_version)}` : '—';
     $('#app-update-size').textContent = info?.latest_version ? size(info.package_bytes) : '—';
     let message = info?.message || '可以检查是否有新的正式版本。';
     if (info?.preview && state === 'preview') message = '';
     if (info?.preview && state === 'available') message = '发现新版本。';
-    if (state === 'error') message = needsRepair ? '安装组件检查未通过。可继续使用笔记；请按下方步骤恢复完整安装。' : '本次更新未完成，可以重试检查。';
+    if (state === 'error') message = info?.transaction_recovery ? '上次更新尚未完成，已暂停新的更新；请保留备份并核验恢复状态。' : needsRepair ? '安装组件检查未通过。可继续使用笔记；请按下方步骤恢复完整安装。' : '本次更新未完成，可以重试检查。';
+    if (paused) message = '本次更新已暂停，可继续使用笔记。重新核对只读取本机状态，不会重复下载或执行。';
+    if (paused && info.failure_record_saved === false) message += ' 暂停记录未能保存到磁盘，请勿通过重启反复尝试更新。';
     if (preparing) message = '正在保存当前编辑和本机草稿…';
     else if (starting && !ACTIVE.has(state)) message = '正在准备更新，请保持应用打开…';
     else if (checking) message = '正在检查发布信息…';
@@ -128,7 +131,7 @@
       recoveryList.replaceChildren(...recoverySteps.map(text => {const li = document.createElement('li'); li.textContent = text; return li;}));
       recoveryList.dataset.steps = stepsKey;
     }
-    const lastResult = info?.last_result;
+    const lastResult = failed || active || info?.transaction_recovery ? null : info?.last_result;
     const lastMessage = lastResult && typeof lastResult.message === 'string' ? lastResult.message.trim() : '';
     const lastElement = $('#app-update-last-result');
     if (lastElement.textContent !== (lastMessage ? '上次更新：' + lastMessage : '')) lastElement.textContent = lastMessage ? '上次更新：' + lastMessage : '';
@@ -148,7 +151,9 @@
     $('#app-update-start').hidden = !installVisible;
     $('#app-update-start').disabled = needsRepair || info?.can_update !== true || info?.preview === true || active || locked || checking || submitting;
     $('#app-update-check').disabled = preparing || submitting || checking || (locked && !connectionPaused);
-    $('#app-update-check').textContent = connectionPaused ? '重新连接' : failed ? '重试检查' : checking ? '正在检查…' : '检查更新';
+    $('#app-update-check').textContent = connectionPaused ? '重新连接' : paused ? '重新核对状态' : failed ? '重试检查' : checking ? '正在检查…' : '检查更新';
+    $('#app-update-diagnostic').hidden = !failed && !info?.transaction_recovery;
+    $('#app-update-diagnostic').disabled = !info?.diagnostic;
     $('#app-update-later').textContent = active || locked ? '收起' : '稍后';
     $('#app-update-protection').textContent = locked
       ? '当前窗口已暂缓编辑。更新完成后会自动重启并返回这里，未提交的内容可从草稿箱恢复。'
@@ -157,7 +162,7 @@
     const noticeKey = version(info?.latest_version);
     const offerNotice = needsRepair ? !repairNoticeDismissed : (info?.has_update === true && Boolean(noticeKey) && readStored(DISMISS_KEY) !== noticeKey);
     $('#app-update-notice').hidden = !(locked ? !suppressActiveNotice : offerNotice);
-    $('#update-badge').textContent = locked ? '更新进行中' : needsRepair ? '安装需修复' : `新版本${noticeKey ? ' v' + noticeKey : ''}`;
+    $('#update-badge').textContent = locked ? '更新进行中' : paused ? '更新已暂停' : needsRepair ? '安装需修复' : `新版本${noticeKey ? ' v' + noticeKey : ''}`;
     $('#update-badge').title = '打开设置中的软件更新';
   }
 
@@ -173,10 +178,23 @@
   }
 
   function finishConnection(data) {
+    const confirmedSuccess = ['idle','current','available'].includes(data.state)
+      && !data.retry_blocked && !data.transaction_recovery && data.installation_integrity?.status === 'ok'
+      && data.last_result?.state === 'complete'
+      && version(data.last_result.target_version) === version(data.current_version);
+    if (resume?.phase === 'complete') {
+      const confirmed = confirmedSuccess && version(data.current_version) === version(resume.installed);
+      const installed = resume.installed;
+      resume = null; store(RESUME_KEY, null);
+      if (confirmed && typeof window.showToast === 'function') window.showToast('软件已更新', `当前版本 v${installed}，可以继续使用。`);
+      return false;
+    }
     if (resume?.phase !== 'waiting') return false;
     const now = version(data.current_version);
-    const failedResult = data.recovery?.action === 'replace_full_installation' || ['rolled_back','not_updated','error','recovery_required'].includes(data.last_result?.state);
-    if (now && resume.previous && now !== resume.previous && (!resume.target || now === resume.target) && !ACTIVE.has(data.state) && !failedResult) {
+    const failedResult = data.state === 'error' || data.retry_blocked === true || Boolean(data.transaction_recovery)
+      || (data.installation_integrity && !['ok','not_applicable'].includes(data.installation_integrity.status))
+      || data.recovery?.action === 'replace_full_installation' || ['rolled_back','not_updated','error','recovery_required'].includes(data.last_result?.state);
+    if (now && resume.previous && now !== resume.previous && (!resume.target || now === resume.target) && !failedResult && confirmedSuccess) {
       resume = {...resume, phase: 'complete', installed: now};
       store(RESUME_KEY, resume);
       location.replace(safeAddress(resume.address));
@@ -278,13 +296,22 @@
   $('#update-badge').addEventListener('click', openPanel);
   $('#app-update-dismiss').addEventListener('click', () => {
     if (locked) suppressActiveNotice = true;
-    if (info?.recovery?.action === 'replace_full_installation') repairNoticeDismissed = true;
+    if (info?.retry_blocked || info?.recovery?.action === 'replace_full_installation') repairNoticeDismissed = true;
     if (info?.latest_version) store(DISMISS_KEY, version(info.latest_version));
     render();
   });
   $('[data-tab-target="app-update"]').addEventListener('click', () => { render(); void refresh(); });
   $('#app-update-check').addEventListener('click', check);
   $('#app-update-start').addEventListener('click', start);
+  $('#app-update-diagnostic').addEventListener('click', () => {
+    if (!info?.diagnostic) return;
+    // Only the backend allowlisted object, never the raw status/paths/logs.
+    const blob = new Blob([JSON.stringify(info.diagnostic, null, 2)], {type:'application/json;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'PocketMemory-更新最小诊断.json';
+    link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
   $('#app-update-later').addEventListener('click', () => {
     if (!locked && info?.latest_version) store(DISMISS_KEY, version(info.latest_version));
     $('#settings-dialog').close(); render();
@@ -317,13 +344,7 @@
 
   if (resume && (typeof resume.at !== 'number' || Date.now() - resume.at > 30 * 60 * 1000)) { resume = null; store(RESUME_KEY, null); }
   if (resume?.phase === 'waiting') { starting = true; disconnected = true; connectionSince = Date.now(); setLocked(true); }
-  else if (resume?.phase === 'complete') {
-    const installed = resume.installed;
-    const address = safeAddress(resume.address);
-    resume = null; store(RESUME_KEY, null);
-    if (address !== currentAddress()) location.replace(address);
-    else if (typeof window.showToast === 'function') window.showToast('软件已更新', `当前版本 v${installed}，可以继续使用。`);
-  }
+  // A cached 'complete' marker is confirmed only after current backend status.
   render();
   void refresh(); // Status only. Network release checks are an explicit action.
 })();

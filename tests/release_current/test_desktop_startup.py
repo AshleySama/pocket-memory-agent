@@ -107,6 +107,7 @@ class DesktopStartupTests(unittest.TestCase):
         args=types.SimpleNamespace(host='127.0.0.1',port=0,data_dir=None,beta=False,quit=False,restart=False,server_only=False,no_browser=False,browser=False,debug=False)
         for existing in (None,{'url':URL}):
             with self.subTest(existing=bool(existing)), \
+                 mock.patch.dict(app.os.environ), \
                  mock.patch.object(app,'parse_args',return_value=args), \
                  mock.patch.object(app.AppConfig,'load',return_value=types.SimpleNamespace(data_dir=Path('owned-test-data'))), \
                  mock.patch.object(app,'configure_launcher_log'), \

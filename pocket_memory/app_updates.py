@@ -33,6 +33,8 @@ from pocket_memory.safe_update import (MANIFEST_NAME, SafeUpdater, UpdateError,
     _absolute, _atomic_json, _hash, _no_links, _overlap, _relative, _verify,
     is_program_path, validate_manifest)
 from pocket_memory.version import APP_VERSION
+from pocket_memory import update_failure
+from pocket_memory.safe_update import UpdateValidationError
 from pocket_memory.update_component import (WORKER_RELATIVE_PATH, inspect_installed_worker,
                                             recovery_guidance, component_error)
 
@@ -51,6 +53,10 @@ logger = logging.getLogger(__name__)
 
 class UpdateFeedUnavailable(UpdateError):
     """A transient feed-access failure, distinct from metadata/install validation."""
+
+
+class UpdateRecheckRequired(UpdateError):
+    """A valid offer or user context changed before execution; require a fresh check."""
 
 
 def version_key(value: str) -> tuple:
@@ -148,10 +154,10 @@ def fetch_feed() -> dict:
         raise UpdateFeedUnavailable("暂时无法连接发布服务器。") from exc
     except urllib.error.URLError as exc:
         if isinstance(exc.reason, ssl.SSLError):
-            raise UpdateError("无法验证更新服务器的安全连接，请稍后重试。") from exc
+            raise UpdateValidationError("无法验证更新服务器的安全连接。", 'tls_validation_failed') from exc
         raise UpdateFeedUnavailable("暂时无法连接发布服务器。") from exc
     except ssl.SSLError as exc:
-        raise UpdateError("无法验证更新服务器的安全连接，请稍后重试。") from exc
+        raise UpdateValidationError("无法验证更新服务器的安全连接。", 'tls_validation_failed') from exc
     except (TimeoutError, ConnectionError, OSError) as exc:
         raise UpdateFeedUnavailable("暂时无法连接发布服务器。") from exc
     if len(raw) > MAX_FEED_BYTES:
@@ -179,7 +185,7 @@ def download_package(package: dict, destination: Path, progress=lambda done, tot
         writer.flush()
         os.fsync(writer.fileno())
     if count != package["size"] or digest.hexdigest() != package["sha256"]:
-        raise UpdateError("程序包下载不完整或校验失败，原程序未改动。")
+        raise UpdateValidationError("程序包下载不完整或校验失败，原程序未改动。", 'integrity_mismatch')
 
 
 def extract_update_archive(archive: Path, destination: Path, expected_version: str) -> dict:
@@ -241,7 +247,7 @@ def extract_update_archive(archive: Path, destination: Path, expected_version: s
         # Backward-compatible documentation/manual helper is ignored, never run.
         ignored = {"PocketMemoryUpdate.exe", "更新说明.txt", "README.txt"}
         if set(relative) - {MANIFEST_NAME} - ignored != set(expected):
-            raise UpdateError("程序包文件与允许的更新清单不一致。")
+            raise UpdateValidationError("程序包文件与允许的更新清单不一致。", 'inventory_mismatch')
         for path, item in expected.items():
             if not is_program_path(item["path"]) or item["path"].lower().endswith(".gguf"):
                 raise UpdateError("应用内更新只接收程序文件，不能安装模型包。")
@@ -360,7 +366,7 @@ def wait_for_worker_ready(worker, ready: Path, token: str, executable: Path, *, 
     if last_access_error is not None:
         logger.warning("Update readiness receipt remained unreadable: %s", ready,
                        exc_info=(type(last_access_error), last_access_error, last_access_error.__traceback__))
-        raise UpdateError("更新准备文件持续无法读取，可能被占用或受权限限制；原程序和资料未改动。请稍后重试，若仍失败请保留更新诊断记录。") from last_access_error
+        raise UpdateValidationError("更新准备文件持续无法读取，可能被占用或受权限限制；已停止，请保留诊断记录。", 'unreadable') from last_access_error
     raise UpdateError("自动更新组件准备超时；原程序未替换。")
 
 
@@ -378,10 +384,34 @@ class AppUpdateService:
         self._lock = threading.RLock()
         self._offer = None
         self._busy = False
+        self._phase = 'startup'
+        self._failure = None
+        self._hold_path = None
         self._state = {"state": "preview" if self.preview else "idle", "current_version": current_version,
                        "preview": self.preview, "can_update": False, "has_update": False,
                        "message": "" if self.preview else "尚未检查更新。"}
         if self.install is not None:
+            # Keep the first failure across restarts for this installation/version.
+            identity = hashlib.sha256((str(self.install).casefold() + '\n' + current_version).encode()).hexdigest()
+            self._hold_path = Path(self.config.path).parent / 'update-failures' / (identity + '.json')
+            try:
+                _no_links(self._hold_path)
+                with self._hold_path.open('rb') as stream:
+                    saved = _json_bytes(stream.read(4097))
+                record = saved['failure']
+                if (saved.get('schema_version') != 1 or not isinstance(record, dict)
+                        or record.get('code') not in update_failure.REASONS
+                        or record.get('stage') not in update_failure.STAGES):
+                    raise ValueError('invalid failure receipt')
+                self._failure = update_failure.failure(record['code'], record['stage'])
+                for key in ('errno', 'winerror'):
+                    if type(record.get(key)) is int: self._failure[key] = record[key]
+                self._state['failure_record_saved'] = True
+            except FileNotFoundError:
+                pass
+            except (OSError, ValueError, KeyError, TypeError, UpdateError):
+                self._failure = update_failure.failure('invalid_hold', 'startup')
+                self._state['failure_record_saved'] = False
             result_path = self.install / ".pocket-memory-update/auto-update-result.json"
             if result_path.is_file():
                 try:
@@ -393,11 +423,98 @@ class AppUpdateService:
                     pass
             health = self.refresh_installation_integrity()
             if health['status'] != 'ok':
-                self._set(state='error', message=component_error(health))
+                self._pause_failure(update_failure.failure(health['status'], 'startup'))
+            self._refresh_transaction()
+            result = self._state.get('last_result') or {}
+            if result.get('state') in {'rolled_back', 'not_updated', 'error', 'recovery_required'}:
+                try:
+                    relevant = version_key(result.get('target_version')) >= version_key(current_version)
+                except (TypeError, ValueError, UpdateError):
+                    relevant = True
+                if relevant:
+                    self._pause_failure(update_failure.failure('previous_attempt_failed', 'startup'))
+            self._apply_failure()
 
     def status(self) -> dict:
         with self._lock:
-            return dict(self._state)
+            if self.install is not None and not self._busy and not self._state.get('shutdown_requested'):
+                self._refresh_transaction()
+            self._apply_failure()
+            result = dict(self._state)
+            result['diagnostic'] = update_failure.diagnostic(result)
+            return result
+
+    def _apply_failure(self):
+        if self._failure:
+            guide = update_failure.guidance(self._failure)
+            self._offer = None
+            self._state.pop('last_result', None)
+            self._state.update(state='error', can_update=False, retry_blocked=True,
+                               update_failure=dict(self._failure), recovery=guide, message=guide['message'])
+
+    def _pause_failure(self, record):
+        with self._lock:
+            if self._failure is None:
+                self._failure = record
+                if self._hold_path:
+                    try:
+                        _no_links(self._hold_path)
+                        self._hold_path.parent.mkdir(parents=True, exist_ok=True)
+                        _atomic_json(self._hold_path, {'schema_version': 1, 'failure': record})
+                        self._state['failure_record_saved'] = True
+                    except (OSError, UpdateError):
+                        self._state['failure_record_saved'] = False
+            self._apply_failure()
+
+    def _require_not_paused(self):
+        if self._failure:
+            raise UpdateError(update_failure.guidance(self._failure)['message'])
+
+    def _refresh_transaction(self) -> dict:
+        """Read the current journal without recovering or mutating live files."""
+        if self.install is None:
+            return {'state': 'no_transaction'}
+        updater = SafeUpdater(self.install, protected_data_dirs=[self.data_dir],
+                              config_paths=[self.config.path])
+        with self._lock:
+            observed = self._state.get('transaction_recovery')
+        try:
+            _no_links(updater.journal_path)
+            journal = updater._journal()
+            status = updater._status(journal)
+            # Validate fields consumed by the status UI even if no recovery runs.
+            if journal and (not isinstance(journal.get('version'), str) or not journal['version']):
+                raise UpdateError('更新事务版本记录无效')
+        except (OSError, ValueError, KeyError, TypeError, UpdateError) as exc:
+            status = {'state': 'invalid', 'detail': str(exc)}
+        if observed and (status['state'] == 'no_transaction' or
+                         (observed.get('transaction') and status.get('transaction') != observed['transaction'])):
+            status = {'state': 'invalid', 'detail': '此前待完成事务记录消失或身份改变，不能确认已恢复。',
+                      'transaction': observed.get('transaction')}
+        pending = status['state'] in {'prepared', 'applying', 'pending_health', 'rolling_back', 'invalid'}
+        if pending:
+            message = ('上次更新尚未完成或仍在收尾，已暂停新的更新。请保留原安装、资料、模型和更新备份；'
+                       '等待更新结束，若更新进程已退出，请使用经审核的恢复方式。')
+            if status['state'] == 'invalid':
+                message = '更新事务记录无法核验，已暂停新的更新；请保留原安装和备份，不要覆盖或清理。'
+            with self._lock:
+                self._offer = None
+                self._state.pop('last_result', None)
+                self._state.update(state='error', can_update=False, message=message,
+                                   transaction_recovery=dict(status, backups_untouched=True,
+                                       recovery_completed=False, journal_path=str(updater.journal_path)))
+        else:
+            with self._lock:
+                was_pending = self._state.pop('transaction_recovery', None)
+                if was_pending:
+                    self._state.update(state='idle', can_update=False,
+                                       message='上次更新事务已结束，请重新检查当前版本。')
+        return status
+
+    def _require_settled_transaction(self):
+        status = self._refresh_transaction()
+        if status['state'] in {'prepared', 'applying', 'pending_health', 'rolling_back', 'invalid'}:
+            raise UpdateError(self._state['message'])
 
     def _set(self, **values):
         with self._lock:
@@ -415,13 +532,14 @@ class AppUpdateService:
         if diagnostic['status'] == 'ok':
             logger.debug('Installed update component: %s', json.dumps(diagnostic, ensure_ascii=False))
         else:
-            logger.error('Installed update component unavailable: %s', json.dumps(diagnostic, ensure_ascii=False))
+            logger.error('Installed update component unavailable: %s', diagnostic['status'])
             self._set(can_update=False)
         return diagnostic
 
     def _require_update_component(self) -> Path:
         diagnostic = self.refresh_installation_integrity()
         if diagnostic['status'] != 'ok':
+            self._pause_failure(update_failure.failure(diagnostic['status'], self._phase))
             raise UpdateError(component_error(diagnostic))
         return Path(diagnostic['path'])
 
@@ -436,9 +554,24 @@ class AppUpdateService:
             try:
                 target()
             except Exception as exc:
-                logger.exception('Application update failed (version=%s, executable=%s, install=%s)',
-                                 self.current_version, self.executable, self.install)
-                self._set(state="error", can_update=False, message=str(exc))
+                with self._lock:
+                    self._state.pop('last_result', None)
+                if self._state.get('transaction_recovery'):
+                    self._set(state='error', can_update=False)
+                elif isinstance(exc, UpdateRecheckRequired):
+                    # No execution was requested. Discard the stale offer without
+                    # turning a normal publication/context change into a durable hold.
+                    with self._lock:
+                        self._offer = None
+                        self._state.update(state='error', has_update=False, can_update=False,
+                                           latest_version=None, notes='', package_bytes=None,
+                                           progress=0,
+                                           message='发布信息或资料范围已变化，请重新检查更新。')
+                elif isinstance(exc, UpdateFeedUnavailable):
+                    self._set(state='unavailable', can_update=False, message='暂时无法连接发布服务器，尚未完成检查。')
+                else:
+                    self._pause_failure(update_failure.from_exception(exc, self._phase))
+                logger.error('Update stopped: %s', json.dumps(update_failure.diagnostic(self._state), ensure_ascii=False))
             finally:
                 with self._lock:
                     self._busy = False
@@ -446,10 +579,15 @@ class AppUpdateService:
         return self.status()
 
     def check_async(self) -> dict:
+        if self._failure:
+            self.refresh_installation_integrity()  # Read-only: no retry of blocked work.
+            return self.status()
         def check():
+            self._phase = 'check'
             self._set(state="checking", can_update=False, message="正在检查官方发布信息…")
             # Local integrity is independent of network/version availability.
             if not self.preview:
+                self._require_settled_transaction()
                 self._require_update_component()
             try:
                 feed = fetch_feed()
@@ -461,7 +599,7 @@ class AppUpdateService:
                     self._offer = None
                     self._state.update(state="unavailable", has_update=False, can_update=False,
                                        latest_version=None, notes="", package_bytes=None,
-                                       message="暂无可用更新。")
+                                       message="暂时无法连接发布服务器，尚未完成检查。")
                 return
             self._offer = feed if feed["published"] else None
             if not feed["published"]:
@@ -482,6 +620,7 @@ class AppUpdateService:
 
     def start_update(self) -> dict:
         with self._lock:
+            self._require_not_paused()
             if self.preview:
                 raise UpdateError("当前运行环境不支持安装更新。")
             if self._busy:
@@ -495,12 +634,15 @@ class AppUpdateService:
                                     message='正在确认发布信息并准备程序更新…'))
 
     def _download_and_handoff(self, offered, context):
+        self._require_not_paused()
+        self._phase = 'check'
         active_data, config_path, configured_data = context
+        self._require_settled_transaction()
         # Recheck even after a successful check: files can move/disappear meanwhile.
         helper = self._require_update_component()
         feed = fetch_feed()
         if feed != offered or not feed["published"] or version_key(feed["version"]) <= version_key(self.current_version):
-            raise UpdateError("发布信息已变化，请重新检查更新。")
+            raise UpdateRecheckRequired("发布信息已变化，请重新检查更新。")
         work = _absolute(tempfile.mkdtemp(prefix="PocketMemory-update-"))
         if _overlap(work, self.install) or _overlap(work, active_data):
             raise UpdateError("自动更新临时目录与安装或资料目录重叠，已停止。")
@@ -508,7 +650,14 @@ class AppUpdateService:
         def progress(done, total):
             self._set(downloaded_bytes=done, package_bytes=total, progress=int(done * 100 / total))
         archive = work / "program-update.zip"
-        download_package(feed["package"], archive, progress)
+        self._phase = 'download'
+        try:
+            download_package(feed["package"], archive, progress)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            if isinstance(getattr(exc, 'reason', exc), ssl.SSLError):
+                raise UpdateValidationError('无法验证下载服务器的安全连接。', 'tls_validation_failed') from exc
+            raise UpdateFeedUnavailable('无法连接下载服务器。') from exc
+        self._phase = 'verify'
         self._set(state="verifying", message="正在校验程序包和本机模型…")
         source = work / "source"
         extract_update_archive(archive, source, feed["version"])
@@ -517,12 +666,13 @@ class AppUpdateService:
         if prepared["previous_transaction"] == "pending_health":
             raise UpdateError("上次程序更新尚未完成健康确认，已停止本次更新。")
         from .embedded_update import stage_executor, clean_worker_environment
+        self._phase = 'prepare'
         self._set(state="verifying", message="正在准备并校验更新执行环境…")
         worker_command, staged_helper = stage_executor(self.install, work)
         token = secrets.token_hex(32)
         if (self.data_dir != active_data or self.config.path != config_path
                 or getattr(self.config, "data_dir", None) != configured_data):
-            raise UpdateError("资料库或配置在下载期间发生变化，已停止更新；请重新检查。")
+            raise UpdateRecheckRequired("资料库或配置在下载期间发生变化，已停止更新；请重新检查。")
         request = {"schema_version": 1, "install_dir": str(self.install), "data_dir": str(active_data),
                    "config_path": str(_absolute(config_path)), "source_dir": str(source),
                    "target_version": feed["version"], "parent_pid": os.getpid(),
@@ -537,6 +687,7 @@ class AppUpdateService:
                                       env=clean_worker_environment(),
                                       creationflags=creationflags, close_fds=True)
         try:
+            self._phase = 'handshake'
             wait_for_worker_ready(worker, work / "ready.json", token, staged_helper)
             _atomic_json(work / "go.json", {"token": token})
         except Exception:

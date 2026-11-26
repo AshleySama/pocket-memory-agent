@@ -110,7 +110,8 @@ def verify_bridge_worker_receipt(path: Path, *, version: str, main_sha256: str,
 def prepare(built_app: Path, model_source: Path, destination: Path, *,
             version: str, mode: str, updater_exe: Path | None = None,
             schema_id: str, executor: str = 'main-exe-v1',
-            bridge_worker_receipt: Path | None = None) -> dict:
+            bridge_worker_receipt: Path | None = None,
+            verified_executable_hashes: dict | None = None) -> dict:
     if mode not in ('full', 'update') or not version.strip() or not schema_id.strip():
         raise ValueError('需要有效的交付类型、版本和数据兼容标识。')
     built_app, model_source, destination = (p.absolute() for p in
@@ -161,6 +162,15 @@ def prepare(built_app: Path, model_source: Path, destination: Path, *,
         raise ValueError('构建输入缺少 PocketMemory.exe。')
     if not any(item['path'].startswith('_internal/') for _, item in programs):
         raise ValueError('构建输入缺少配套运行资源。')
+    if verified_executable_hashes is not None:
+        expected = {'PocketMemory.exe'}
+        actual = {item['path']: item['sha256'] for _, item in programs}
+        if worker is not None:
+            expected.add(WORKER_RELATIVE_PATH)
+            actual[WORKER_RELATIVE_PATH] = worker['sha256']
+        if (set(verified_executable_hashes) != expected or
+                any(actual.get(path) != digest for path, digest in verified_executable_hashes.items())):
+            raise ValueError('签名核验后程序文件发生变化或核验不完整；未创建交付目录。')
     models = []
     for path in regular_files(model_source):
         rel = path.relative_to(model_source).as_posix()
@@ -265,7 +275,7 @@ def prepare(built_app: Path, model_source: Path, destination: Path, *,
     return result
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--built-app', type=Path, required=True)
     parser.add_argument('--model-source', type=Path, required=True)
@@ -279,12 +289,32 @@ def main():
                         help='Release validation receipt binding a compiled v2-capable worker to the exact main EXE.')
     parser.add_argument('--schema-id', required=True,
                         help='Explicit verified no-migration compatibility identifier; never guessed.')
-    args = parser.parse_args()
-    print(json.dumps(prepare(args.built_app, args.model_source, args.destination,
+    parser.add_argument('--expected-signer-thumbprint',
+                        help='Optional: require this publisher SHA1 thumbprint, valid signatures and timestamps before creating manifests. Omission does not skip manifest or integrity checks.')
+    args = parser.parse_args(argv)
+    from scripts.release_signatures import verify_release_signatures
+    if (args.executor == 'main-exe-v1' and args.updater_exe is not None) or (
+            args.executor != 'main-exe-v1' and args.updater_exe is None):
+        parser.error('更新执行器与输入组件不一致。')
+    signature_report = None
+    verified = None
+    # A supplied publisher is an explicit opt-in, including an invalid/empty
+    # value: verification must fail rather than silently omit the requested gate.
+    if args.expected_signer_thumbprint is not None:
+        signature_report = verify_release_signatures(args.built_app / 'PocketMemory.exe',
+                                                    args.expected_signer_thumbprint, args.updater_exe)
+        checks = {str(Path(row['file']).absolute()): row['sha256'] for row in signature_report['files']}
+        verified = {'PocketMemory.exe': checks[str((args.built_app / 'PocketMemory.exe').absolute())]}
+        if args.updater_exe is not None:
+            verified[WORKER_RELATIVE_PATH] = checks[str(args.updater_exe.absolute())]
+    result = prepare(args.built_app, args.model_source, args.destination,
                             version=args.version, mode=args.mode,
                             updater_exe=args.updater_exe, schema_id=args.schema_id,
-                            executor=args.executor, bridge_worker_receipt=args.bridge_worker_receipt),
-                     ensure_ascii=False, indent=2))
+                            executor=args.executor, bridge_worker_receipt=args.bridge_worker_receipt,
+                            verified_executable_hashes=verified)
+    result['release_signatures'] = signature_report if signature_report is not None else {
+        'requested': False, 'passed': None, 'endpoint_policy_verified': False}
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == '__main__':

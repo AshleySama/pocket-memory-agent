@@ -55,7 +55,7 @@ class UpdateNetworkFallbackTests(unittest.TestCase):
                     self.service.check_async()
                     state = self.finish()
                 self.assertEqual(state['state'], 'unavailable')
-                self.assertEqual(state['message'], '暂无可用更新。')
+                self.assertEqual(state['message'], '暂时无法连接发布服务器，尚未完成检查。')
                 self.assertFalse(state['has_update'])
                 self.assertFalse(state['can_update'])
                 self.assertIsNone(state['latest_version'])
@@ -80,12 +80,13 @@ class UpdateNetworkFallbackTests(unittest.TestCase):
                 self.service.check_async()
                 state = self.finish()
             self.assertEqual(state['state'], 'error')
-            self.assertEqual(state['message'], str(failure))
+            self.assertTrue(state['retry_blocked'])
+            self.assertEqual(state['update_failure']['code'],'validation_failed')
         with mock.patch.object(updates, '_open_https', return_value=io.BytesIO(b'{invalid json')):
             self.service.check_async()
             state = self.finish()
         self.assertEqual(state['state'], 'error')
-        self.assertIn('JSON', state['message'])
+        self.assertTrue(state['retry_blocked'])
 
     def test_certificate_verification_failure_is_not_hidden(self):
         failure = urllib.error.URLError(ssl.SSLCertVerificationError('certificate invalid'))
@@ -93,9 +94,10 @@ class UpdateNetworkFallbackTests(unittest.TestCase):
             self.service.check_async()
             state = self.finish()
         self.assertEqual(state['state'], 'error')
-        self.assertIn('安全连接', state['message'])
+        self.assertTrue(state['retry_blocked'])
+        self.assertEqual(state['update_failure']['code'],'tls_validation_failed')
 
-    def test_unavailable_during_install_is_still_an_install_failure(self):
+    def test_unavailable_during_install_stops_without_persistent_pause(self):
         self.service.preview = False
         self.service.install = self.root/'install'
         helper = self.service.install / updates.WORKER_RELATIVE_PATH
@@ -106,7 +108,7 @@ class UpdateNetworkFallbackTests(unittest.TestCase):
         with mock.patch.object(updates, '_open_https', side_effect=TimeoutError()) as network:
             self.service.start_update()
             state = self.finish()
-        self.assertEqual(state['state'], 'error')
+        self.assertEqual(state['state'], 'unavailable')
         self.assertFalse(state['can_update'])
         network.assert_called_once()
         self.assertEqual(state['update_component']['status'], 'ok')

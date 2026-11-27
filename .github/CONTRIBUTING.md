@@ -22,4 +22,4 @@ For changes to chunking, query rewriting, reranking, evidence selection, or answ
 
 ## Public repository contents
 
-Public tests should reproduce a core behavior with a small synthetic example and run from a fresh checkout. Keep benchmark banks, release rehearsals, assistant conversations, review prompts and results in your local development workspace. Put user-facing changes in [CHANGELOG.md](CHANGELOG.md).
+Public tests should reproduce a core behavior with a small synthetic example and run from a fresh checkout. Keep benchmark banks, release rehearsals, assistant conversations, review prompts and results in your local development workspace. Put user-facing changes in [CHANGELOG.md](../CHANGELOG.md).

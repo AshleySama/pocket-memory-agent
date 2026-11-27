@@ -17,7 +17,7 @@ $env:POCKET_MEMORY_NO_MODELS = '1'
 .venv\Scripts\python.exe -m PyInstaller --noconfirm PocketMemory.spec
 ```
 
-将 `scripts/PACKAGE_README.txt` 以 `README.txt` 为名放入 `dist/PocketMemory`，并放入 LICENSE、NOTICE、THIRD_PARTY_NOTICES.md、RERANKER_NOTICE.md、SOURCE_DISTRIBUTION.md 及 licenses 目录。然后生成完整离线布局。
+将 `scripts/PACKAGE_README.txt` 以 `README.txt` 为名放入 `dist/PocketMemory/`。将仓库根目录的 `LICENSE`、`NOTICE` 复制到该目录，再将整个 `licenses/` 复制为 `dist/PocketMemory/licenses/`。第三方声明、重排模型署名和源码分发说明均随该目录交付。然后生成完整离线布局。
 
 ```powershell
 .venv\Scripts\python.exe scripts/prepare_offline_delivery.py --built-app dist/PocketMemory --model-source D:/verified-models --destination release/PocketMemory-1.0.16 --version 1.0.16 --mode full --executor main-exe-v1 --schema-id legacy-unversioned

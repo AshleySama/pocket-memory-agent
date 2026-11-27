@@ -23,6 +23,7 @@ release/
 *.zip
 *.exe
 third-party-licenses.csv
+/python-environment-license-inventory.csv
 *.spec
 !PocketMemory.spec
 .env

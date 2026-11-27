@@ -23,7 +23,7 @@ Pocket Memory 1.0.16 — 正式版完整离线包
 后续可在“设置 → 软件更新”检查新版，只下载程序，沿用模型、资料和配置；检查失败不替换当前程序。请勿手工覆盖 _internal。
 
 许可与源代码
-请保留 LICENSE、NOTICE、THIRD_PARTY_NOTICES.md 和 licenses 文件夹。第三方代码和模型各有许可证。
+请保留 LICENSE、NOTICE 和完整的 licenses 文件夹。第三方代码和模型的许可说明见 licenses/THIRD_PARTY_NOTICES.md。
 源代码：https://github.com/AshleySama/pocket-memory-agent
 本次未做Windows商业代码签名；软件包校验信息见包外SHA256清单。
 

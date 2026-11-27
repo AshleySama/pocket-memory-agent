@@ -58,4 +58,4 @@ node tests/frontend/test_note_citation_spans.cjs
 
 ## 开源组件与许可
 
-使用 llama-cpp-python / llama.cpp、LlamaIndex core/BM25、FlashRank、BGE、RapidOCR、ONNX Runtime、PyMuPDF、python-docx、openpyxl 等。借鉴来源管理思想不代表完整采用某个开源产品。详见 [NOTICE](NOTICE)、[第三方声明](THIRD_PARTY_NOTICES.md)、[源码分发说明](SOURCE_DISTRIBUTION.md) 与 `licenses/`。模型和依赖分别遵守其许可证；许可证是分发必要文件，保留在离线包中。
+使用 llama-cpp-python / llama.cpp、LlamaIndex core/BM25、FlashRank、BGE、RapidOCR、ONNX Runtime、PyMuPDF、python-docx、openpyxl 等。借鉴来源管理思想不代表完整采用某个开源产品。详见 [NOTICE](NOTICE)、[第三方声明](licenses/THIRD_PARTY_NOTICES.md)、[源码分发说明](licenses/SOURCE_DISTRIBUTION.md) 与 `licenses/`。模型和依赖分别遵守其许可证；许可证是分发必要文件，保留在离线包中。

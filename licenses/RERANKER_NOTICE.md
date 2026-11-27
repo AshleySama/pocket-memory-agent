@@ -2,7 +2,7 @@
 
 FlashRank library code: [PrithivirajDamodaran/FlashRank](https://github.com/PrithivirajDamodaran/FlashRank), version 0.2.10, Apache License 2.0. Complete installed license: `licenses/python-packages/FlashRank-0.2.10/FlashRank-0.2.10.dist-info/LICENSE`.
 
-Quantized model and original vocabulary: **Prithivi Damodaran**, [prithivida/flashrank](https://huggingface.co/prithivida/flashrank), model `ms-marco-MultiBERT-L-12`. Model repository license: **Creative Commons Attribution-ShareAlike 4.0 International**, full text [CC-BY-SA-4.0.txt](licenses/CC-BY-SA-4.0.txt). The upstream README's attribution and backlink are retained in this folder's README. The model is supplied without warranties under that license; no upstream endorsement is implied.
+Quantized model and original vocabulary: **Prithivi Damodaran**, [prithivida/flashrank](https://huggingface.co/prithivida/flashrank), model `ms-marco-MultiBERT-L-12`. Model repository license: **Creative Commons Attribution-ShareAlike 4.0 International**, full text [CC-BY-SA-4.0.txt](CC-BY-SA-4.0.txt). See the [upstream model README](https://huggingface.co/prithivida/flashrank/blob/858a1ac046a05663a35367eac852d7f76feeefdd/README.md) for the publisher's attribution. The model is supplied without warranties under that license; no upstream endorsement is implied.
 
 Pinned archive: <https://huggingface.co/prithivida/flashrank/resolve/858a1ac046a05663a35367eac852d7f76feeefdd/ms-marco-MultiBERT-L-12.zip>. Archive SHA-256 recorded at acquisition: `2c8ae5542f1538e355e9f295d349fc030b5cf7d398c8728c362f0e5129776971`. The existing `models/reranker-manifest.json` records per-file hashes. These existing hashes are provenance evidence; this notice does not assert a fresh full model hash check.
 

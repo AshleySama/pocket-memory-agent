@@ -15,13 +15,13 @@ Apache-2.0 LICENSE file, and attribution to the original project and author.
 
 The Apache-2.0 statement above describes the original Pocket Memory source.
 Third-party runtime libraries and model/data assets retain their own terms;
-see THIRD_PARTY_NOTICES.md and SOURCE_DISTRIBUTION.md, including PyMuPDF/MuPDF
+see licenses/THIRD_PARTY_NOTICES.md and licenses/SOURCE_DISTRIBUTION.md, including PyMuPDF/MuPDF
 AGPL/commercial terms and the separate CC-BY-SA-4.0 model license.
 
 This Beta uses local LlamaIndex retrieval components and FlashRank code.
 The quantized MultiBERT reranker is published by Prithivi Damodaran:
 https://huggingface.co/prithivida/flashrank
-See RERANKER_NOTICE.md for attribution and the runtime tokenizer adaptation.
+See licenses/RERANKER_NOTICE.md for attribution and the runtime tokenizer adaptation.
 
 The source identity registry independently implements ideas inspired by
 Tencent WeKnora's CitationSources design; no WeKnora server is bundled.

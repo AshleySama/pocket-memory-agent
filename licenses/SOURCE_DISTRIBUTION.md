@@ -1,6 +1,6 @@
 # PyMuPDF / MuPDF source distribution
 
-This local Beta includes PyMuPDF 1.28.2 and MuPDF. The installed package declares AGPLv3 or an Artifex commercial license. No separate commercial entitlement was established in this review. The full [GNU AGPLv3 text](licenses/AGPL-3.0.txt) is supplied; the installed wheel's `COPYING` file contains only a short dual-license declaration and is also retained.
+This local Beta includes PyMuPDF 1.28.2 and MuPDF. The installed package declares AGPLv3 or an Artifex commercial license. No separate commercial entitlement was established in this review. The full [GNU AGPLv3 text](AGPL-3.0.txt) is supplied; the installed wheel's `COPYING` file contains only a short dual-license declaration and is also retained.
 
 The original Pocket Memory source keeps its Apache-2.0 copyright and license notices. That does not make a binary incorporating AGPL-covered code Apache-only. For a combined distribution using the AGPL route, apply the AGPL requirements to the covered combined work while retaining original permissive notices. Apache-2.0 permits inclusion in a version-3 copyleft work; it does not let a distributor remove the copyleft terms. See the [ASF compatibility explanation](https://www.apache.org/licenses/GPL-compatibility.html), [GNU compatibility discussion](https://www.gnu.org/licenses/license-compatibility.en.html), and [Artifex licensing guidance](https://artifex.com/licensing/).
 
